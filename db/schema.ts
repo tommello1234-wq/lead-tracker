@@ -58,8 +58,35 @@ export type LeadType = (typeof LEAD_TYPES)[number];
 export type LeadStatus = (typeof LEAD_STATUS)[number];
 export type LeadOrigin = (typeof LEAD_ORIGINS)[number];
 
+export const PRODUCT_TYPES = ["saas", "curso", "digital", "indefinido"] as const;
+export type ProductType = (typeof PRODUCT_TYPES)[number];
+
+/**
+ * Produtos do user. Cada lead/evento é associado a um produto via produto_id.
+ * `gatewayMatch` = lista de strings que casam com o `nome do produto` que vem
+ * no payload do gateway (Ticto/Stripe). Auto-detecção no parser.
+ */
+export const produtos = pgTable("produtos", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull().unique(),
+  tipo: text("tipo").$type<ProductType>().notNull().default("indefinido"),
+  cor: text("cor"),
+  gatewayMatch: jsonb("gateway_match")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
+  ativo: boolean("ativo").notNull().default(true),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type Produto = typeof produtos.$inferSelect;
+export type NovoProduto = typeof produtos.$inferInsert;
+
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "set null",
+  }),
   nome: text("nome").notNull(),
   contato: text("contato"),
   email: text("email"),
@@ -113,6 +140,7 @@ export const MESSAGE_TEMPLATES = [
   "carrinho_abandonado",
   "follow_up_indeciso",
   "reembolso_pre_cancelamento",
+  "assinatura_pix_pendente",
   "custom",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
@@ -143,6 +171,9 @@ export const eventos = pgTable("eventos", {
   leadId: integer("lead_id").references(() => leads.id, {
     onDelete: "set null",
   }),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "set null",
+  }),
   source: text("source").notNull(),
   eventType: text("event_type").notNull(),
   payload: jsonb("payload").notNull(),
@@ -153,3 +184,47 @@ export const eventos = pgTable("eventos", {
 
 export type Evento = typeof eventos.$inferSelect;
 export type NovoEvento = typeof eventos.$inferInsert;
+
+/**
+ * Templates editaveis pelo dashboard.
+ * `key` corresponde a um valor de MESSAGE_TEMPLATES — eh o que o flow agenda.
+ * `conteudoDefault` permite reverter pra versao seed.
+ */
+export const messageTemplates = pgTable("message_templates", {
+  id: serial("id").primaryKey(),
+  key: text("key").$type<MessageTemplate>().notNull().unique(),
+  nome: text("nome").notNull(),
+  descricao: text("descricao"),
+  conteudo: text("conteudo").notNull(),
+  conteudoDefault: text("conteudo_default").notNull(),
+  placeholdersDisponiveis: jsonb("placeholders_disponiveis")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type MessageTemplateRow = typeof messageTemplates.$inferSelect;
+export type NovoMessageTemplate = typeof messageTemplates.$inferInsert;
+
+/**
+ * Passos do fluxo por GatewayEvent.
+ * `gatewayEvent` casa com o tipo definido em `lib/flows.ts` (string flexivel pra suportar futuros eventos).
+ * `delaySeconds` controla quando dispara apos o evento (0 = imediato).
+ * `cancelPrevious` cancela mensagens pendentes (ex: cliente pagou -> cancela cobranca PIX).
+ */
+export const flowSteps = pgTable("flow_steps", {
+  id: serial("id").primaryKey(),
+  gatewayEvent: text("gateway_event").notNull(),
+  ordem: integer("ordem").notNull(),
+  templateKey: text("template_key").$type<MessageTemplate>().notNull(),
+  delaySeconds: integer("delay_seconds").notNull(),
+  cancelPrevious: boolean("cancel_previous").notNull().default(false),
+  ativo: boolean("ativo").notNull().default(true),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type FlowStepRow = typeof flowSteps.$inferSelect;
+export type NovoFlowStep = typeof flowSteps.$inferInsert;

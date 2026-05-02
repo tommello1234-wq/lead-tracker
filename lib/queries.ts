@@ -1,37 +1,73 @@
 import { db } from "@/db/client";
-import { leads, mensagensAgendadas, type Lead } from "@/db/schema";
-import { desc, eq, and, gte } from "drizzle-orm";
+import { leads, mensagensAgendadas, eventos, type Lead } from "@/db/schema";
+import { desc, eq, and, gte, sql, inArray } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 
-export async function getAllLeads(): Promise<Lead[]> {
-  return db.select().from(leads).orderBy(desc(leads.criadoEm));
+/**
+ * Helper: where clause de produto. Retorna array de condições pra serem
+ * combinadas com `and()`. Se produtoId é null, sem filtro.
+ */
+function produtoCondition(produtoId: number | null) {
+  return produtoId == null ? [] : [eq(leads.produtoId, produtoId)];
 }
 
+export async function getAllLeads(produtoId: number | null = null): Promise<Lead[]> {
+  const cond = produtoCondition(produtoId);
+  if (cond.length === 0) {
+    return db.select().from(leads).orderBy(desc(leads.criadoEm));
+  }
+  return db
+    .select()
+    .from(leads)
+    .where(and(...cond))
+    .orderBy(desc(leads.criadoEm));
+}
+
+/**
+ * Contagens leves usadas como badges na sidebar.
+ * Cache de 30s pra evitar rodar 2 queries a cada navegacao.
+ * Não filtra por produto (badge global).
+ */
+export const getSidebarCounts = unstable_cache(
+  async (): Promise<{ emRisco: number; filaMensagens: number }> => {
+    const [risco] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(leads)
+      .where(inArray(leads.status, ["cliente_em_risco", "pix_gerado"]));
+
+    const [fila] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(mensagensAgendadas)
+      .where(eq(mensagensAgendadas.status, "pending"));
+
+    return {
+      emRisco: risco?.n ?? 0,
+      filaMensagens: fila?.n ?? 0,
+    };
+  },
+  ["sidebar-counts-v1"],
+  { revalidate: 30 },
+);
+
 export type DashboardMetrics = {
-  // Volumes
   totalLeads: number;
   vendasHoje: number;
   vendasMes: number;
-
-  // MRR (Monthly Recurring Revenue)
   mrr: number;
-  mrrPotencial: number; // se 100% dos PIX gerados convertessem
+  mrrPotencial: number;
   clientesAtivos: number;
-
-  // Funil
   pixGerados: number;
   pixPagos: number;
   pixExpirados: number;
-  taxaConversaoPix: number; // pagos / gerados
-  receitaPerdidaPix: number; // valor dos PIX que expiraram
-
-  // Engajamento
-  filaSuporte: number; // mensagens pending nao enviadas
+  taxaConversaoPix: number;
+  receitaPerdidaPix: number;
+  filaSuporte: number;
   mensagensEnviadasHoje: number;
-
-  // Saude
   emRisco: number;
   cancelados: number;
   reembolsos: number;
+  receitaTotal: number;
+  ticketMedio: number;
 };
 
 function startOfDay(d: Date) {
@@ -47,16 +83,29 @@ function startOfMonth(d: Date) {
   return x;
 }
 
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  const all = await db.select().from(leads);
+export async function getDashboardMetrics(
+  produtoId: number | null = null,
+  since: Date | null = null,
+): Promise<DashboardMetrics> {
+  const cond = produtoCondition(produtoId);
+  const all = cond.length === 0
+    ? await db.select().from(leads)
+    : await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
   const monthStart = startOfMonth(new Date());
 
+  // MRR e clientesAtivos sempre snapshot atual (não dependem de período).
   const clientesAtivos = all.filter((l) => l.subscriptionStatus === "ativa");
   const mrr = clientesAtivos.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
 
-  const pixGerados = all.filter((l) => l.pixGeradoEm != null);
+  // Receita do PERÍODO selecionado (compras pagas no intervalo).
+  // Se since=null, conta histórico todo. Se since=hoje, só conta vendas de hoje.
   const pixPagos = all.filter((l) => l.pagouEm != null);
+  const pixPagosNoPeriodo = since
+    ? pixPagos.filter((l) => l.pagouEm! >= since)
+    : pixPagos;
+
+  const pixGerados = all.filter((l) => l.pixGeradoEm != null);
   const pixExpirados = all.filter((l) => l.status === "pix_expirado");
 
   const vendasHoje = all.filter((l) => l.pagouEm && l.pagouEm >= today);
@@ -73,8 +122,14 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     0,
   );
 
-  // Fila de suporte = mensagens pending criadas via interacao manual ou
-  // mensagens nao processadas. Aqui usamos pending como proxy.
+  const receitaTotal = pixPagosNoPeriodo.reduce(
+    (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
+    0,
+  );
+  const ticketMedio =
+    pixPagosNoPeriodo.length > 0 ? receitaTotal / pixPagosNoPeriodo.length : 0;
+
+  // Mensagens — sempre globais (não filtra por produto, todo mundo no mesmo zap)
   const pendingMsgs = await db
     .select()
     .from(mensagensAgendadas)
@@ -98,15 +153,18 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     mrrPotencial,
     clientesAtivos: clientesAtivos.length,
     pixGerados: pixGerados.length,
-    pixPagos: pixPagos.length,
+    pixPagos: pixPagosNoPeriodo.length,
     pixExpirados: pixExpirados.length,
-    taxaConversaoPix: pixGerados.length > 0 ? pixPagos.length / pixGerados.length : 0,
+    taxaConversaoPix:
+      pixGerados.length > 0 ? pixPagos.length / pixGerados.length : 0,
     receitaPerdidaPix,
     filaSuporte: pendingMsgs.length,
     mensagensEnviadasHoje: sentToday.length,
     emRisco: all.filter((l) => l.status === "cliente_em_risco").length,
     cancelados: all.filter((l) => l.status === "cliente_cancelado").length,
     reembolsos: all.filter((l) => l.subscriptionStatus === "reembolsada").length,
+    receitaTotal,
+    ticketMedio,
   };
 }
 
@@ -117,8 +175,14 @@ export type DailyMetric = {
   taxaConversao: number;
 };
 
-export async function getDailySeries(days = 30): Promise<DailyMetric[]> {
-  const all = await db.select().from(leads);
+export async function getDailySeries(
+  days = 30,
+  produtoId: number | null = null,
+): Promise<DailyMetric[]> {
+  const cond = produtoCondition(produtoId);
+  const all = cond.length === 0
+    ? await db.select().from(leads)
+    : await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
 
   const series: DailyMetric[] = [];
@@ -147,11 +211,98 @@ export async function getDailySeries(days = 30): Promise<DailyMetric[]> {
 
 export type TipoBreakdown = { tipo: string; total: number };
 
-export async function getTipoBreakdown(): Promise<TipoBreakdown[]> {
-  const all = await db.select().from(leads);
+export async function getTipoBreakdown(
+  produtoId: number | null = null,
+): Promise<TipoBreakdown[]> {
+  const cond = produtoCondition(produtoId);
+  const all = cond.length === 0
+    ? await db.select().from(leads)
+    : await db.select().from(leads).where(and(...cond));
   const counts = new Map<string, number>();
   for (const l of all) {
     counts.set(l.tipo, (counts.get(l.tipo) ?? 0) + 1);
   }
   return Array.from(counts.entries()).map(([tipo, total]) => ({ tipo, total }));
+}
+
+/**
+ * Faturamento real no período: soma de TODAS as transações de compra_aprovada
+ * e assinatura_renovada, filtradas por produto/período.
+ *
+ * Fonte: tabela `eventos` (cada evento = 1 transação). Suporta payload de:
+ *  - importação CSV (`payload.valor` em reais)
+ *  - Ticto v2 webhook (`payload.item.amount` em centavos)
+ *  - Stripe webhook (`payload.data.object.amount_total` em centavos)
+ *  - fallback: `valor_assinatura` do lead vinculado
+ */
+export async function getFaturamento(
+  produtoId: number | null = null,
+  since: Date | null = null,
+): Promise<{ count: number; total: number }> {
+  const conditions = [
+    inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+    eq(eventos.processedOk, true),
+  ];
+  if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
+  if (since != null) conditions.push(gte(eventos.receivedAt, since));
+
+  // Extrai valor com fallbacks pros vários formatos de payload
+  const valorExpr = sql<number>`coalesce(
+    (${eventos.payload}->>'valor')::numeric,
+    ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+    ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    (select valor_assinatura from leads where id = ${eventos.leadId}),
+    0
+  )::numeric(10,2)`;
+
+  const [r] = await db
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<number>`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`,
+    })
+    .from(eventos)
+    .where(and(...conditions));
+
+  return {
+    count: r?.n ?? 0,
+    total: Number(r?.total ?? 0),
+  };
+}
+
+export type PlanoBreakdown = {
+  plano: string;
+  total: number;
+  receita: number;
+  ativos: number;
+};
+
+/**
+ * Breakdown de planos por nome (ex: "Gravyx Creator", "Gravyx Studio").
+ * Usado pro gráfico de pizza no dashboard.
+ */
+export async function getPlanoBreakdown(
+  produtoId: number | null = null,
+): Promise<PlanoBreakdown[]> {
+  const cond = produtoCondition(produtoId);
+  const all = cond.length === 0
+    ? await db.select().from(leads)
+    : await db.select().from(leads).where(and(...cond));
+
+  const map = new Map<string, { total: number; receita: number; ativos: number }>();
+  for (const l of all) {
+    const key = (l.planoNome ?? "Sem plano").trim() || "Sem plano";
+    const cur = map.get(key) ?? { total: 0, receita: 0, ativos: 0 };
+    cur.total++;
+    if (l.subscriptionStatus === "ativa") {
+      cur.ativos++;
+      cur.receita += l.valorAssinatura ?? 0;
+    } else if (l.pagouEm) {
+      cur.receita += l.valorAssinatura ?? l.valorEstimado ?? 0;
+    }
+    map.set(key, cur);
+  }
+
+  return Array.from(map.entries())
+    .map(([plano, v]) => ({ plano, ...v }))
+    .sort((a, b) => b.total - a.total);
 }

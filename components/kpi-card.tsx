@@ -7,32 +7,30 @@ type Props = {
   value: string;
   hint?: string;
   icon: LucideIcon;
-  accent?: "blue" | "green" | "amber" | "violet" | "rose" | "slate";
+  accent?: "lime" | "forest" | "emerald" | "amber" | "rose" | "slate";
 };
 
 const ACCENT: Record<NonNullable<Props["accent"]>, string> = {
-  blue: "text-blue-600 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40",
-  green: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40",
-  amber: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40",
-  violet: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40",
-  rose: "text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40",
-  slate: "text-slate-600 bg-slate-50 dark:text-slate-300 dark:bg-slate-900",
+  lime: "text-[oklch(0.18_0.05_150)] bg-[oklch(0.86_0.22_130)]",
+  forest: "text-white bg-[oklch(0.15_0_0)]",
+  emerald: "text-emerald-700 bg-emerald-100",
+  amber: "text-amber-700 bg-amber-100",
+  rose: "text-rose-700 bg-rose-100",
+  slate: "text-slate-700 bg-slate-100",
 };
 
 export function KpiCard({ label, value, hint, icon: Icon, accent = "slate" }: Props) {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="text-3xl font-bold tabular-nums">{value}</p>
-            {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-          </div>
-          <div className={cn("p-2.5 rounded-lg", ACCENT[accent])}>
+    <Card className="overflow-hidden border-0 shadow-sm rounded-3xl">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <div className={cn("size-10 rounded-full grid place-items-center shrink-0", ACCENT[accent])}>
             <Icon className="size-5" />
           </div>
         </div>
+        <p className="text-4xl font-bold tabular-nums tracking-tight">{value}</p>
+        {hint ? <p className="text-xs text-muted-foreground mt-2">{hint}</p> : null}
       </CardContent>
     </Card>
   );

@@ -17,7 +17,6 @@
  */
 
 import type { EventInput, GatewayEvent } from "@/lib/flows";
-import crypto from "node:crypto";
 
 type AnyObject = Record<string, unknown>;
 
@@ -32,44 +31,87 @@ function pick<T = unknown>(obj: AnyObject, ...keys: string[]): T | undefined {
   return undefined;
 }
 
-const EVENT_MAP: Array<{ patterns: RegExp[]; type: GatewayEvent }> = [
-  { patterns: [/abandono|abandoned/i], type: "carrinho_abandonado" },
-  { patterns: [/pix.*gerado|pix.*generated|pix.*created/i], type: "pix_gerado" },
-  { patterns: [/pix.*expirad|pix.*expired/i], type: "pix_expirado" },
-  { patterns: [/aprovad|approved|paid|pago/i], type: "compra_aprovada" },
-  { patterns: [/recusad|refused|declined|rejected|expirad|expired/i], type: "compra_recusada" },
-  { patterns: [/reembols|refund/i], type: "reembolso" },
-  { patterns: [/cancel/i], type: "assinatura_cancelada" },
-  { patterns: [/renovad|renewed|recurring/i], type: "assinatura_renovada" },
-];
-
+/**
+ * Mapa de status -> evento interno.
+ *
+ * Ticto v2 manda `status` em ingles snake_case. Algumas situacoes precisam
+ * combinar com `payment_method` pra desambiguar (ex.: waiting_payment serve
+ * tanto pra PIX quanto pra boleto).
+ */
 function detectEventType(payload: AnyObject): GatewayEvent | null {
-  // Ticto pode mandar em campos como: status, event, type, name, status_name
-  const sources = [
-    pick<string>(payload, "status", "event", "event_name", "type", "status_name"),
-    pick<string>(payload, "order.status", "transaction.status"),
-    pick<string>(payload, "subscription.status"),
-  ].filter(Boolean) as string[];
+  const status = String(pick<string>(payload, "status") ?? "").toLowerCase().trim();
+  const method = String(pick<string>(payload, "payment_method") ?? "").toLowerCase().trim();
+  const subStatus = String(pick<string>(payload, "subscription.status") ?? "").toLowerCase().trim();
 
-  for (const source of sources) {
-    for (const map of EVENT_MAP) {
-      if (map.patterns.some((p) => p.test(source))) return map.type;
-    }
+  // 1) Eventos de assinatura
+  if (subStatus) {
+    if (/cancel/.test(subStatus)) return "assinatura_cancelada";
+    if (/renew|active|ativ/.test(subStatus)) return "assinatura_renovada";
   }
+
+  // 2) Statuses Ticto v2 (ingles snake_case)
+  if (status === "authorized") return "compra_aprovada";
+  if (status === "refunded") return "reembolso";
+  if (status === "refused" || status === "declined") return "compra_recusada";
+  if (status === "abandoned_cart") return "carrinho_abandonado";
+  if (status === "waiting_payment" && method === "pix") return "pix_gerado";
+  if ((status === "expired" || status === "pix_expired") && method === "pix") return "pix_expirado";
+  // subscription_delayed: precisa desambiguar entre primeira compra ou renovacao falhada.
+  //   - successful_charges == 0 -> nunca pagou (= primeira compra com PIX recurring)
+  //                                 trata como pix_gerado (mesma intencao: cobrar pra completar)
+  //   - successful_charges  > 0 -> ja era cliente, renovacao falhou (= assinatura atrasada de fato)
+  if (status === "subscription_delayed") {
+    const successful = pick<number>(payload, "subscriptions.0.successful_charges");
+    if (typeof successful === "number" && successful > 0) return "assinatura_atrasada";
+    return "pix_gerado";
+  }
+  if (/^subscription_(canceled|cancelled)$/.test(status)) return "assinatura_cancelada";
+  if (/^subscription_(renewed|reactivated|created)$/.test(status)) return "assinatura_renovada";
+
+  // 3) Fallback PT-BR (caso Ticto mande labels em portugues em alguma config)
+  const probe = `${status} ${pick<string>(payload, "event", "event_name", "type") ?? ""}`.toLowerCase();
+  if (/abandon/.test(probe)) return "carrinho_abandonado";
+  if (/pix.*gerad|pix.*generated|pix.*created/.test(probe)) return "pix_gerado";
+  if (/pix.*expirad|pix.*expired/.test(probe)) return "pix_expirado";
+  if (/aprovad|approved|paid|pago/.test(probe)) return "compra_aprovada";
+  if (/recusad|rejected/.test(probe)) return "compra_recusada";
+  if (/reembols|refund/.test(probe)) return "reembolso";
+  if (/cancel/.test(probe)) return "assinatura_cancelada";
+  if (/renovad|renewed|recurring/.test(probe)) return "assinatura_renovada";
+
+  // Eventos da Ticto que ainda nao temos fluxo (boleto_*, chargeback, claimed) caem como null
   return null;
 }
 
-function parsePhone(raw?: string | null): string | null {
+/**
+ * Telefone na Ticto v2 vem como objeto: { ddi: "+55", ddd: "11", number: "999998888" }.
+ * Versoes mais antigas mandavam string. Aceitamos os dois.
+ */
+function parsePhone(raw: unknown): string | null {
   if (!raw) return null;
-  const digits = raw.toString().replace(/\D/g, "");
+  if (typeof raw === "object" && raw !== null) {
+    const p = raw as { ddi?: unknown; ddd?: unknown; number?: unknown };
+    const ddi = String(p.ddi ?? "").replace(/\D/g, "");
+    const ddd = String(p.ddd ?? "").replace(/\D/g, "");
+    const num = String(p.number ?? "").replace(/\D/g, "");
+    if (!num) return null;
+    if (ddi && ddd) return `${ddi}${ddd}${num}`;
+    if (ddd) return `55${ddd}${num}`;
+    return num;
+  }
+  const digits = String(raw).replace(/\D/g, "");
   if (!digits) return null;
   if (digits.length === 10 || digits.length === 11) return `55${digits}`;
   return digits;
 }
 
-function parsePrice(raw: unknown): number | null {
+/**
+ * Ticto v2 manda valores como inteiro em centavos (50000 = R$ 500,00).
+ * Versoes antigas / outras configs podem mandar string formatada ("R$ 47,00").
+ */
+function parseTictoAmount(raw: unknown): number | null {
   if (raw == null) return null;
-  if (typeof raw === "number") return raw;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw / 100;
   if (typeof raw === "string") {
     const cleaned = raw.replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
     const n = Number(cleaned);
@@ -90,32 +132,64 @@ export function parseTictoWebhook(payload: AnyObject): EventInput | null {
 
   const nome =
     pick<string>(payload, "customer.name", "buyer.name", "client.name", "name") ?? "Cliente Ticto";
-  const email = pick<string>(payload, "customer.email", "buyer.email", "client.email", "email") ?? null;
-  const phoneRaw =
-    pick<string>(
-      payload,
-      "customer.phone",
-      "customer.whatsapp",
-      "buyer.phone",
-      "client.phone",
-      "phone",
-      "whatsapp",
-    ) ?? null;
+  const email =
+    pick<string>(payload, "customer.email", "buyer.email", "client.email", "email") ?? null;
+
+  // phone: Ticto v2 manda objeto, antigas mandavam string. parsePhone aceita os dois.
+  const phoneRaw = pick(
+    payload,
+    "customer.phone",
+    "customer.whatsapp",
+    "buyer.phone",
+    "client.phone",
+    "phone",
+    "whatsapp",
+  );
   const contato = parsePhone(phoneRaw);
 
+  // valor: Ticto v2 usa item.amount / order.paid_amount em CENTAVOS (inteiro)
   const valor =
-    parsePrice(pick(payload, "amount", "total", "price", "order.amount", "transaction.amount")) ??
-    null;
+    parseTictoAmount(
+      pick(
+        payload,
+        "item.amount",
+        "order.paid_amount",
+        "order.amount",
+        "amount",
+        "total",
+        "price",
+        "transaction.amount",
+      ),
+    ) ?? null;
 
+  // produto: Ticto v2 usa item.product_name + item.offer_name
   const planoNome =
-    pick<string>(payload, "product.name", "plan.name", "offer.name", "product_name") ?? null;
+    pick<string>(
+      payload,
+      "item.product_name",
+      "item.offer_name",
+      "product.name",
+      "plan.name",
+      "offer.name",
+      "product_name",
+    ) ?? null;
 
+  // Ticto v2 nao tem customer.id — usamos cpf/cnpj como identificador estavel do cliente
   const gatewayCustomerId =
-    pick<string>(payload, "customer.id", "buyer.id", "customer_id", "client.id") ?? null;
+    pick<string>(
+      payload,
+      "customer.id",
+      "buyer.id",
+      "customer_id",
+      "client.id",
+      "customer.cpf",
+      "customer.cnpj",
+    ) ?? null;
 
   const gatewayLastOrderId =
     pick<string>(
       payload,
+      "order.hash",
       "order.id",
       "transaction.id",
       "transaction_id",
@@ -143,49 +217,37 @@ export function parseTictoWebhook(payload: AnyObject): EventInput | null {
       // valores que voce queira usar em templates
       link_checkout: pick<string>(payload, "checkout_url", "order.checkout_url") ?? "",
       link_pix: pick<string>(payload, "pix.qrcode", "pix_qrcode") ?? "",
+      link_boleto: pick<string>(payload, "transaction.bank_slip_url", "bank_slip_url") ?? "",
+      // change_card_url: link unico pra cliente retomar pagamento da assinatura sem refazer checkout
+      change_card_url: pick<string>(payload, "subscriptions.0.change_card_url") ?? "",
     },
   };
 }
 
 /**
- * Validacao de signature da Ticto.
+ * Validacao do postback Ticto.
  *
- * A Ticto envia tipicamente um header tipo `X-Ticto-Signature` ou `X-Hub-Signature`
- * com HMAC-SHA256 do body usando o secret. Se o usuario nao configurou
- * TICTO_WEBHOOK_SECRET, pulamos validacao (modo dev). Em prod recomendamos definir.
+ * A Ticto NAO usa HMAC. Ela manda um campo `token` dentro do JSON do postback
+ * (o "token de seguranca" que o painel mostra ao criar a webhook). A gente compara
+ * esse token, em tempo constante, contra TICTO_WEBHOOK_SECRET.
  *
- * NOTA: confirme o nome exato do header no painel da Ticto. Hoje cobrimos:
- *   x-ticto-signature, x-hub-signature, x-hub-signature-256
+ * Se TICTO_WEBHOOK_SECRET nao estiver setado, pulamos validacao (modo dev).
  */
 export function verifyTictoSignature(
-  rawBody: string,
-  headers: Headers,
+  payload: AnyObject,
 ): { valid: boolean; reason?: string } {
   const secret = process.env.TICTO_WEBHOOK_SECRET;
   if (!secret) return { valid: true, reason: "no-secret-configured" };
 
-  const candidates = [
-    headers.get("x-ticto-signature"),
-    headers.get("x-hub-signature-256"),
-    headers.get("x-hub-signature"),
-    headers.get("x-signature"),
-  ].filter(Boolean) as string[];
+  const received = pick<string>(payload, "token", "security_token", "webhook_token");
+  if (!received) return { valid: false, reason: "missing-token-in-payload" };
 
-  if (candidates.length === 0) {
-    return { valid: false, reason: "missing-signature-header" };
-  }
+  const a = Buffer.from(String(received));
+  const b = Buffer.from(secret);
+  if (a.length !== b.length) return { valid: false, reason: "token-mismatch" };
 
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-
-  for (const sig of candidates) {
-    // Suporte a formato "sha256=abc..."
-    const hex = sig.replace(/^sha256=/, "");
-    if (
-      hex.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(hex), Buffer.from(expected))
-    ) {
-      return { valid: true };
-    }
-  }
-  return { valid: false, reason: "signature-mismatch" };
+  // timing-safe compare via XOR — nao precisamos importar crypto so pra isso
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0 ? { valid: true } : { valid: false, reason: "token-mismatch" };
 }

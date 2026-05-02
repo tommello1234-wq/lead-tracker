@@ -1,10 +1,12 @@
 import { LeadsTable } from "@/components/leads-table";
 import { getAllLeads } from "@/lib/queries";
+import { getSelectedProdutoId } from "@/lib/produto-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function LeadsPage() {
-  const leads = await getAllLeads();
+  const produtoId = await getSelectedProdutoId();
+  const leads = await getAllLeads(produtoId);
 
   return (
     <div className="space-y-6">

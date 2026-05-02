@@ -20,7 +20,7 @@ export async function scheduleMessage(args: {
   });
   if (!lead) throw new Error(`Lead ${args.leadId} nao encontrado`);
 
-  const conteudo = renderTemplate(args.template, {
+  const conteudo = await renderTemplate(args.template, {
     lead,
     extras: args.extras,
   });

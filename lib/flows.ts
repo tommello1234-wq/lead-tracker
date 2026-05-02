@@ -13,13 +13,14 @@ import {
   leads,
   mensagensAgendadas,
   eventos,
+  flowSteps,
   type Lead,
   type LeadStatus,
   type SubscriptionStatus,
   type MessageTemplate,
 } from "@/db/schema";
-import { renderTemplate, type TemplateContext } from "@/lib/message-templates";
-import { eq, and, inArray } from "drizzle-orm";
+import { renderTemplate } from "@/lib/message-templates";
+import { eq, and, inArray, asc } from "drizzle-orm";
 
 export type GatewayEvent =
   | "carrinho_abandonado"
@@ -29,10 +30,11 @@ export type GatewayEvent =
   | "compra_recusada"
   | "reembolso"
   | "assinatura_renovada"
-  | "assinatura_cancelada";
+  | "assinatura_cancelada"
+  | "assinatura_atrasada";
 
 export type EventInput = {
-  source: string; // "ticto" | "manual"
+  source: string; // "ticto" | "manual" | "stripe"
   eventType: GatewayEvent;
   rawPayload: unknown;
   // Identificacao do cliente
@@ -44,6 +46,7 @@ export type EventInput = {
   // Detalhes
   valor?: number | null;
   planoNome?: string | null;
+  produtoId?: number | null;
   pixExpiraEm?: Date | null;
   extras?: Record<string, string | number | undefined>;
 };
@@ -56,24 +59,21 @@ type FlowStep = {
 };
 
 /**
- * Mapa de eventos -> sequencia de mensagens a agendar.
- * Voce pode editar esses tempos sem mexer em mais nada.
+ * Carrega o flow ativo de um GatewayEvent direto do banco (tabela flow_steps).
+ * Editavel pelo dashboard em /automacoes.
  */
-const FLOWS: Partial<Record<GatewayEvent, FlowStep[]>> = {
-  pix_gerado: [
-    { template: "pix_nao_pago", delaySeconds: 60 * 60 }, // 1h
-    { template: "pix_nao_pago", delaySeconds: 60 * 60 * 24 }, // 24h (2a tentativa)
-  ],
-  carrinho_abandonado: [
-    { template: "carrinho_abandonado", delaySeconds: 60 * 30 }, // 30min
-  ],
-  compra_aprovada: [
-    { template: "boas_vindas_compra", delaySeconds: 30, cancelPrevious: true }, // 30s + cancela cobranca de PIX
-  ],
-  reembolso: [
-    { template: "reembolso_pre_cancelamento", delaySeconds: 60 }, // 1min
-  ],
-};
+async function loadFlow(event: GatewayEvent): Promise<FlowStep[]> {
+  const rows = await db
+    .select()
+    .from(flowSteps)
+    .where(and(eq(flowSteps.gatewayEvent, event), eq(flowSteps.ativo, true)))
+    .orderBy(asc(flowSteps.ordem));
+  return rows.map((r) => ({
+    template: r.templateKey,
+    delaySeconds: r.delaySeconds,
+    cancelPrevious: r.cancelPrevious,
+  }));
+}
 
 /**
  * Mapeia evento -> novo status do lead e da assinatura.
@@ -90,6 +90,7 @@ const STATUS_TRANSITIONS: Record<
   reembolso: { lead: "cliente_em_risco", subscription: "reembolsada" },
   assinatura_renovada: { lead: "cliente_ativo", subscription: "ativa" },
   assinatura_cancelada: { lead: "cliente_cancelado", subscription: "cancelada" },
+  assinatura_atrasada: { lead: "cliente_em_risco", subscription: "atrasada" },
 };
 
 /**
@@ -130,6 +131,7 @@ async function findOrCreateLead(input: EventInput): Promise<Lead> {
       gatewayLastOrderId: input.gatewayLastOrderId ?? null,
       valorAssinatura: input.valor ?? null,
       planoNome: input.planoNome ?? null,
+      produtoId: input.produtoId ?? null,
       subscriptionStatus: STATUS_TRANSITIONS[input.eventType].subscription,
     })
     .returning();
@@ -213,20 +215,25 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   if (input.eventType === "assinatura_cancelada") {
     updates.canceladoEm = now;
   }
+  // Associa produto se vier no payload e o lead ainda nao tem
+  if (input.produtoId && !lead.produtoId) {
+    updates.produtoId = input.produtoId;
+  }
 
   await db.update(leads).set(updates).where(eq(leads.id, lead.id));
 
   // Audit log
   await db.insert(eventos).values({
     leadId: lead.id,
+    produtoId: input.produtoId ?? lead.produtoId ?? null,
     source: input.source,
     eventType: input.eventType,
     payload: input.rawPayload as object,
     processedOk: true,
   });
 
-  // Agenda mensagens conforme o fluxo
-  const flow = FLOWS[input.eventType] ?? [];
+  // Agenda mensagens conforme o fluxo (lido do DB — editavel via /automacoes)
+  const flow = await loadFlow(input.eventType);
   let scheduled = 0;
 
   // Cancela pendentes se o evento exigir (compra_aprovada cancela cobranca de PIX)
@@ -235,6 +242,7 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     await cancelPendingMessages(lead.id, [
       "pix_nao_pago",
       "carrinho_abandonado",
+      "assinatura_pix_pendente",
     ]);
   }
 
@@ -242,7 +250,7 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   const refreshedLead = { ...lead, ...updates } as Lead;
 
   for (const step of flow) {
-    const conteudo = renderTemplate(step.template, {
+    const conteudo = await renderTemplate(step.template, {
       lead: refreshedLead,
       extras: input.extras,
     });
