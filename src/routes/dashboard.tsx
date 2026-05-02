@@ -24,12 +24,15 @@ import {
   PlanoBreakdownChart,
   TipoBreakdownChart,
 } from "@/components/dashboard-charts";
+import { SaasDashboard } from "@/components/saas-dashboard";
 import type {
   DashboardMetrics,
   Faturamento,
   DailyMetric,
   PlanoBreakdown,
   TipoBreakdown,
+  SaasMetricsResponse,
+  Produto,
 } from "@shared/types";
 
 const brl = (n: number) =>
@@ -120,6 +123,22 @@ export function DashboardPage() {
       ),
   });
 
+  // Pra decidir se mostra SaaS dashboard: precisa do produto.tipo
+  const produtos = useQuery({
+    queryKey: ["produtos"],
+    queryFn: () => api.get<Produto[]>("/api/produtos"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const produtoSel = produtos.data?.find((p) => p.id === produtoId);
+  const isSaasView = produtoId == null || produtoSel?.tipo === "saas";
+
+  const saasMetrics = useQuery({
+    queryKey: ["dashboard", "saas", produtoParam, sinceParam],
+    queryFn: () =>
+      api.get<SaasMetricsResponse>(`/api/dashboard/saas?${baseQs}`),
+    enabled: isSaasView,
+  });
+
   const m = metrics.data;
 
   return (
@@ -196,6 +215,11 @@ export function DashboardPage() {
           iconTone="rose"
         />
       </div>
+
+      {/* SaaS metrics — só pra produtos saas ou visão Todos */}
+      {isSaasView && saasMetrics.data ? (
+        <SaasDashboard data={saasMetrics.data} />
+      ) : null}
 
       {/* Charts */}
       {breakdowns.data && daily.data ? (

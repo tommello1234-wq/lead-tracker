@@ -7,6 +7,11 @@ import {
   getTipoBreakdown,
   getSidebarCounts,
 } from "../lib/queries.js";
+import {
+  getMetodoBreakdown,
+  getFunilPix,
+  getRetencaoPorMetodo,
+} from "../lib/saas-metrics.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -73,4 +78,21 @@ dashboardRoutes.get("/breakdowns", async (c) => {
     getTipoBreakdown(produtoId),
   ]);
   return c.json({ planos, tipos });
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/saas?produtoId=N&since=ISO
+ * Métricas profundas pra produtos SaaS: breakdown por método de pagamento,
+ * funil PIX, retenção por método. Tudo derivado dos eventos JSONB sem
+ * precisar de schema migration.
+ * ========================================================================== */
+dashboardRoutes.get("/saas", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const [metodos, funilPix, retencao] = await Promise.all([
+    getMetodoBreakdown(produtoId, since),
+    getFunilPix(produtoId, since),
+    getRetencaoPorMetodo(produtoId),
+  ]);
+  return c.json({ metodos, funilPix, retencao });
 });

@@ -15939,6 +15939,14 @@ function verifyStripeSignature(rawBody, headers) {
   return { valid: false, reason: "signature-mismatch" };
 }
 
+// server/lib/brevex.ts
+function parseBrevexWebhook(_payload) {
+  return null;
+}
+function verifyBrevexSignature(_payload, _headers) {
+  return { valid: true, reason: "stub-no-validation" };
+}
+
 // server/lib/message-templates.ts
 function firstName(nome) {
   return nome.trim().split(/\s+/)[0] ?? nome;
@@ -16154,7 +16162,11 @@ webhookRoutes.get(
   "/",
   (c) => c.json({
     ok: true,
-    endpoints: ["POST /api/webhooks/ticto", "POST /api/webhooks/stripe"]
+    endpoints: [
+      "POST /api/webhooks/ticto",
+      "POST /api/webhooks/stripe",
+      "POST /api/webhooks/brevex (capture-only stub)"
+    ]
   })
 );
 webhookRoutes.post("/ticto", async (c) => {
@@ -16264,6 +16276,70 @@ webhookRoutes.post("/stripe", async (c) => {
       source: "stripe",
       eventType: eventInput.eventType,
       payload: event,
+      processedOk: false,
+      erro
+    });
+    return c.json({ ok: false, error: erro }, 500);
+  }
+});
+webhookRoutes.post("/brevex", async (c) => {
+  const rawBody = await c.req.text();
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: "invalid_json",
+      payload: { rawBody },
+      processedOk: false,
+      erro: "JSON inv\xE1lido"
+    });
+    return c.json({ error: "invalid json" }, 400);
+  }
+  const sig = verifyBrevexSignature(payload, c.req.raw.headers);
+  if (!sig.valid) {
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: "signature_invalid",
+      payload: { rawBody, reason: sig.reason },
+      processedOk: false,
+      erro: sig.reason
+    });
+    return c.json({ error: "invalid signature" }, 401);
+  }
+  const event = parseBrevexWebhook(payload);
+  if (!event) {
+    const inferredType = String(
+      payload.event ?? payload.type ?? payload.status ?? "captured-unknown"
+    );
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: inferredType,
+      payload,
+      processedOk: false,
+      erro: "Parser Brevex ainda n\xE3o implementado \u2014 payload capturado pra inspe\xE7\xE3o"
+    });
+    return c.json({
+      ok: true,
+      captured: true,
+      reason: "parser-stub",
+      message: "Payload salvo na tabela eventos. Parser ser\xE1 constru\xEDdo com base nesse exemplo."
+    });
+  }
+  if (event.planoNome) {
+    const produto = await findOrCreateProdutoByName(event.planoNome);
+    if (produto) event.produtoId = produto.id;
+  }
+  try {
+    const result = await handleGatewayEvent(event);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    const erro = e instanceof Error ? e.message : "Erro desconhecido";
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: event.eventType,
+      payload,
       processedOk: false,
       erro
     });
@@ -16551,7 +16627,7 @@ async function getFaturamento(produtoId = null, since = null) {
   ];
   if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) conditions.push(gte(eventos.receivedAt, since));
-  const valorExpr = sql`coalesce(
+  const valorExpr2 = sql`coalesce(
     (${eventos.payload}->>'valor')::numeric,
     ((${eventos.payload}->'item'->>'amount')::numeric / 100),
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
@@ -16560,7 +16636,7 @@ async function getFaturamento(produtoId = null, since = null) {
   )::numeric(10,2)`;
   const [r] = await db.select({
     n: sql`count(*)::int`,
-    total: sql`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`
+    total: sql`coalesce(sum(${valorExpr2}), 0)::numeric(10,2)`
   }).from(eventos).where(and(...conditions));
   return {
     count: r?.n ?? 0,
@@ -16713,6 +16789,217 @@ leadsRoutes.delete("/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// server/lib/saas-metrics.ts
+var metodoExpr = sql`
+  case
+    when lower(coalesce(
+      ${eventos.payload}->>'payment_method',
+      ${eventos.payload}->'transaction'->>'payment_method',
+      ${eventos.payload}->'data'->'object'->'payment_method_types'->>0,
+      ${eventos.payload}->>'method'
+    )) in ('credit_card', 'card', 'cartao', 'cartão_credito') then 'cartao'
+    when lower(coalesce(
+      ${eventos.payload}->>'payment_method',
+      ${eventos.payload}->'transaction'->>'payment_method',
+      ${eventos.payload}->'data'->'object'->'payment_method_types'->>0,
+      ${eventos.payload}->>'method'
+    )) = 'pix' then 'pix'
+    when lower(coalesce(
+      ${eventos.payload}->>'payment_method',
+      ${eventos.payload}->'transaction'->>'payment_method',
+      ${eventos.payload}->'data'->'object'->'payment_method_types'->>0,
+      ${eventos.payload}->>'method'
+    )) in ('boleto', 'bank_slip') then 'boleto'
+    else 'indefinido'
+  end
+`;
+var valorExpr = sql`coalesce(
+  (${eventos.payload}->>'valor')::numeric,
+  ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+  ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+  (select valor_assinatura from leads where id = ${eventos.leadId}),
+  0
+)::numeric(10,2)`;
+async function getMetodoBreakdown(produtoId = null, since = null) {
+  const conditions = [
+    inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+    eq(eventos.processedOk, true)
+  ];
+  if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
+  if (since != null) conditions.push(gte(eventos.receivedAt, since));
+  const transacoes = await db.select({
+    metodo: metodoExpr,
+    total: sql`count(*)::int`,
+    receita: sql`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`
+  }).from(eventos).where(and(...conditions)).groupBy(metodoExpr);
+  const leadsPorMetodo = await db.execute(sql`
+    with ultimo_evento as (
+      select distinct on (e.lead_id)
+        e.lead_id,
+        case
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) in ('credit_card', 'card', 'cartao') then 'cartao'
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) = 'pix' then 'pix'
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) in ('boleto', 'bank_slip') then 'boleto'
+          else 'indefinido'
+        end as metodo
+      from eventos e
+      where e.event_type in ('compra_aprovada', 'assinatura_renovada')
+        and e.processed_ok = true
+        and e.lead_id is not null
+        ${produtoId != null ? sql`and e.produto_id = ${produtoId}` : sql``}
+      order by e.lead_id, e.received_at desc
+    )
+    select
+      ue.metodo,
+      count(*)::int as ativos,
+      coalesce(sum(l.valor_assinatura), 0)::numeric(10,2) as mrr
+    from ultimo_evento ue
+    join leads l on l.id = ue.lead_id
+    where l.subscription_status = 'ativa'
+    group by ue.metodo
+  `);
+  const ativosMap = /* @__PURE__ */ new Map();
+  for (const row of leadsPorMetodo) {
+    ativosMap.set(row.metodo, {
+      ativos: Number(row.ativos),
+      mrr: Number(row.mrr)
+    });
+  }
+  return transacoes.map((t) => {
+    const a = ativosMap.get(String(t.metodo)) ?? { ativos: 0, mrr: 0 };
+    const totalCompras = Number(t.total);
+    const receitaTotal = Number(t.receita);
+    return {
+      metodo: t.metodo,
+      totalCompras,
+      ativos: a.ativos,
+      receitaTotal,
+      mrr: a.mrr,
+      arpu: a.ativos > 0 ? a.mrr / a.ativos : 0
+    };
+  });
+}
+async function getFunilPix(produtoId = null, since = null) {
+  const cond = [eq(eventos.processedOk, true)];
+  if (produtoId != null) cond.push(eq(eventos.produtoId, produtoId));
+  if (since != null) cond.push(gte(eventos.receivedAt, since));
+  const counts = await db.select({
+    eventType: eventos.eventType,
+    total: sql`count(*)::int`
+  }).from(eventos).where(and(...cond)).groupBy(eventos.eventType);
+  const map = /* @__PURE__ */ new Map();
+  for (const r of counts) map.set(r.eventType, Number(r.total));
+  const gerados = map.get("pix_gerado") ?? 0;
+  const expirados = map.get("pix_expirado") ?? 0;
+  const pagos = map.get("compra_aprovada") ?? 0;
+  const recovered = await db.execute(sql`
+    select count(distinct l.id)::int as count
+    from leads l
+    where exists (
+      select 1 from eventos e1
+      where e1.lead_id = l.id
+        and e1.event_type = 'pix_expirado'
+        ${produtoId != null ? sql`and e1.produto_id = ${produtoId}` : sql``}
+    )
+    and exists (
+      select 1 from eventos e2
+      where e2.lead_id = l.id
+        and e2.event_type = 'compra_aprovada'
+        and e2.received_at > (
+          select max(e3.received_at) from eventos e3
+          where e3.lead_id = l.id and e3.event_type = 'pix_expirado'
+        )
+        ${produtoId != null ? sql`and e2.produto_id = ${produtoId}` : sql``}
+    )
+  `);
+  const recoveredCount = Number(
+    recovered[0]?.count ?? 0
+  );
+  return {
+    gerados,
+    pagos,
+    expirados,
+    recovered: recoveredCount,
+    taxaConversao: gerados > 0 ? pagos / gerados : 0
+  };
+}
+async function getRetencaoPorMetodo(produtoId = null) {
+  const result = await db.execute(sql`
+    with primeiro_pagamento as (
+      select distinct on (e.lead_id)
+        e.lead_id,
+        e.received_at as primeira_compra,
+        case
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) in ('credit_card', 'card', 'cartao') then 'cartao'
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) = 'pix' then 'pix'
+          when lower(coalesce(
+            e.payload->>'payment_method',
+            e.payload->'transaction'->>'payment_method',
+            e.payload->'data'->'object'->'payment_method_types'->>0,
+            e.payload->>'method'
+          )) in ('boleto', 'bank_slip') then 'boleto'
+          else 'indefinido'
+        end as metodo
+      from eventos e
+      where e.event_type = 'compra_aprovada'
+        and e.processed_ok = true
+        and e.lead_id is not null
+        ${produtoId != null ? sql`and e.produto_id = ${produtoId}` : sql``}
+      order by e.lead_id, e.received_at asc
+    )
+    select
+      pp.metodo,
+      count(*)::int as clientes,
+      round(avg(
+        extract(epoch from (
+          coalesce(l.cancelado_em, now()) - pp.primeira_compra
+        )) / 86400
+      ))::int as dias_ativo,
+      sum(case when l.subscription_status = 'ativa' or
+        (l.cancelado_em is null or l.cancelado_em > pp.primeira_compra + interval '30 days')
+        then 1 else 0 end)::int as ativo_30d,
+      sum(case when l.subscription_status = 'ativa' or
+        (l.cancelado_em is null or l.cancelado_em > pp.primeira_compra + interval '90 days')
+        then 1 else 0 end)::int as ativo_90d
+    from primeiro_pagamento pp
+    join leads l on l.id = pp.lead_id
+    group by pp.metodo
+    order by clientes desc
+  `);
+  return result.map((r) => ({
+    metodo: r.metodo,
+    clientesUnicos: Number(r.clientes),
+    diasMediosAtivo: Number(r.dias_ativo) || 0,
+    taxaRetencao30d: r.clientes > 0 ? Number(r.ativo_30d) / Number(r.clientes) : 0,
+    taxaRetencao90d: r.clientes > 0 ? Number(r.ativo_90d) / Number(r.clientes) : 0
+  }));
+}
+
 // server/routes/dashboard.ts
 var dashboardRoutes = new Hono2();
 function parseProdutoId(c) {
@@ -16756,6 +17043,16 @@ dashboardRoutes.get("/breakdowns", async (c) => {
     getTipoBreakdown(produtoId)
   ]);
   return c.json({ planos, tipos });
+});
+dashboardRoutes.get("/saas", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const [metodos, funilPix, retencao] = await Promise.all([
+    getMetodoBreakdown(produtoId, since),
+    getFunilPix(produtoId, since),
+    getRetencaoPorMetodo(produtoId)
+  ]);
+  return c.json({ metodos, funilPix, retencao });
 });
 
 // server/routes/automacoes.ts

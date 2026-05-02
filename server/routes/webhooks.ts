@@ -3,6 +3,7 @@ import { db } from "../../db/client.js";
 import { eventos } from "../../db/schema.js";
 import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
 import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
+import { parseBrevexWebhook, verifyBrevexSignature } from "../lib/brevex.js";
 import { handleGatewayEvent } from "../lib/flows.js";
 import { findOrCreateProdutoByName } from "../lib/produtos.js";
 
@@ -14,7 +15,11 @@ export const webhookRoutes = new Hono();
 webhookRoutes.get("/", (c) =>
   c.json({
     ok: true,
-    endpoints: ["POST /api/webhooks/ticto", "POST /api/webhooks/stripe"],
+    endpoints: [
+      "POST /api/webhooks/ticto",
+      "POST /api/webhooks/stripe",
+      "POST /api/webhooks/brevex (capture-only stub)",
+    ],
   }),
 );
 
@@ -144,6 +149,85 @@ webhookRoutes.post("/stripe", async (c) => {
       source: "stripe",
       eventType: eventInput.eventType,
       payload: event,
+      processedOk: false,
+      erro,
+    });
+    return c.json({ ok: false, error: erro }, 500);
+  }
+});
+
+/* ==========================================================================
+ * POST /api/webhooks/brevex
+ * STUB capture-only — salva payload bruto pra construir parser depois.
+ * ========================================================================== */
+webhookRoutes.post("/brevex", async (c) => {
+  const rawBody = await c.req.text();
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: "invalid_json",
+      payload: { rawBody },
+      processedOk: false,
+      erro: "JSON inválido",
+    });
+    return c.json({ error: "invalid json" }, 400);
+  }
+
+  const sig = verifyBrevexSignature(payload, c.req.raw.headers);
+  if (!sig.valid) {
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: "signature_invalid",
+      payload: { rawBody, reason: sig.reason },
+      processedOk: false,
+      erro: sig.reason,
+    });
+    return c.json({ error: "invalid signature" }, 401);
+  }
+
+  const event = parseBrevexWebhook(payload);
+
+  if (!event) {
+    const inferredType = String(
+      (payload as { event?: string; type?: string; status?: string }).event ??
+        (payload as { type?: string }).type ??
+        (payload as { status?: string }).status ??
+        "captured-unknown",
+    );
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: inferredType,
+      payload,
+      processedOk: false,
+      erro: "Parser Brevex ainda não implementado — payload capturado pra inspeção",
+    });
+    return c.json({
+      ok: true,
+      captured: true,
+      reason: "parser-stub",
+      message:
+        "Payload salvo na tabela eventos. Parser será construído com base nesse exemplo.",
+    });
+  }
+
+  if (event.planoNome) {
+    const produto = await findOrCreateProdutoByName(event.planoNome);
+    if (produto) event.produtoId = produto.id;
+  }
+
+  try {
+    const result = await handleGatewayEvent(event);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    const erro = e instanceof Error ? e.message : "Erro desconhecido";
+    await db.insert(eventos).values({
+      source: "brevex",
+      eventType: event.eventType,
+      payload,
       processedOk: false,
       erro,
     });
