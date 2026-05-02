@@ -26,7 +26,6 @@ import {
 } from "@/components/dashboard-charts";
 import { SaasDashboard } from "@/components/saas-dashboard";
 import { LiveActivityFeed } from "@/components/live-activity";
-import { FunilBoard } from "@/components/funil-board";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -218,11 +217,8 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Funil ao vivo + Activity feed (lado a lado) */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4">
-        <FunilBoard />
-        <LiveActivityFeed />
-      </div>
+      {/* Activity feed em largura total */}
+      <LiveActivityFeed />
 
       {/* SaaS metrics — só pra produtos saas ou visão Todos */}
       {isSaasView && saasMetrics.data ? (

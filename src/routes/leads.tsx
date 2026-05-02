@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search, Filter, Plus } from "lucide-react";
+import { Search, Filter, Plus, List, LayoutGrid } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
+import { FunilBoard } from "@/components/funil-board";
+
+type View = "table" | "funil";
 
 type Lead = {
   id: number;
@@ -39,6 +42,7 @@ export function LeadsPage() {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<View>("funil");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["leads", produtoParam],
@@ -51,7 +55,7 @@ export function LeadsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* Header com toggle de view */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Leads</h1>
@@ -59,28 +63,50 @@ export function LeadsPage() {
             {data ? `${data.length} leads no total` : "Carregando..."}
           </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all">
-          <Plus className="size-4" />
-          Novo lead
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Toggle Funil/Tabela */}
+          <div className="flex items-center bg-card border border-border rounded-2xl p-1 gap-1">
+            <ViewToggle
+              active={view === "funil"}
+              onClick={() => setView("funil")}
+              icon={LayoutGrid}
+              label="Funil"
+            />
+            <ViewToggle
+              active={view === "table"}
+              onClick={() => setView("table")}
+              icon={List}
+              label="Tabela"
+            />
+          </div>
+          <button className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all">
+            <Plus className="size-4" />
+            Novo lead
+          </button>
+        </div>
       </div>
 
-      {/* Search bar */}
-      <div className="card-soft p-2 flex items-center gap-2">
-        <div className="size-10 rounded-xl bg-secondary grid place-items-center shrink-0">
-          <Search className="size-4 text-foreground/60" />
-        </div>
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nome..."
-          className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
-        />
-        <button className="size-10 rounded-xl bg-secondary hover:bg-lime-soft grid place-items-center shrink-0 transition-colors">
-          <Filter className="size-4 text-foreground/60" />
-        </button>
-      </div>
+      {/* Funil view */}
+      {view === "funil" ? <FunilBoard /> : null}
+
+      {/* Tabela view */}
+      {view === "table" ? (
+        <>
+          <div className="card-soft p-2 flex items-center gap-2">
+            <div className="size-10 rounded-xl bg-secondary grid place-items-center shrink-0">
+              <Search className="size-4 text-foreground/60" />
+            </div>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nome..."
+              className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+            />
+            <button className="size-10 rounded-xl bg-secondary hover:bg-lime-soft grid place-items-center shrink-0 transition-colors">
+              <Filter className="size-4 text-foreground/60" />
+            </button>
+          </div>
 
       {isLoading ? (
         <div className="card-soft p-8 text-center text-sm text-muted-foreground">
@@ -162,6 +188,35 @@ export function LeadsPage() {
           </table>
         </div>
       )}
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function ViewToggle({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: typeof List;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-foreground/70 hover:text-foreground hover:bg-muted/50"
+      }`}
+    >
+      <Icon className="size-4" />
+      {label}
+    </button>
   );
 }
