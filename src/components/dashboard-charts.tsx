@@ -304,7 +304,7 @@ export function ConversionTrendChart({ data }: { data: DailyMetric[] }) {
         <div className="flex items-baseline justify-between gap-4">
           <div>
             <CardTitle className="text-base font-semibold">Taxa de conversão</CardTitle>
-            <p className="text-xs text-muted-foreground">Tendência diária · últimos 30 dias</p>
+            <p className="text-xs text-muted-foreground">Pagaram ÷ tentaram (rolling 7d) · últimos 30 dias</p>
           </div>
           {hasData ? (
             <div className="text-right">

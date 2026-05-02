@@ -175,6 +175,18 @@ export type DailyMetric = {
   taxaConversao: number;
 };
 
+/**
+ * Série diária pra gráficos de volume (entradas/convertidos por dia).
+ * A `taxaConversao` aqui usa a definição clássica de funil:
+ *   pagaram / tentaram (rolling 7d, suaviza dias com baixo volume)
+ *
+ * "Tentaram" = leads únicos que tiveram qualquer evento de intenção de compra
+ *              nos últimos 7 dias até o dia X (pix_gerado, carrinho_abandonado,
+ *              compra_recusada, pix_expirado, compra_aprovada, assinatura_renovada).
+ *
+ * "Pagaram" = leads únicos que tiveram compra_aprovada ou assinatura_renovada
+ *             nos últimos 7 dias até o dia X.
+ */
 export async function getDailySeries(
   days = 30,
   produtoId: number | null = null,
@@ -185,7 +197,9 @@ export async function getDailySeries(
     : await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
 
-  const series: DailyMetric[] = [];
+  // Pra cada dia: entradas (criado_em do dia) + convertidos (pagou_em do dia)
+  // pra o gráfico de volume. Taxa usa cohort acumulado dos últimos 7d via SQL.
+  const dailySeries: DailyMetric[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const day = new Date(today);
     day.setDate(today.getDate() - i);
@@ -199,14 +213,46 @@ export async function getDailySeries(
       (l) => l.pagouEm && l.pagouEm >= day && l.pagouEm < next,
     ).length;
 
-    series.push({
+    // Rolling 7d cohort: leads únicos que TENTARAM (qualquer evento de intenção)
+    // nos últimos 7 dias até "next", e dos que TENTARAM, quantos PAGARAM
+    const sevenDaysAgo = new Date(next);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const tentou = await db.execute<{ tentou: number; pagou: number }>(sql`
+      with tentou_ids as (
+        select distinct lead_id
+        from eventos
+        where lead_id is not null
+          and event_type in ('pix_gerado', 'carrinho_abandonado', 'compra_recusada',
+                              'pix_expirado', 'compra_aprovada', 'assinatura_renovada')
+          and received_at >= ${sevenDaysAgo}
+          and received_at < ${next}
+          ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
+      ),
+      pagou_ids as (
+        select distinct lead_id
+        from eventos
+        where lead_id is not null
+          and event_type in ('compra_aprovada', 'assinatura_renovada')
+          and received_at >= ${sevenDaysAgo}
+          and received_at < ${next}
+          ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
+      )
+      select
+        (select count(*)::int from tentou_ids) as tentou,
+        (select count(*)::int from pagou_ids) as pagou
+    `);
+    const r = (tentou as unknown as Array<{ tentou: number; pagou: number }>)[0];
+    const taxa = r && r.tentou > 0 ? r.pagou / r.tentou : 0;
+
+    dailySeries.push({
       date: day.toISOString().slice(0, 10),
       entradas,
       convertidos,
-      taxaConversao: entradas > 0 ? convertidos / entradas : 0,
+      taxaConversao: taxa,
     });
   }
-  return series;
+  return dailySeries;
 }
 
 export type TipoBreakdown = { tipo: string; total: number };

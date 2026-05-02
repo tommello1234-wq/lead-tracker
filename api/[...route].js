@@ -16618,7 +16618,7 @@ async function getDailySeries(days = 30, produtoId = null) {
   const cond = produtoCondition(produtoId);
   const all = cond.length === 0 ? await db.select().from(leads) : await db.select().from(leads).where(and(...cond));
   const today = startOfDay(/* @__PURE__ */ new Date());
-  const series = [];
+  const dailySeries = [];
   for (let i = days - 1; i >= 0; i--) {
     const day = new Date(today);
     day.setDate(today.getDate() - i);
@@ -16630,14 +16630,42 @@ async function getDailySeries(days = 30, produtoId = null) {
     const convertidos = all.filter(
       (l) => l.pagouEm && l.pagouEm >= day && l.pagouEm < next
     ).length;
-    series.push({
+    const sevenDaysAgo = new Date(next);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const tentou = await db.execute(sql`
+      with tentou_ids as (
+        select distinct lead_id
+        from eventos
+        where lead_id is not null
+          and event_type in ('pix_gerado', 'carrinho_abandonado', 'compra_recusada',
+                              'pix_expirado', 'compra_aprovada', 'assinatura_renovada')
+          and received_at >= ${sevenDaysAgo}
+          and received_at < ${next}
+          ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
+      ),
+      pagou_ids as (
+        select distinct lead_id
+        from eventos
+        where lead_id is not null
+          and event_type in ('compra_aprovada', 'assinatura_renovada')
+          and received_at >= ${sevenDaysAgo}
+          and received_at < ${next}
+          ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
+      )
+      select
+        (select count(*)::int from tentou_ids) as tentou,
+        (select count(*)::int from pagou_ids) as pagou
+    `);
+    const r = tentou[0];
+    const taxa = r && r.tentou > 0 ? r.pagou / r.tentou : 0;
+    dailySeries.push({
       date: day.toISOString().slice(0, 10),
       entradas,
       convertidos,
-      taxaConversao: entradas > 0 ? convertidos / entradas : 0
+      taxaConversao: taxa
     });
   }
-  return series;
+  return dailySeries;
 }
 async function getTipoBreakdown(produtoId = null) {
   const cond = produtoCondition(produtoId);
