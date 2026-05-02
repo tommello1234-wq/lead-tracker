@@ -15910,10 +15910,10 @@ function verifyStripeSignature(rawBody, headers) {
   if (!sigHeader) return { valid: false, reason: "missing-stripe-signature-header" };
   const parts = {};
   for (const item of sigHeader.split(",")) {
-    const eq2 = item.indexOf("=");
-    if (eq2 === -1) continue;
-    const key = item.substring(0, eq2).trim();
-    const val = item.substring(eq2 + 1).trim();
+    const eq3 = item.indexOf("=");
+    if (eq3 === -1) continue;
+    const key = item.substring(0, eq3).trim();
+    const val = item.substring(eq3 + 1).trim();
     if (!parts[key]) parts[key] = [];
     parts[key].push(val);
   }
@@ -17397,36 +17397,47 @@ async function getFunilSnapshot(produtoId = null) {
     "cliente_em_risco",
     "cliente_cancelado"
   ];
-  const cond = [inArray(leads.status, ACTIVE_STATUSES)];
-  if (produtoId != null) cond.push(eq(leads.produtoId, produtoId));
-  const all = await db.select({
-    id: leads.id,
-    nome: leads.nome,
-    contato: leads.contato,
-    status: leads.status,
-    valorAssinatura: leads.valorAssinatura,
-    atualizadoEm: leads.atualizadoEm
-  }).from(leads).where(and(...cond)).orderBy(desc(leads.atualizadoEm)).limit(500);
+  const all = await db.execute(sql`
+    select
+      l.id,
+      l.nome,
+      l.contato,
+      l.status,
+      l.valor_assinatura,
+      l.atualizado_em,
+      coalesce(
+        (select count(*)::int from mensagens_agendadas
+         where lead_id = l.id and status = 'sent'),
+        0
+      ) as msgs_enviadas
+    from leads l
+    where l.status in ${sql.raw(`(${ACTIVE_STATUSES.map((s) => `'${s}'`).join(",")})`)}
+      ${produtoId != null ? sql`and l.produto_id = ${produtoId}` : sql``}
+    order by l.atualizado_em desc
+    limit 500
+  `);
+  const allRows = all;
   const now = Date.now();
   const grouped = /* @__PURE__ */ new Map();
-  for (const l of all) {
-    const horas = l.atualizadoEm != null ? Math.floor((now - new Date(l.atualizadoEm).getTime()) / (60 * 60 * 1e3)) : 0;
+  for (const l of allRows) {
+    const horas = l.atualizado_em != null ? Math.floor((now - new Date(l.atualizado_em).getTime()) / (60 * 60 * 1e3)) : 0;
     const arr = grouped.get(l.status) ?? [];
     if (arr.length < 8) {
       arr.push({
         id: l.id,
         nome: l.nome,
         contato: l.contato,
-        valorAssinatura: l.valorAssinatura,
-        atualizadoEm: new Date(l.atualizadoEm).toISOString(),
-        horasNoEstagio: horas
+        valorAssinatura: l.valor_assinatura != null ? Number(l.valor_assinatura) : null,
+        atualizadoEm: new Date(l.atualizado_em).toISOString(),
+        horasNoEstagio: horas,
+        mensagensEnviadas: Number(l.msgs_enviadas)
       });
     }
     grouped.set(l.status, arr);
   }
   return ACTIVE_STATUSES.map((status) => ({
     status,
-    count: all.filter((l) => l.status === status).length,
+    count: allRows.filter((l) => l.status === status).length,
     leads: grouped.get(status) ?? []
   }));
 }

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, MessageSquare } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { STATUS_LABEL } from "@shared/labels";
@@ -91,6 +91,15 @@ function FunilColumn({ column }: { column: FunilSnapshotColumn }) {
                 {l.nome.slice(0, 2).toUpperCase()}
               </div>
               <p className="font-medium text-sm truncate flex-1">{l.nome}</p>
+              {l.mensagensEnviadas > 0 ? (
+                <span
+                  title={`${l.mensagensEnviadas} ${l.mensagensEnviadas === 1 ? "mensagem enviada" : "mensagens enviadas"}`}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-secondary text-[10px] font-bold tabular-nums text-forest shrink-0"
+                >
+                  <MessageSquare className="size-2.5" />
+                  {String(l.mensagensEnviadas).padStart(2, "0")}
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground pl-9">
               {l.valorAssinatura ? (

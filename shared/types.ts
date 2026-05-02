@@ -106,6 +106,7 @@ export type FunilSnapshotColumn = {
     valorAssinatura: number | null;
     atualizadoEm: string;
     horasNoEstagio: number;
+    mensagensEnviadas: number;
   }>;
 };
 
