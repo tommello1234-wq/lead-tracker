@@ -161,20 +161,13 @@ export function DashboardPage() {
 
       {/* Linha de aquisição: CAC blended (gasto Meta + clientes Lead Tracker) */}
       {isSaasView && cac.data && cac.data.adSpend > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard
             label="CAC (real, blended)"
             value={cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
             hint={`${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`}
             icon={Target}
             iconTone="forest"
-          />
-          <StatCard
-            label="CPA Meta (tráfego pago)"
-            value={cac.data.cpaMeta > 0 ? brl(cac.data.cpaMeta) : "—"}
-            hint={`${cac.data.pixelPurchases} compras Pixel`}
-            icon={DollarSign}
-            iconTone="lime"
           />
           <StatCard
             label="Novos clientes"
