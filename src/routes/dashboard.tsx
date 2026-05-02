@@ -19,7 +19,6 @@ import { HeroCard } from "@/components/hero-card";
 import { StatCard } from "@/components/stat-card";
 import {
   ConversionTrendChart,
-  ConvertedByDayChart,
   DailyVolumeChart,
   PlanoBreakdownChart,
   TipoBreakdownChart,
@@ -225,7 +224,6 @@ export function DashboardPage() {
           <PlanoBreakdownChart data={breakdowns.data.planos} />
           <DailyVolumeChart data={daily.data} />
           <ConversionTrendChart data={daily.data} />
-          <ConvertedByDayChart data={daily.data} />
           <TipoBreakdownChart data={breakdowns.data.tipos} />
         </div>
       ) : (
