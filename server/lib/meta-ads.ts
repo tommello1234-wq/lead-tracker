@@ -99,8 +99,11 @@ export async function getInsights(
   until: Date | null,
 ): Promise<MetaInsights> {
   const account = getAdAccountId();
+  // inline_link_clicks + cost_per_inline_link_click + ctr=link_click_through_rate
+  // alinham com o default da Meta UI (custo/clique no link, não em qualquer click).
   const params: Record<string, string> = {
-    fields: "spend,impressions,clicks,reach,cpc,cpm,ctr,actions",
+    fields:
+      "spend,impressions,inline_link_clicks,reach,cost_per_inline_link_click,cpm,inline_link_click_ctr,actions",
   };
   if (since && until) {
     params.time_range = buildTimeRange(since, until);
@@ -119,11 +122,11 @@ export async function getInsights(
   return {
     spend,
     impressions: Number(d.impressions ?? 0),
-    clicks: Number(d.clicks ?? 0),
+    clicks: Number(d.inline_link_clicks ?? 0),
     reach: Number(d.reach ?? 0),
-    cpc: Number(d.cpc ?? 0),
+    cpc: Number(d.cost_per_inline_link_click ?? 0),
     cpm: Number(d.cpm ?? 0),
-    ctr: Number(d.ctr ?? 0),
+    ctr: Number(d.inline_link_click_ctr ?? 0),
     purchases,
     initiateCheckout,
     cpa: purchases > 0 ? spend / purchases : 0,
@@ -140,7 +143,8 @@ export async function getCampaigns(
 ): Promise<MetaCampaign[]> {
   const account = getAdAccountId();
   const params: Record<string, string> = {
-    fields: "campaign_id,campaign_name,spend,clicks,ctr,actions",
+    fields:
+      "campaign_id,campaign_name,spend,inline_link_clicks,inline_link_click_ctr,actions",
     level: "campaign",
     limit: "50",
   };
@@ -162,9 +166,9 @@ export async function getCampaigns(
       spend,
       purchases,
       initiateCheckout: ic,
-      clicks: Number(c.clicks ?? 0),
+      clicks: Number(c.inline_link_clicks ?? 0),
       cpa: purchases > 0 ? spend / purchases : null,
-      ctr: Number(c.ctr ?? 0),
+      ctr: Number(c.inline_link_click_ctr ?? 0),
     };
   });
 }
