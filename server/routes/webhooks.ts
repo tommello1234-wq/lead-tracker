@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { db } from "../../db/client";
-import { eventos } from "../../db/schema";
-import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto";
-import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe";
-import { handleGatewayEvent } from "../lib/flows";
-import { findOrCreateProdutoByName } from "../lib/produtos";
+import { db } from "../../db/client.js";
+import { eventos } from "../../db/schema.js";
+import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
+import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
+import { handleGatewayEvent } from "../lib/flows.js";
+import { findOrCreateProdutoByName } from "../lib/produtos.js";
 
 export const webhookRoutes = new Hono();
 

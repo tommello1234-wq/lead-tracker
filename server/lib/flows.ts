@@ -8,7 +8,7 @@
  *   3. Cria o evento no audit log
  */
 
-import { db } from "../../db/client";
+import { db } from "../../db/client.js";
 import {
   leads,
   mensagensAgendadas,
@@ -18,8 +18,8 @@ import {
   type LeadStatus,
   type SubscriptionStatus,
   type MessageTemplate,
-} from "../../db/schema";
-import { renderTemplate } from "./message-templates";
+} from "../../db/schema.js";
+import { renderTemplate } from "./message-templates.js";
 import { eq, and, inArray, asc } from "drizzle-orm";
 
 export type GatewayEvent =

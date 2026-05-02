@@ -1,5 +1,5 @@
-import { db } from "../../db/client";
-import { produtos, type Produto } from "../../db/schema";
+import { db } from "../../db/client.js";
+import { produtos, type Produto } from "../../db/schema.js";
 import { eq, sql } from "drizzle-orm";
 
 /**

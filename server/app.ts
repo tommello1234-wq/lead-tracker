@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
-import { authRoutes } from "./routes/auth";
-import { webhookRoutes } from "./routes/webhooks";
-import { cronRoutes } from "./routes/cron";
-import { produtosRoutes } from "./routes/produtos";
-import { leadsRoutes } from "./routes/leads";
-import { dashboardRoutes } from "./routes/dashboard";
-import { automacoesRoutes } from "./routes/automacoes";
-import { requireAuth } from "./middleware/auth";
+import { authRoutes } from "./routes/auth.js";
+import { webhookRoutes } from "./routes/webhooks.js";
+import { cronRoutes } from "./routes/cron.js";
+import { produtosRoutes } from "./routes/produtos.js";
+import { leadsRoutes } from "./routes/leads.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
+import { automacoesRoutes } from "./routes/automacoes.js";
+import { requireAuth } from "./middleware/auth.js";
 
 /**
  * Hono app principal — montado em /api/*.

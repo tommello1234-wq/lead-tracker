@@ -1,7 +1,7 @@
-import { db } from "../../db/client";
-import { leads, mensagensAgendadas, eventos, type Lead } from "../../db/schema";
+import { db } from "../../db/client.js";
+import { leads, mensagensAgendadas, eventos, type Lead } from "../../db/schema.js";
 import { desc, eq, and, gte, sql, inArray } from "drizzle-orm";
-import { withCache } from "./cache";
+import { withCache } from "./cache.js";
 
 /**
  * Helper: where clause de produto. Retorna array de condições pra serem

@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
-import { isValidToken, SESSION_COOKIE } from "../lib/auth";
+import { isValidToken, SESSION_COOKIE } from "../lib/auth.js";
 
 /**
  * Middleware Hono pra proteger rotas. 401 se cookie de sessão inválido.

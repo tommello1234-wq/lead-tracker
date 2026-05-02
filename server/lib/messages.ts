@@ -1,12 +1,12 @@
-import { db } from "../../db/client";
+import { db } from "../../db/client.js";
 import {
   mensagensAgendadas,
   leads,
   type MessageTemplate,
   type MensagemAgendada,
-} from "../../db/schema";
-import { renderTemplate, type TemplateContext } from "./message-templates";
-import { sendText } from "./evolution";
+} from "../../db/schema.js";
+import { renderTemplate, type TemplateContext } from "./message-templates.js";
+import { sendText } from "./evolution.js";
 import { and, eq, lte } from "drizzle-orm";
 
 export async function scheduleMessage(args: {

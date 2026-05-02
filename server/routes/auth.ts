@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
 import { z } from "zod";
-import { expectedToken, SESSION_COOKIE } from "../lib/auth";
+import { expectedToken, SESSION_COOKIE } from "../lib/auth.js";
 
 export const authRoutes = new Hono();
 

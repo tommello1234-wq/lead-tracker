@@ -16,7 +16,7 @@
  *   - charge.dispute.created (sem fluxo definido ainda)
  */
 
-import type { EventInput, GatewayEvent } from "./flows";
+import type { EventInput, GatewayEvent } from "./flows.js";
 import crypto from "node:crypto";
 
 type AnyObject = Record<string, unknown>;

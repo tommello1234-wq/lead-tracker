@@ -1,5 +1,5 @@
-import { db } from "../../db/client";
-import { messageTemplates, type Lead, type MessageTemplate } from "../../db/schema";
+import { db } from "../../db/client.js";
+import { messageTemplates, type Lead, type MessageTemplate } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 
 export type TemplateContext = {
