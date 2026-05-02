@@ -55,46 +55,6 @@ const SHORT_LABELS: Record<Period, string> = {
   all: "Tudo",
 };
 
-function PeriodPicker() {
-  const { period, setPeriod } = useProdutoContext();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((s) => !s)}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[oklch(0.96_0.04_130)]/10 hover:bg-[oklch(0.96_0.04_130)]/20 text-[oklch(0.96_0.04_130)] text-sm font-medium border border-[oklch(0.96_0.04_130)]/15 transition-all"
-      >
-        <Calendar className="size-4" />
-        <span>{SHORT_LABELS[period]}</span>
-        <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute z-40 right-0 top-full mt-2 min-w-[160px] rounded-2xl border bg-popover text-popover-foreground shadow-lg p-1.5 animate-in fade-in-0 zoom-in-95">
-            {PERIODS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => {
-                  setPeriod(p);
-                  setOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-sm rounded-xl text-left transition-colors ${
-                  period === p ? "bg-secondary font-semibold" : "hover:bg-muted"
-                }`}
-              >
-                {PERIOD_LABELS[p]}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
 export function DashboardPage() {
   const { produtoId, period } = useProdutoContext();
   const since = periodToSince(period);
@@ -146,7 +106,6 @@ export function DashboardPage() {
         greeting={`${greeting()}, Washington 👋`}
         title="Lead Tracker"
         hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
-        topRight={<PeriodPicker />}
       />
 
       {/* KPI grid principal — 4 colunas */}
