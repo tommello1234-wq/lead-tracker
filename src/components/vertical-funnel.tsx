@@ -8,8 +8,9 @@ type Step = { label: string; value: number };
  * Funil de conversão visual vertical. A forma afina de cima pra baixo,
  * cada seção tem largura proporcional ao valor (relativo à primeira etapa).
  *
- * Complementa o ConversionFunnel (cards verticais com setas):
- * aqui é a forma desenhada pra dar o "wow" visual da queda de volume.
+ * Layout: card branco com header dark, gradient nas cores da marca
+ * (lime soft no topo → forest no fundo). Labels (nome / valor) ficam
+ * FORA do funil pra contraste ideal; só o % grande fica dentro.
  */
 export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
   const allSteps: Step[] = [
@@ -32,10 +33,15 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
   const steps = allSteps;
   const N = steps.length;
 
+  // Layout do SVG:
+  // | LABEL_W |        FUNNEL        | VALUE_W |
   const W = 360;
   const H = 460;
-  const PAD_X = 16;
-  const innerW = W - PAD_X * 2;
+  const LABEL_W = 80;
+  const VALUE_W = 60;
+  const FUNNEL_X0 = LABEL_W;
+  const FUNNEL_X1 = W - VALUE_W;
+  const innerW = FUNNEL_X1 - FUNNEL_X0;
   const sectionH = H / N;
   const maxValue = steps[0].value;
 
@@ -46,15 +52,13 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
 
   const yTop = (i: number) => i * sectionH;
   const yBot = (i: number) => (i + 1) * sectionH;
-  const xLeft = (i: number) => PAD_X + (innerW - widths[i]) / 2;
-  const xRight = (i: number) => PAD_X + (innerW + widths[i]) / 2;
+  const funnelCx = (FUNNEL_X0 + FUNNEL_X1) / 2;
+  const xLeft = (i: number) => funnelCx - widths[i] / 2;
+  const xRight = (i: number) => funnelCx + widths[i] / 2;
 
-  // Path: começa no top-left, desce pela direita, atravessa o bottom,
-  // sobe pela esquerda. Bezier dentro de cada seção pra suavizar.
-  // Última seção tem largura constante (sem transição) pra não sumir num ponto.
+  // Path: top-left → desce direita → bottom → sobe esquerda
   let d = `M ${xLeft(0)} ${yTop(0)} L ${xRight(0)} ${yTop(0)}`;
 
-  // Lado direito: desce, transitando widths[i] -> widths[i+1] dentro da seção i
   for (let i = 0; i < N; i++) {
     if (i === N - 1) {
       d += ` L ${xRight(i)} ${yBot(i)}`;
@@ -64,13 +68,9 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
     }
   }
 
-  // Bottom edge (constante, largura widths[N-1])
   d += ` L ${xLeft(N - 1)} ${yBot(N - 1)}`;
-
-  // Lado esquerdo: sobe espelhando o lado direito.
-  // Última seção (i=N-1) primeiro: linha reta subindo (largura constante).
   d += ` L ${xLeft(N - 1)} ${yTop(N - 1)}`;
-  // Demais seções: bezier indo da direita pra esquerda (alargando)
+
   for (let i = N - 2; i >= 0; i--) {
     const yMid = yTop(i) + sectionH / 2;
     d += ` C ${xLeft(i + 1)} ${yMid}, ${xLeft(i)} ${yMid}, ${xLeft(i)} ${yTop(i)}`;
@@ -79,15 +79,13 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
   d += " Z";
 
   return (
-    <div className="card-soft overflow-hidden bg-forest h-full">
-      <div className="px-5 py-4 border-b border-white/10">
-        <h3 className="font-semibold text-[oklch(0.96_0.04_130)]">
-          Funil visual
-        </h3>
-        <p className="text-xs text-white/60">% relativa a clicks</p>
+    <div className="card-soft overflow-hidden h-full">
+      <div className="px-5 py-4 border-b border-border">
+        <h3 className="font-semibold text-foreground">Funil visual</h3>
+        <p className="text-xs text-muted-foreground">% relativa a clicks</p>
       </div>
 
-      <div className="p-4 flex items-center justify-center">
+      <div className="p-3 flex items-center justify-center">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="xMidYMid meet"
@@ -96,31 +94,29 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
         >
           <defs>
             <linearGradient id="vFunnelGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="40%" stopColor="#7c3aed" />
-              <stop offset="80%" stopColor="#db2777" />
-              <stop offset="100%" stopColor="#ef4444" />
+              <stop offset="0%" stopColor="oklch(0.86 0.18 130)" />
+              <stop offset="60%" stopColor="oklch(0.55 0.12 145)" />
+              <stop offset="100%" stopColor="oklch(0.24 0.045 155)" />
             </linearGradient>
           </defs>
 
           {/* Forma do funil */}
           <path d={d} fill="url(#vFunnelGrad)" />
 
-          {/* Divisores horizontais entre seções */}
+          {/* Divisores horizontais entre seções (só na area do funil) */}
           {steps.slice(1).map((_, i) => (
             <line
               key={i}
-              x1={PAD_X - 4}
+              x1={FUNNEL_X0 - 4}
               y1={(i + 1) * sectionH}
-              x2={W - PAD_X + 4}
+              x2={FUNNEL_X1 + 4}
               y2={(i + 1) * sectionH}
-              stroke="white"
-              strokeOpacity="0.15"
+              stroke="oklch(0.85 0.02 145)"
               strokeWidth="1"
             />
           ))}
 
-          {/* Labels: nome (esq) · % (centro) · valor (dir) */}
+          {/* Labels: nome (esq, fora) · % (centro, dentro) · valor (dir, fora) */}
           {steps.map((step, i) => {
             const cy = i * sectionH + sectionH / 2;
             const pct = (step.value / maxValue) * 100;
@@ -129,32 +125,35 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
             return (
               <g key={step.label}>
                 <text
-                  x={PAD_X + 4}
+                  x={FUNNEL_X0 - 8}
                   y={cy + 5}
-                  textAnchor="start"
-                  fill="white"
-                  fillOpacity="0.85"
+                  textAnchor="end"
+                  className="fill-foreground"
                   fontSize="13"
                   fontWeight="500"
                 >
                   {step.label}
                 </text>
                 <text
-                  x={W / 2}
+                  x={funnelCx}
                   y={cy + 7}
                   textAnchor="middle"
                   fill="white"
                   fontSize="20"
                   fontWeight="700"
+                  style={{
+                    paintOrder: "stroke",
+                    stroke: "oklch(0.24 0.045 155 / 0.4)",
+                    strokeWidth: "3px",
+                  }}
                 >
                   {pctText}%
                 </text>
                 <text
-                  x={W - PAD_X - 4}
+                  x={FUNNEL_X1 + 8}
                   y={cy + 5}
-                  textAnchor="end"
-                  fill="white"
-                  fillOpacity="0.85"
+                  textAnchor="start"
+                  className="fill-foreground"
                   fontSize="13"
                   fontWeight="500"
                 >
