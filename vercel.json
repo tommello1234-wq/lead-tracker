@@ -5,11 +5,5 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/[[...route]]" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/dispatch-messages",
-      "schedule": "*/5 * * * *"
-    }
   ]
 }
