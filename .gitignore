@@ -1,9 +1,15 @@
 # deps
 node_modules
 
-# next
+# build outputs
 .next
 out
+dist
+tsconfig.tsbuildinfo
+tsconfig.server.tsbuildinfo
+
+# Vercel Function bundle (gerado por build:api)
+api/[[...route]].js
 
 # env
 .env

@@ -19,6 +19,6 @@
       "@db/*": ["./db/*"]
     }
   },
-  "include": ["server/**/*.ts", "shared/**/*.ts", "db/**/*.ts", "api/**/*.ts"],
+  "include": ["server/**/*.ts", "shared/**/*.ts", "db/**/*.ts", "server-entry/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
