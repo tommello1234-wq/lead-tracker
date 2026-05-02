@@ -16093,10 +16093,45 @@ async function applyEventCancellation(leadId, newEvent) {
     `Cancelado: lead avan\xE7ou pra "${newEvent}"`
   );
 }
+var PRE_PAYMENT_EVENTS = [
+  "carrinho_abandonado",
+  "pix_gerado",
+  "pix_expirado",
+  "compra_recusada"
+];
+var POST_PAYMENT_STATUSES = [
+  "cliente_ativo",
+  "cliente_em_risco",
+  "cliente_cancelado",
+  "convertido",
+  // legado
+  "reembolso_revertido"
+  // legado
+];
+function shouldIgnoreEvent(eventType, currentStatus) {
+  return PRE_PAYMENT_EVENTS.includes(eventType) && POST_PAYMENT_STATUSES.includes(currentStatus);
+}
 async function handleGatewayEvent(input) {
   const lead = await findOrCreateLead(input);
   const transition = STATUS_TRANSITIONS[input.eventType];
   const now = /* @__PURE__ */ new Date();
+  if (shouldIgnoreEvent(input.eventType, lead.status)) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload,
+      processedOk: true,
+      erro: `Evento ignorado: lead j\xE1 est\xE1 em ${lead.status} (p\xF3s-pagamento)`
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true
+    };
+  }
   const updates = {
     status: transition.lead,
     subscriptionStatus: transition.subscription,

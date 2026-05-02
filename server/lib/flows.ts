@@ -241,16 +241,69 @@ async function applyEventCancellation(
 }
 
 /**
+ * Eventos "pre-pagamento" — webhooks que a Ticto pode mandar com delay
+ * mesmo que o cliente já tenha avançado pra estado de pagamento confirmado.
+ * Se o lead JÁ avançou (cliente_ativo / em_risco / cancelado), esses eventos
+ * são ignorados pra não regredir status nem disparar mensagem de cobrança
+ * pra cliente que já pagou.
+ */
+const PRE_PAYMENT_EVENTS: GatewayEvent[] = [
+  "carrinho_abandonado",
+  "pix_gerado",
+  "pix_expirado",
+  "compra_recusada",
+];
+
+const POST_PAYMENT_STATUSES: LeadStatus[] = [
+  "cliente_ativo",
+  "cliente_em_risco",
+  "cliente_cancelado",
+  "convertido", // legado
+  "reembolso_revertido", // legado
+];
+
+function shouldIgnoreEvent(
+  eventType: GatewayEvent,
+  currentStatus: LeadStatus,
+): boolean {
+  return (
+    PRE_PAYMENT_EVENTS.includes(eventType) &&
+    POST_PAYMENT_STATUSES.includes(currentStatus)
+  );
+}
+
+/**
  * Processa um evento do gateway de ponta a ponta.
  */
 export async function handleGatewayEvent(input: EventInput): Promise<{
   leadId: number;
   scheduledMessages: number;
   status: LeadStatus;
+  ignored?: boolean;
 }> {
   const lead = await findOrCreateLead(input);
   const transition = STATUS_TRANSITIONS[input.eventType];
   const now = new Date();
+
+  // Guarda: webhook retroativo (ex: carrinho_abandonado depois do cliente pagar)
+  // não regride status nem agenda mensagens de cobrança.
+  if (shouldIgnoreEvent(input.eventType, lead.status)) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+      erro: `Evento ignorado: lead já está em ${lead.status} (pós-pagamento)`,
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true,
+    };
+  }
 
   // Atualiza o lead
   const updates: Record<string, unknown> = {
