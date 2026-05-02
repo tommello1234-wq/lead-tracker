@@ -1,16 +1,16 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { db } from "@db/client";
+import { db } from "../../db/client";
 import {
   leads,
   LEAD_TYPES,
   LEAD_STATUS,
   LEAD_ORIGINS,
   type LeadStatus,
-} from "@db/schema";
+} from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { getAllLeads } from "@server/lib/queries";
-import { invalidateCache } from "@server/lib/cache";
+import { getAllLeads } from "../lib/queries";
+import { invalidateCache } from "../lib/cache";
 
 export const leadsRoutes = new Hono();
 

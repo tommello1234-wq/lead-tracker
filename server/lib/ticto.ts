@@ -16,7 +16,7 @@
  *   - Assinatura Cancelada-> assinatura_cancelada
  */
 
-import type { EventInput, GatewayEvent } from "@server/lib/flows";
+import type { EventInput, GatewayEvent } from "./flows";
 
 type AnyObject = Record<string, unknown>;
 

@@ -6,7 +6,7 @@ import {
   getPlanoBreakdown,
   getTipoBreakdown,
   getSidebarCounts,
-} from "@server/lib/queries";
+} from "../lib/queries";
 
 export const dashboardRoutes = new Hono();
 

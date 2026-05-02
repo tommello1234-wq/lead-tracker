@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { db } from "@db/client";
+import { db } from "../../db/client";
 import {
   messageTemplates,
   flowSteps,
   type MessageTemplate,
-} from "@db/schema";
+} from "../../db/schema";
 import { eq, asc } from "drizzle-orm";
 
 export const automacoesRoutes = new Hono();

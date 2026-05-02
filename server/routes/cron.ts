@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { dispatchPending } from "@server/lib/messages";
+import { dispatchPending } from "../lib/messages";
 
 export const cronRoutes = new Hono();
 
