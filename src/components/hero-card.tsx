@@ -22,10 +22,12 @@ export function HeroCard({
   decoration?: ReactNode;
 }) {
   return (
-    <section className="card-forest relative overflow-hidden p-8 sm:p-10">
-      {/* Decoração canto superior direito (linhas onduladas no ref do COINEST) */}
-      <div className="absolute top-0 right-0 opacity-15 pointer-events-none">
-        {decoration ?? <DefaultDecoration />}
+    <section className="card-forest relative p-8 sm:p-10">
+      {/* Wrapper interno só pra clipar a decoração — não corta dropdowns */}
+      <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
+        <div className="absolute top-0 right-0 opacity-15">
+          {decoration ?? <DefaultDecoration />}
+        </div>
       </div>
 
       <div className="relative flex items-end justify-between gap-6 flex-wrap">
