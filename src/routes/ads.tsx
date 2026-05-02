@@ -12,6 +12,7 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToSince, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
+import { VerticalFunnel } from "@/components/vertical-funnel";
 import type { MetaInsights, MetaCampaign } from "@shared/types";
 
 const brl = (n: number) =>
@@ -119,8 +120,11 @@ export function AdsPage() {
             />
           </div>
 
-          {/* Funil de conversão visual */}
-          <ConversionFunnel insights={i} />
+          {/* Funil de conversão: cards detalhados (esq) + visual (dir) */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-stretch">
+            <ConversionFunnel insights={i} />
+            <VerticalFunnel insights={i} />
+          </div>
 
           {/* Tabela de campanhas */}
           <div className="card-soft overflow-hidden">
