@@ -1,15 +1,17 @@
 /**
  * Vercel Function entry — captura todas as rotas /api/* e delega pro Hono.
  *
- * Em produção, este arquivo é o único endpoint server. O Hono mounta tudo em
- * /api/* internamente (ver server/app.ts).
+ * Em produção, este arquivo é bundlado pelo esbuild em api/[[...route]].js
+ * e funciona como Vercel Function (Node runtime).
+ *
+ * O `handle` do Hono cuida da conversão entre o req/res do Vercel Node
+ * runtime e o fetch handler do Hono.
  */
+import { handle } from "hono/vercel";
 import { app } from "../server/app.js";
 
 export const config = {
   runtime: "nodejs",
 };
 
-export default async function handler(req: Request): Promise<Response> {
-  return app.fetch(req);
-}
+export default handle(app);
