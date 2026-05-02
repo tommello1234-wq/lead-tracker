@@ -16482,16 +16482,323 @@ async function dispatchPending(now = /* @__PURE__ */ new Date()) {
   return { processed: pending.length, sent, failed, skipped };
 }
 
+// server/lib/ticto-api.ts
+var BASE_URL = "https://glados.ticto.cloud/api";
+var tokenCache = null;
+async function getAccessToken() {
+  const now = Date.now();
+  if (tokenCache && tokenCache.expiresAt > now + 6e4) {
+    return tokenCache.token;
+  }
+  const clientId = process.env.TICTO_CLIENT_ID;
+  const clientSecret = process.env.TICTO_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("TICTO_CLIENT_ID ou TICTO_CLIENT_SECRET n\xE3o configurados");
+  }
+  const res = await fetch(`${BASE_URL}/security/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: "*"
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Ticto auth falhou: ${res.status} ${body}`);
+  }
+  const data = await res.json();
+  tokenCache = {
+    token: data.access_token,
+    expiresAt: now + data.expires_in * 1e3
+  };
+  return data.access_token;
+}
+async function tictoFetch(path, params) {
+  const token = await getAccessToken();
+  const url = new URL(`${BASE_URL}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, String(v));
+    }
+  }
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json"
+    }
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Ticto ${path} falhou: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+function getOrdersHistory(page = 1, filters) {
+  const params = { page };
+  if (filters) {
+    for (const [k, v] of Object.entries(filters)) {
+      params[`filter[${k}]`] = v;
+    }
+  }
+  return tictoFetch("/v1/orders/history", params);
+}
+function getSubscriptionsHistory(page = 1, filters) {
+  const params = { page };
+  if (filters) {
+    for (const [k, v] of Object.entries(filters)) {
+      params[`filter[${k}]`] = v;
+    }
+  }
+  return tictoFetch("/v1/subscriptions/history", params);
+}
+
+// server/lib/ticto-sync.ts
+function parsePhone3(raw2) {
+  if (!raw2) return null;
+  if (typeof raw2 === "object" && raw2 !== null) {
+    const p = raw2;
+    const ddi = String(p.ddi ?? "").replace(/\D/g, "") || "55";
+    const ddd = String(p.ddd ?? "").replace(/\D/g, "");
+    const num = String(p.number ?? "").replace(/\D/g, "");
+    if (!num) return null;
+    return `${ddi}${ddd}${num}`;
+  }
+  return String(raw2).replace(/\D/g, "") || null;
+}
+function parseDateBR(s) {
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return new Date(
+    Number(m[3]),
+    Number(m[2]) - 1,
+    Number(m[1]),
+    Number(m[4]),
+    Number(m[5]),
+    Number(m[6])
+  );
+}
+function mapTransactionStatus(order) {
+  const tx = order.transaction;
+  const offer = order.offer;
+  const status = String(tx?.status ?? "").toLowerCase();
+  const occurrence = Number(tx?.occurrence ?? 0);
+  const isSubscription = Boolean(offer?.is_subscription);
+  const txDate = parseDateBR(String(tx?.created_at ?? ""));
+  switch (status) {
+    case "authorized":
+      return {
+        eventType: occurrence > 1 ? "assinatura_renovada" : "compra_aprovada",
+        leadStatus: "cliente_ativo",
+        subStatus: isSubscription ? "ativa" : "nenhuma",
+        pagouEm: txDate
+      };
+    case "refunded":
+    case "chargeback":
+      return {
+        eventType: "reembolso",
+        leadStatus: "cliente_em_risco",
+        subStatus: "reembolsada",
+        pagouEm: txDate
+      };
+    case "refused":
+      return {
+        eventType: "compra_recusada",
+        leadStatus: "pix_expirado",
+        subStatus: "nenhuma",
+        pagouEm: null
+      };
+    case "delayed":
+      return {
+        eventType: occurrence > 1 ? "assinatura_atrasada" : "pix_gerado",
+        leadStatus: occurrence > 1 ? "cliente_em_risco" : "pix_gerado",
+        subStatus: occurrence > 1 ? "atrasada" : "aguardando_pagamento",
+        pagouEm: null
+      };
+    default:
+      return null;
+  }
+}
+function mapSubSituation(situation) {
+  const s = situation.toLowerCase();
+  if (s === "ativa" || s === "active") return { lead: "cliente_ativo", sub: "ativa" };
+  if (s === "atrasada" || s === "delayed") return { lead: "cliente_em_risco", sub: "atrasada" };
+  if (s === "cancelada" || s === "canceled" || s === "cancelled")
+    return { lead: "cliente_cancelado", sub: "cancelada" };
+  return null;
+}
+async function processOrder(order) {
+  const customer = order.customer;
+  const tx = order.transaction;
+  const offer = order.offer;
+  const product = order.product;
+  const orderObj = order.order;
+  const mapped = mapTransactionStatus(order);
+  if (!mapped) return "skipped";
+  const cpf = String(customer?.cpf ?? customer?.cnpj ?? "");
+  const email = String(customer?.email ?? "");
+  const phone = parsePhone3(customer?.phone);
+  const orderHash = String(orderObj?.hash ?? tx?.hash ?? "");
+  if (orderHash) {
+    const exists2 = await db.execute(sql`
+      select count(*)::int as count
+      from eventos
+      where (source = 'ticto' or source = 'ticto-api-backfill' or source = 'ticto-sync')
+        and payload->'order'->>'hash' = ${orderHash}
+    `);
+    if (Number(exists2[0]?.count ?? 0) > 0) {
+      return "skipped";
+    }
+  }
+  let lead = await db.query.leads.findFirst({
+    where: or(
+      cpf ? eq(leads.gatewayCustomerId, cpf) : void 0,
+      email ? eq(leads.email, email) : void 0,
+      phone ? eq(leads.contato, phone) : void 0
+    )
+  });
+  const planoNome = offer?.name ? `${product?.name ?? ""} ${offer.name}`.trim() : product?.name ?? "Sem plano";
+  const valor = tx?.paid_amount && Number.isFinite(Number(tx.paid_amount)) ? Number(tx.paid_amount) / 100 : null;
+  let action;
+  if (!lead) {
+    const [created] = await db.insert(leads).values({
+      nome: String(customer?.name ?? "Cliente Ticto"),
+      email: email || null,
+      contato: phone,
+      tipo: "compra_aprovada",
+      status: mapped.leadStatus,
+      subscriptionStatus: mapped.subStatus,
+      gateway: "ticto",
+      gatewayCustomerId: cpf || null,
+      gatewayLastOrderId: orderHash || null,
+      planoNome,
+      valorAssinatura: valor,
+      pagouEm: mapped.pagouEm,
+      atualizadoEm: /* @__PURE__ */ new Date(),
+      criadoEm: mapped.pagouEm ?? /* @__PURE__ */ new Date()
+    }).returning();
+    lead = created;
+    action = "created";
+  } else {
+    const updates = {
+      atualizadoEm: /* @__PURE__ */ new Date()
+    };
+    if (mapped.pagouEm && (!lead.pagouEm || mapped.pagouEm > lead.pagouEm)) {
+      updates.pagouEm = mapped.pagouEm;
+    }
+    if (orderHash) updates.gatewayLastOrderId = orderHash;
+    if (valor) updates.valorAssinatura = valor;
+    await db.update(leads).set(updates).where(eq(leads.id, lead.id));
+    action = "updated";
+  }
+  await db.insert(eventos).values({
+    leadId: lead.id,
+    source: "ticto-sync",
+    eventType: mapped.eventType,
+    payload: order,
+    processedOk: true,
+    receivedAt: mapped.pagouEm ?? /* @__PURE__ */ new Date()
+  });
+  return action;
+}
+async function runTictoSync(daysOrdersBack = 2) {
+  const today = /* @__PURE__ */ new Date();
+  const fromDate = new Date(today);
+  fromDate.setDate(today.getDate() - daysOrdersBack);
+  const fmt = (d) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  let ordersCreated = 0;
+  let ordersUpdated = 0;
+  let ordersSkipped = 0;
+  let page = 1;
+  while (true) {
+    const resp = await getOrdersHistory(page, {
+      betweenDates: `${fmt(fromDate)},${fmt(today)}`
+    });
+    const orders = resp.data ?? [];
+    if (orders.length === 0) break;
+    for (const o of orders) {
+      try {
+        const r = await processOrder(o);
+        if (r === "created") ordersCreated++;
+        else if (r === "updated") ordersUpdated++;
+        else ordersSkipped++;
+      } catch (e) {
+        console.error("[sync] order erro:", e instanceof Error ? e.message : e);
+      }
+    }
+    const lastPage = resp.meta?.last_page ?? page;
+    if (page >= lastPage) break;
+    page++;
+  }
+  let subsUpdated = 0;
+  let subsPage = 1;
+  while (true) {
+    const resp = await getSubscriptionsHistory(subsPage);
+    const subs = resp.data ?? [];
+    if (subs.length === 0) break;
+    for (const sub of subs) {
+      const customer = sub.customer;
+      const cpf = String(customer?.cpf ?? customer?.cnpj ?? "");
+      const email = String(customer?.email ?? "");
+      const phones = customer?.phones;
+      const phone = parsePhone3(phones?.[0] ?? customer?.phone);
+      const situation = String(sub.situation ?? sub.status ?? "");
+      const mapped = mapSubSituation(situation);
+      if (!mapped) continue;
+      const lead = await db.query.leads.findFirst({
+        where: or(
+          cpf ? eq(leads.gatewayCustomerId, cpf) : void 0,
+          email ? eq(leads.email, email) : void 0,
+          phone ? eq(leads.contato, phone) : void 0
+        )
+      });
+      if (!lead) continue;
+      if (lead.status === mapped.lead && lead.subscriptionStatus === mapped.sub) continue;
+      const updates = {
+        status: mapped.lead,
+        subscriptionStatus: mapped.sub,
+        atualizadoEm: /* @__PURE__ */ new Date()
+      };
+      if (mapped.sub === "cancelada" && !lead.canceladoEm) {
+        updates.canceladoEm = /* @__PURE__ */ new Date();
+      }
+      await db.update(leads).set(updates).where(eq(leads.id, lead.id));
+      subsUpdated++;
+    }
+    const lastPage = resp.meta?.last_page ?? subsPage;
+    if (subsPage >= lastPage) break;
+    subsPage++;
+  }
+  return { ordersCreated, ordersUpdated, ordersSkipped, subsUpdated };
+}
+
 // server/routes/cron.ts
 var cronRoutes = new Hono2();
-cronRoutes.get("/dispatch-messages", async (c) => {
-  const auth = c.req.header("authorization");
+function isAuthed(authHeader) {
   const secret = process.env.CRON_SECRET;
-  if (secret && auth !== `Bearer ${secret}`) {
+  if (!secret) return true;
+  return authHeader === `Bearer ${secret}`;
+}
+cronRoutes.get("/dispatch-messages", async (c) => {
+  if (!isAuthed(c.req.header("authorization"))) {
     return c.json({ error: "unauthorized" }, 401);
   }
   try {
     const result = await dispatchPending();
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : "Erro" }, 500);
+  }
+});
+cronRoutes.get("/ticto-sync", async (c) => {
+  if (!isAuthed(c.req.header("authorization"))) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  try {
+    const result = await runTictoSync(2);
+    console.log("[ticto-sync]", result);
     return c.json({ ok: true, ...result });
   } catch (e) {
     return c.json(

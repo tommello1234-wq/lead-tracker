@@ -6,5 +6,11 @@
   "rewrites": [
     { "source": "/api/:match*", "destination": "/api/[...route]" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/ticto-sync",
+      "schedule": "0 5 * * *"
+    }
   ]
 }
