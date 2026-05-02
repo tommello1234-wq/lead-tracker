@@ -16048,14 +16048,49 @@ function tipoFromEvent(event) {
       return "outro";
   }
 }
-async function cancelPendingMessages(leadId, templates) {
-  if (templates.length === 0) return;
-  await db.update(mensagensAgendadas).set({ status: "skipped", erro: "Cancelado por evento posterior" }).where(
+async function cancelPendingMessages(leadId, templates, reason) {
+  if (templates.length === 0) return 0;
+  const result = await db.update(mensagensAgendadas).set({ status: "skipped", erro: reason }).where(
     and(
       eq(mensagensAgendadas.leadId, leadId),
       eq(mensagensAgendadas.status, "pending"),
       inArray(mensagensAgendadas.template, templates)
     )
+  );
+  return result.rowCount ?? 0;
+}
+var EVENT_CANCELS = {
+  // Pagamento entrou — cancela tudo de cobrança pendente
+  compra_aprovada: ["pix_gerado", "carrinho_abandonado", "assinatura_atrasada"],
+  // Renovação OK — cancela cobrança de atraso
+  assinatura_renovada: ["assinatura_atrasada"],
+  // Cancelamento — cliente foi embora, cancela tudo
+  assinatura_cancelada: [
+    "assinatura_atrasada",
+    "compra_aprovada",
+    "assinatura_renovada",
+    "pix_gerado",
+    "carrinho_abandonado"
+  ],
+  // Reembolso — cancela boas-vindas pra não aparecer mensagem positiva
+  reembolso: ["compra_aprovada", "assinatura_renovada"],
+  // Eventos que NÃO cancelam (são iniciadores ou auditoria)
+  carrinho_abandonado: [],
+  pix_gerado: [],
+  pix_expirado: [],
+  compra_recusada: [],
+  assinatura_atrasada: []
+};
+async function applyEventCancellation(leadId, newEvent) {
+  const cancelEvents = EVENT_CANCELS[newEvent];
+  if (!cancelEvents || cancelEvents.length === 0) return 0;
+  const stepsToCancel = await db.select({ key: flowSteps.templateKey }).from(flowSteps).where(inArray(flowSteps.gatewayEvent, cancelEvents));
+  if (stepsToCancel.length === 0) return 0;
+  const templates = stepsToCancel.map((s) => s.key);
+  return cancelPendingMessages(
+    leadId,
+    templates,
+    `Cancelado: lead avan\xE7ou pra "${newEvent}"`
   );
 }
 async function handleGatewayEvent(input) {
@@ -16101,14 +16136,7 @@ async function handleGatewayEvent(input) {
   });
   const flow = await loadFlow(input.eventType);
   let scheduled = 0;
-  const stepWithCancel = flow.find((s) => s.cancelPrevious);
-  if (stepWithCancel) {
-    await cancelPendingMessages(lead.id, [
-      "pix_nao_pago",
-      "carrinho_abandonado",
-      "assinatura_pix_pendente"
-    ]);
-  }
+  await applyEventCancellation(lead.id, input.eventType);
   const refreshedLead = { ...lead, ...updates };
   for (const step of flow) {
     const conteudo = await renderTemplate(step.template, {

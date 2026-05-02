@@ -162,11 +162,15 @@ function tipoFromEvent(event: GatewayEvent): Lead["tipo"] {
  * Cancela mensagens pendentes deste lead nos templates dados.
  * Usado quando cliente paga -> nao manda mais cobranca de PIX.
  */
-async function cancelPendingMessages(leadId: number, templates: MessageTemplate[]) {
-  if (templates.length === 0) return;
-  await db
+async function cancelPendingMessages(
+  leadId: number,
+  templates: MessageTemplate[],
+  reason: string,
+) {
+  if (templates.length === 0) return 0;
+  const result = await db
     .update(mensagensAgendadas)
-    .set({ status: "skipped", erro: "Cancelado por evento posterior" })
+    .set({ status: "skipped", erro: reason })
     .where(
       and(
         eq(mensagensAgendadas.leadId, leadId),
@@ -174,6 +178,66 @@ async function cancelPendingMessages(leadId: number, templates: MessageTemplate[
         inArray(mensagensAgendadas.template, templates),
       ),
     );
+  return (result as unknown as { rowCount?: number }).rowCount ?? 0;
+}
+
+/**
+ * Mapa semântico: quando evento X chega, cancela mensagens pendentes
+ * de TODOS templates pertencentes aos eventos cancelados.
+ *
+ * Diferente do `cancelPrevious` antigo (que dependia de flag por step e
+ * tinha lista hardcoded de templates), aqui o lookup é dinâmico — pega
+ * todos templates que pertencem aos eventos no array via `flow_steps`.
+ * Cobre automaticamente templates criados pelo user via UI.
+ */
+const EVENT_CANCELS: Record<GatewayEvent, GatewayEvent[]> = {
+  // Pagamento entrou — cancela tudo de cobrança pendente
+  compra_aprovada: ["pix_gerado", "carrinho_abandonado", "assinatura_atrasada"],
+  // Renovação OK — cancela cobrança de atraso
+  assinatura_renovada: ["assinatura_atrasada"],
+  // Cancelamento — cliente foi embora, cancela tudo
+  assinatura_cancelada: [
+    "assinatura_atrasada",
+    "compra_aprovada",
+    "assinatura_renovada",
+    "pix_gerado",
+    "carrinho_abandonado",
+  ],
+  // Reembolso — cancela boas-vindas pra não aparecer mensagem positiva
+  reembolso: ["compra_aprovada", "assinatura_renovada"],
+  // Eventos que NÃO cancelam (são iniciadores ou auditoria)
+  carrinho_abandonado: [],
+  pix_gerado: [],
+  pix_expirado: [],
+  compra_recusada: [],
+  assinatura_atrasada: [],
+};
+
+/**
+ * Aplica o mapa EVENT_CANCELS: marca como skipped todas as mensagens
+ * pendentes do lead cujos templates pertencem aos eventos cancelados.
+ */
+async function applyEventCancellation(
+  leadId: number,
+  newEvent: GatewayEvent,
+): Promise<number> {
+  const cancelEvents = EVENT_CANCELS[newEvent];
+  if (!cancelEvents || cancelEvents.length === 0) return 0;
+
+  // Busca templates que pertencem a esses eventos
+  const stepsToCancel = await db
+    .select({ key: flowSteps.templateKey })
+    .from(flowSteps)
+    .where(inArray(flowSteps.gatewayEvent, cancelEvents));
+
+  if (stepsToCancel.length === 0) return 0;
+
+  const templates = stepsToCancel.map((s) => s.key);
+  return cancelPendingMessages(
+    leadId,
+    templates,
+    `Cancelado: lead avançou pra "${newEvent}"`,
+  );
 }
 
 /**
@@ -236,15 +300,9 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   const flow = await loadFlow(input.eventType);
   let scheduled = 0;
 
-  // Cancela pendentes se o evento exigir (compra_aprovada cancela cobranca de PIX)
-  const stepWithCancel = flow.find((s) => s.cancelPrevious);
-  if (stepWithCancel) {
-    await cancelPendingMessages(lead.id, [
-      "pix_nao_pago",
-      "carrinho_abandonado",
-      "assinatura_pix_pendente",
-    ]);
-  }
+  // Cancela mensagens pendentes via mapa EVENT_CANCELS (cobre templates dinâmicos)
+  // Ex: compra_aprovada → cancela todas mensagens de pix_gerado, carrinho_abandonado, assinatura_atrasada
+  await applyEventCancellation(lead.id, input.eventType);
 
   // Atualiza lead com novos campos pra renderizar templates
   const refreshedLead = { ...lead, ...updates } as Lead;
