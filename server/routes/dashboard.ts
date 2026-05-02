@@ -12,6 +12,7 @@ import {
   getFunilPix,
   getRetencaoPorMetodo,
 } from "../lib/saas-metrics.js";
+import { getCacMetrics } from "../lib/cac.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -78,6 +79,27 @@ dashboardRoutes.get("/breakdowns", async (c) => {
     getTipoBreakdown(produtoId),
   ]);
   return c.json({ planos, tipos });
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/cac?produtoId=N&since=ISO&until=ISO
+ * CAC blended: combina Meta ad spend com novos clientes Lead Tracker.
+ * ========================================================================== */
+dashboardRoutes.get("/cac", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const untilParam = c.req.query("until");
+  const until = untilParam ? new Date(untilParam) : new Date();
+  const safeUntil = Number.isNaN(until.getTime()) ? new Date() : until;
+  try {
+    const data = await getCacMetrics(produtoId, since, safeUntil);
+    return c.json(data);
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : "Erro CAC" },
+      500,
+    );
+  }
 });
 
 /* ==========================================================================

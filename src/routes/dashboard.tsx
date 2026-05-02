@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Calendar,
   ChevronDown,
+  Target,
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
@@ -32,6 +33,7 @@ import type {
   TipoBreakdown,
   SaasMetricsResponse,
   Produto,
+  CacMetrics,
 } from "@shared/types";
 
 const brl = (n: number) =>
@@ -61,6 +63,15 @@ export function DashboardPage() {
   const sinceParam = since ? since.toISOString() : "";
   const produtoParam = produtoId ?? "all";
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}`;
+
+  // Para CAC: alinha com Meta UI (until = ontem 23:59 quando não é "today"/"all")
+  const cacUntilDate = new Date();
+  if (period !== "today" && period !== "all") {
+    cacUntilDate.setDate(cacUntilDate.getDate() - 1);
+    cacUntilDate.setHours(23, 59, 59, 999);
+  }
+  const cacUntilParam = cacUntilDate.toISOString();
+  const cacQs = `${baseQs}&until=${cacUntilParam}`;
 
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam],
@@ -96,6 +107,14 @@ export function DashboardPage() {
     queryFn: () =>
       api.get<SaasMetricsResponse>(`/api/dashboard/saas?${baseQs}`),
     enabled: isSaasView,
+  });
+
+  // CAC: só faz sentido pra "all" ou produtos saas (que têm Meta tracking)
+  const cac = useQuery({
+    queryKey: ["dashboard", "cac", produtoParam, sinceParam, cacUntilParam],
+    queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${cacQs}`),
+    enabled: isSaasView,
+    retry: 0,
   });
 
   const m = metrics.data;
@@ -139,6 +158,40 @@ export function DashboardPage() {
           iconTone="rose"
         />
       </div>
+
+      {/* Linha de aquisição: CAC blended (gasto Meta + clientes Lead Tracker) */}
+      {isSaasView && cac.data && cac.data.adSpend > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="CAC (real, blended)"
+            value={cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
+            hint={`${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`}
+            icon={Target}
+            iconTone="forest"
+          />
+          <StatCard
+            label="CPA Meta (tráfego pago)"
+            value={cac.data.cpaMeta > 0 ? brl(cac.data.cpaMeta) : "—"}
+            hint={`${cac.data.pixelPurchases} compras Pixel`}
+            icon={DollarSign}
+            iconTone="lime"
+          />
+          <StatCard
+            label="Novos clientes"
+            value={cac.data.newCustomers.toLocaleString("pt-BR")}
+            hint={`${cac.data.organicCount} via orgânico/outros`}
+            icon={Users}
+            iconTone="lime"
+          />
+          <StatCard
+            label="% Orgânico"
+            value={`${cac.data.organicPct.toFixed(1)}%`}
+            hint="Sem atribuição Meta"
+            icon={TrendingUp}
+            iconTone={cac.data.organicPct > 30 ? "forest" : "lime"}
+          />
+        </div>
+      ) : null}
 
       {/* Linha 2: operação */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

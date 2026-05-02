@@ -110,6 +110,17 @@ export type FunilSnapshotColumn = {
   }>;
 };
 
+/* CAC blended: Meta spend + novos clientes Lead Tracker */
+export type CacMetrics = {
+  adSpend: number;
+  newCustomers: number;
+  cac: number;
+  pixelPurchases: number;
+  cpaMeta: number;
+  organicCount: number;
+  organicPct: number;
+};
+
 /* Meta Ads */
 export type MetaInsights = {
   spend: number;
