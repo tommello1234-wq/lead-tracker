@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": false,
+    "lib": ["esnext"],
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -11,15 +10,15 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx",
     "incremental": true,
-    "useDefineForClassFields": true,
     "verbatimModuleSyntax": false,
+    "types": ["node"],
     "paths": {
-      "@/*": ["./src/*"],
-      "@shared/*": ["./shared/*"]
+      "@server/*": ["./server/*"],
+      "@shared/*": ["./shared/*"],
+      "@db/*": ["./db/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "shared/**/*.ts"],
+  "include": ["server/**/*.ts", "shared/**/*.ts", "db/**/*.ts", "api/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
