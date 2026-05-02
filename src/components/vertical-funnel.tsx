@@ -35,10 +35,11 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
 
   // Layout do SVG:
   // | LABEL_W |        FUNNEL        | VALUE_W |
-  const W = 360;
+  // Card maior horizontalmente -> mais espaço pros textos das laterais
+  const W = 640;
   const H = 460;
-  const LABEL_W = 80;
-  const VALUE_W = 60;
+  const LABEL_W = 160;
+  const VALUE_W = 110;
   const FUNNEL_X0 = LABEL_W;
   const FUNNEL_X1 = W - VALUE_W;
   const innerW = FUNNEL_X1 - FUNNEL_X0;

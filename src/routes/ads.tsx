@@ -120,8 +120,8 @@ export function AdsPage() {
             />
           </div>
 
-          {/* Funil de conversão: cards detalhados (esq) + visual (dir) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-stretch">
+          {/* Funil de conversão: cards detalhados (esq, compacto) + visual (dir, maior) */}
+          <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-stretch">
             <ConversionFunnel insights={i} />
             <VerticalFunnel insights={i} />
           </div>
