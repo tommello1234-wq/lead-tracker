@@ -64,9 +64,10 @@ export function DashboardPage() {
   const produtoParam = produtoId ?? "all";
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}`;
 
-  // Para CAC: alinha com Meta UI (until = ontem 23:59 quando não é "today"/"all")
+  // Para CAC: "últimos 7/30 dias" alinha com Meta UI (até ontem 23:59).
+  // Mês/today/all incluem hoje pra dia parcial não sumir.
   const cacUntilDate = new Date();
-  if (period !== "today" && period !== "all") {
+  if (period === "7d" || period === "30d") {
     cacUntilDate.setDate(cacUntilDate.getDate() - 1);
     cacUntilDate.setHours(23, 59, 59, 999);
   }
