@@ -147,8 +147,6 @@ export function DashboardPage() {
         greeting={`${greeting()}, Washington 👋`}
         title="Lead Tracker"
         hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
-        primaryStat={faturamento.data ? brl(faturamento.data.total) : "—"}
-        primaryLabel="Faturamento no período"
         topRight={<PeriodPicker />}
       />
 
