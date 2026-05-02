@@ -100,13 +100,21 @@ export async function getDashboardMetrics(
 
   // Receita do PERÍODO selecionado (compras pagas no intervalo).
   // Se since=null, conta histórico todo. Se since=hoje, só conta vendas de hoje.
-  const pixPagos = all.filter((l) => l.pagouEm != null);
+  const pixPagosTotal = all.filter((l) => l.pagouEm != null);
   const pixPagosNoPeriodo = since
-    ? pixPagos.filter((l) => l.pagouEm! >= since)
-    : pixPagos;
+    ? pixPagosTotal.filter((l) => l.pagouEm! >= since)
+    : pixPagosTotal;
 
-  const pixGerados = all.filter((l) => l.pixGeradoEm != null);
-  const pixExpirados = all.filter((l) => l.status === "pix_expirado");
+  // Cohort de PIX no período: leads que GERARAM PIX dentro da janela.
+  // Taxa de conversão e receita perdida usam esse cohort pra ficar
+  // coerente com o filtro de tempo (antes pegava lifetime e quebrava).
+  const pixGeradosNoPeriodo = since
+    ? all.filter((l) => l.pixGeradoEm && l.pixGeradoEm >= since)
+    : all.filter((l) => l.pixGeradoEm != null);
+  const pixPagosCohort = pixGeradosNoPeriodo.filter((l) => l.pagouEm != null);
+  const pixExpiradosNoPeriodo = pixGeradosNoPeriodo.filter(
+    (l) => l.status === "pix_expirado",
+  );
 
   const vendasHoje = all.filter((l) => l.pagouEm && l.pagouEm >= today);
   const vendasMes = all.filter((l) => l.pagouEm && l.pagouEm >= monthStart);
@@ -117,7 +125,7 @@ export async function getDashboardMetrics(
       .filter((l) => l.subscriptionStatus === "aguardando_pagamento")
       .reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
 
-  const receitaPerdidaPix = pixExpirados.reduce(
+  const receitaPerdidaPix = pixExpiradosNoPeriodo.reduce(
     (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
     0,
   );
@@ -152,11 +160,13 @@ export async function getDashboardMetrics(
     mrr,
     mrrPotencial,
     clientesAtivos: clientesAtivos.length,
-    pixGerados: pixGerados.length,
-    pixPagos: pixPagosNoPeriodo.length,
-    pixExpirados: pixExpirados.length,
+    pixGerados: pixGeradosNoPeriodo.length,
+    pixPagos: pixPagosCohort.length,
+    pixExpirados: pixExpiradosNoPeriodo.length,
     taxaConversaoPix:
-      pixGerados.length > 0 ? pixPagos.length / pixGerados.length : 0,
+      pixGeradosNoPeriodo.length > 0
+        ? pixPagosCohort.length / pixGeradosNoPeriodo.length
+        : 0,
     receitaPerdidaPix,
     filaSuporte: pendingMsgs.length,
     mensagensEnviadasHoje: sentToday.length,
