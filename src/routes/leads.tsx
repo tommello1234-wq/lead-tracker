@@ -15,6 +15,26 @@ type Lead = {
   criadoEm: string;
 };
 
+// Formata em horário de Brasília (BRT/America/Sao_Paulo)
+const dateFmt = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+const timeFmt = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+function formatDateBR(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: "—", time: "" };
+  return { date: dateFmt.format(d), time: timeFmt.format(d) };
+}
+
 export function LeadsPage() {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
@@ -84,46 +104,56 @@ export function LeadsPage() {
                 <th className="text-left px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                   Status
                 </th>
+                <th className="text-left px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                  Data
+                </th>
                 <th className="text-right px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                   Valor
                 </th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((l) => (
-                <tr
-                  key={l.id}
-                  className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="size-9 rounded-xl bg-lime-soft grid place-items-center text-forest font-semibold text-xs">
-                        {l.nome.slice(0, 2).toUpperCase()}
+              {filtered.map((l) => {
+                const { date, time } = formatDateBR(l.criadoEm);
+                return (
+                  <tr
+                    key={l.id}
+                    className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="size-9 rounded-xl bg-lime-soft grid place-items-center text-forest font-semibold text-xs">
+                          {l.nome.slice(0, 2).toUpperCase()}
+                        </div>
+                        <span className="font-medium">{l.nome}</span>
                       </div>
-                      <span className="font-medium">{l.nome}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-muted-foreground">{l.contato ?? "—"}</td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`text-xs font-medium px-2.5 py-1 rounded-lg ${STATUS_COLOR[l.status] ?? "bg-muted text-foreground"}`}
-                    >
-                      {STATUS_LABEL[l.status] ?? l.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right tabular-nums font-medium">
-                    {l.valorAssinatura
-                      ? l.valorAssinatura.toLocaleString("pt-BR", {
-                          style: "currency",
-                          currency: "BRL",
-                        })
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 text-muted-foreground">{l.contato ?? "—"}</td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`text-xs font-medium px-2.5 py-1 rounded-lg ${STATUS_COLOR[l.status] ?? "bg-muted text-foreground"}`}
+                      >
+                        {STATUS_LABEL[l.status] ?? l.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm tabular-nums text-foreground">{date}</div>
+                      <div className="text-xs tabular-nums text-muted-foreground">{time}</div>
+                    </td>
+                    <td className="px-6 py-4 text-right tabular-nums font-medium">
+                      {l.valorAssinatura
+                        ? l.valorAssinatura.toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground text-sm">
+                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm">
                     Nenhum lead encontrado.
                   </td>
                 </tr>
