@@ -6,6 +6,7 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
 import { FunilBoard } from "@/components/funil-board";
+import { LiveActivityFeed } from "@/components/live-activity";
 
 type View = "table" | "funil";
 
@@ -86,8 +87,13 @@ export function LeadsPage() {
         </div>
       </div>
 
-      {/* Funil view */}
-      {view === "funil" ? <FunilBoard /> : null}
+      {/* Funil view + Activity feed lado a lado */}
+      {view === "funil" ? (
+        <div className="grid grid-cols-1 2xl:grid-cols-[1fr_380px] gap-4 items-start">
+          <FunilBoard />
+          <LiveActivityFeed />
+        </div>
+      ) : null}
 
       {/* Tabela view */}
       {view === "table" ? (

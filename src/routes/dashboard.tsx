@@ -25,7 +25,6 @@ import {
   TipoBreakdownChart,
 } from "@/components/dashboard-charts";
 import { SaasDashboard } from "@/components/saas-dashboard";
-import { LiveActivityFeed } from "@/components/live-activity";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -216,9 +215,6 @@ export function DashboardPage() {
           iconTone="rose"
         />
       </div>
-
-      {/* Activity feed em largura total */}
-      <LiveActivityFeed />
 
       {/* SaaS metrics — só pra produtos saas ou visão Todos */}
       {isSaasView && saasMetrics.data ? (
