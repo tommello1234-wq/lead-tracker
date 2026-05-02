@@ -25,8 +25,15 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
 export function AdsPage() {
   const { period } = useProdutoContext();
   const since = periodToSince(period);
+  // Meta UI's "últimos N dias" excludes today (so 7d = ontem-6 → ontem).
+  // For period === "today", keep until = now to include partial day.
+  const untilDate = new Date();
+  if (period !== "today" && period !== "all") {
+    untilDate.setDate(untilDate.getDate() - 1);
+    untilDate.setHours(23, 59, 59, 999);
+  }
   const sinceParam = since ? since.toISOString() : "";
-  const untilParam = new Date().toISOString();
+  const untilParam = untilDate.toISOString();
   const qs = `since=${sinceParam}&until=${untilParam}`;
 
   const insights = useQuery({

@@ -71,7 +71,15 @@ export type MetaCampaign = {
  * ======================================================== */
 function buildTimeRange(since: Date | null, until: Date | null): string {
   if (since && until) {
-    const fmtIso = (d: Date) => d.toISOString().slice(0, 10);
+    // Format as YYYY-MM-DD in São Paulo timezone (Meta ad account timezone).
+    // Plain .toISOString() would shift dates after 21h BRT into the next UTC day.
+    const fmtIso = (d: Date) =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
     return JSON.stringify({ since: fmtIso(since), until: fmtIso(until) });
   }
   return "";
