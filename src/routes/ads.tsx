@@ -1,18 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Megaphone,
-  Eye,
   MousePointerClick,
   ShoppingCart,
   DollarSign,
   TrendingUp,
-  Users,
   AlertCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToSince, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
+import { ConversionFunnel } from "@/components/conversion-funnel";
 import type { MetaInsights, MetaCampaign } from "@shared/types";
 
 const brl = (n: number) =>
@@ -93,9 +92,16 @@ export function AdsPage() {
             <StatCard
               label="Gasto"
               value={brl(i.spend)}
-              hint={`${num(i.impressions)} impressões`}
+              hint={`CPM ${brlSmall(i.cpm)}`}
               icon={DollarSign}
               iconTone="forest"
+            />
+            <StatCard
+              label="ROAS"
+              value={i.roas > 0 ? `${i.roas.toFixed(2)}x` : "—"}
+              hint={i.purchaseValue > 0 ? `R$ ${num(Math.round(i.purchaseValue))} receita` : "Sem receita atribuída"}
+              icon={TrendingUp}
+              iconTone={i.roas >= 3 ? "forest" : i.roas >= 1 ? "lime" : "rose"}
             />
             <StatCard
               label="CPA (custo por compra)"
@@ -105,52 +111,16 @@ export function AdsPage() {
               iconTone="lime"
             />
             <StatCard
-              label="CPC"
+              label="CPC (link)"
               value={brlSmall(i.cpc)}
-              hint={`${num(i.clicks)} clicks`}
+              hint={`${num(i.clicks)} clicks · CTR ${pct(i.ctr)}`}
               icon={MousePointerClick}
-              iconTone="lime"
-            />
-            <StatCard
-              label="CTR"
-              value={pct(i.ctr)}
-              hint={`${num(i.reach)} pessoas alcançadas`}
-              icon={TrendingUp}
               iconTone="lime"
             />
           </div>
 
-          {/* Linha 2: funil */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              label="Impressões"
-              value={num(i.impressions)}
-              hint={`CPM ${brlSmall(i.cpm)}`}
-              icon={Eye}
-              iconTone="lime"
-            />
-            <StatCard
-              label="Reach (únicos)"
-              value={num(i.reach)}
-              hint={i.impressions > 0 ? `${(i.impressions / i.reach).toFixed(1)} freq.` : undefined}
-              icon={Users}
-              iconTone="lime"
-            />
-            <StatCard
-              label="Initiate Checkout"
-              value={num(i.initiateCheckout)}
-              hint={`Custo: ${brl(i.cpic)}`}
-              icon={ShoppingCart}
-              iconTone="amber"
-            />
-            <StatCard
-              label="Conversão IC → Purchase"
-              value={i.initiateCheckout > 0 ? pct((i.purchases / i.initiateCheckout) * 100) : "—"}
-              hint={`${i.purchases}/${i.initiateCheckout}`}
-              icon={TrendingUp}
-              iconTone="forest"
-            />
-          </div>
+          {/* Funil de conversão visual */}
+          <ConversionFunnel insights={i} />
 
           {/* Tabela de campanhas */}
           <div className="card-soft overflow-hidden">

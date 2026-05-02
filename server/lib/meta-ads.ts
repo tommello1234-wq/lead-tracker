@@ -49,8 +49,14 @@ export type MetaInsights = {
   cpc: number;
   cpm: number;
   ctr: number;
+  frequency: number; // impressions / reach
   purchases: number;
   initiateCheckout: number;
+  landingPageViews: number;
+  viewContent: number;
+  addToCart: number;
+  purchaseValue: number; // R$ atribuído (Pixel)
+  roas: number; // purchaseValue / spend
   cpa: number; // spend / purchases
   cpic: number; // spend / initiate checkout
 };
@@ -91,6 +97,19 @@ function pickAction(actions: Array<{ action_type: string; value: string }> | und
   return a ? Number(a.value) : 0;
 }
 
+/**
+ * Soma valores de uma action (pra pegar revenue total atribuído).
+ * Diferente de pickAction (que pega contagem), usa action_values com o valor R$.
+ */
+function pickActionValue(
+  actionValues: Array<{ action_type: string; value: string }> | undefined,
+  type: string,
+): number {
+  if (!actionValues) return 0;
+  const a = actionValues.find((x) => x.action_type === type);
+  return a ? Number(a.value) : 0;
+}
+
 /* ========================================================
  * Insights agregados da conta
  * ======================================================== */
@@ -103,7 +122,7 @@ export async function getInsights(
   // alinham com o default da Meta UI (custo/clique no link, não em qualquer click).
   const params: Record<string, string> = {
     fields:
-      "spend,impressions,inline_link_clicks,reach,cost_per_inline_link_click,cpm,inline_link_click_ctr,actions",
+      "spend,impressions,inline_link_clicks,reach,cost_per_inline_link_click,cpm,inline_link_click_ctr,frequency,actions,action_values",
   };
   if (since && until) {
     params.time_range = buildTimeRange(since, until);
@@ -114,21 +133,34 @@ export async function getInsights(
   const resp = await metaFetch<{ data: AnyObject[] }>(`/${account}/insights`, params);
   const d = resp.data?.[0] ?? {};
   const actions = d.actions as Array<{ action_type: string; value: string }> | undefined;
+  const actionValues = d.action_values as Array<{ action_type: string; value: string }> | undefined;
 
   const spend = Number(d.spend ?? 0);
+  const impressions = Number(d.impressions ?? 0);
+  const reach = Number(d.reach ?? 0);
   const purchases = pickAction(actions, "omni_purchase");
   const initiateCheckout = pickAction(actions, "initiate_checkout");
+  const landingPageViews = pickAction(actions, "landing_page_view");
+  const viewContent = pickAction(actions, "view_content");
+  const addToCart = pickAction(actions, "add_to_cart");
+  const purchaseValue = pickActionValue(actionValues, "omni_purchase");
 
   return {
     spend,
-    impressions: Number(d.impressions ?? 0),
+    impressions,
     clicks: Number(d.inline_link_clicks ?? 0),
-    reach: Number(d.reach ?? 0),
+    reach,
     cpc: Number(d.cost_per_inline_link_click ?? 0),
     cpm: Number(d.cpm ?? 0),
     ctr: Number(d.inline_link_click_ctr ?? 0),
+    frequency: Number(d.frequency ?? (reach > 0 ? impressions / reach : 0)),
     purchases,
     initiateCheckout,
+    landingPageViews,
+    viewContent,
+    addToCart,
+    purchaseValue,
+    roas: spend > 0 ? purchaseValue / spend : 0,
     cpa: purchases > 0 ? spend / purchases : 0,
     cpic: initiateCheckout > 0 ? spend / initiateCheckout : 0,
   };

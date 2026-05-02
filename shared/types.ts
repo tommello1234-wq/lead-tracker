@@ -130,8 +130,14 @@ export type MetaInsights = {
   cpc: number;
   cpm: number;
   ctr: number;
+  frequency: number;
   purchases: number;
   initiateCheckout: number;
+  landingPageViews: number;
+  viewContent: number;
+  addToCart: number;
+  purchaseValue: number;
+  roas: number;
   cpa: number;
   cpic: number;
 };
