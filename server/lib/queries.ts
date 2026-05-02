@@ -218,6 +218,10 @@ export async function getDailySeries(
     const sevenDaysAgo = new Date(next);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+    // postgres-js em modo prepare:false não aceita Date como param — converte ISO
+    const sinceIso = sevenDaysAgo.toISOString();
+    const untilIso = next.toISOString();
+
     const tentou = await db.execute<{ tentou: number; pagou: number }>(sql`
       with tentou_ids as (
         select distinct lead_id
@@ -225,8 +229,8 @@ export async function getDailySeries(
         where lead_id is not null
           and event_type in ('pix_gerado', 'carrinho_abandonado', 'compra_recusada',
                               'pix_expirado', 'compra_aprovada', 'assinatura_renovada')
-          and received_at >= ${sevenDaysAgo}
-          and received_at < ${next}
+          and received_at >= ${sinceIso}::timestamp
+          and received_at < ${untilIso}::timestamp
           ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
       ),
       pagou_ids as (
@@ -234,8 +238,8 @@ export async function getDailySeries(
         from eventos
         where lead_id is not null
           and event_type in ('compra_aprovada', 'assinatura_renovada')
-          and received_at >= ${sevenDaysAgo}
-          and received_at < ${next}
+          and received_at >= ${sinceIso}::timestamp
+          and received_at < ${untilIso}::timestamp
           ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
       )
       select
