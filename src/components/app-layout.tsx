@@ -72,9 +72,9 @@ function AppShell() {
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-2xl font-bold tracking-tight">Lead Tracker</div>
             <ProductSwitcher />
-            <PeriodSelector />
           </div>
           <div className="flex items-center gap-3">
+            <PeriodSelector />
             <button className="size-11 rounded-2xl bg-card border border-border grid place-items-center text-foreground/70 hover:text-foreground transition-colors">
               <Search className="size-4" />
             </button>

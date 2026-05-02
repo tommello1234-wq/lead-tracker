@@ -18,9 +18,14 @@ activityRoutes.get("/recent", async (c) => {
   return c.json(items);
 });
 
-/* GET /api/activity/funil?produtoId=X */
+/* GET /api/activity/funil?produtoId=X&since=ISO */
 activityRoutes.get("/funil", async (c) => {
   const produtoId = parseProdutoId(c);
-  const snapshot = await getFunilSnapshot(produtoId);
+  const sinceParam = c.req.query("since");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  const snapshot = await getFunilSnapshot(
+    produtoId,
+    since && !Number.isNaN(since.getTime()) ? since : null,
+  );
   return c.json(snapshot);
 });

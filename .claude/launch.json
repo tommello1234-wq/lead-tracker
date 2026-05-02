@@ -6,7 +6,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "/Users/washingtonmelodesouza/Documents/PROJETO BACKUP/Planilha de leads/lead-tracker",
-      "port": 3000
+      "port": 5173
     }
   ]
 }

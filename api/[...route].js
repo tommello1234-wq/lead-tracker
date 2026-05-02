@@ -17759,7 +17759,7 @@ async function getRecentActivity(produtoId = null, limit = 30) {
     (a, b2) => new Date(b2.receivedAt).getTime() - new Date(a.receivedAt).getTime()
   ).slice(0, limit);
 }
-async function getFunilSnapshot(produtoId = null) {
+async function getFunilSnapshot(produtoId = null, since = null) {
   const ACTIVE_STATUSES = [
     "lead_novo",
     "carrinho_abandonado",
@@ -17789,6 +17789,12 @@ async function getFunilSnapshot(produtoId = null) {
     from leads l
     where l.status in ${sql.raw(`(${ACTIVE_STATUSES.map((s) => `'${s}'`).join(",")})`)}
       ${produtoId != null ? sql`and l.produto_id = ${produtoId}` : sql``}
+      ${since != null ? sql`and exists (
+        select 1 from eventos e
+        where e.lead_id = l.id
+          and e.processed_ok = true
+          and e.received_at >= ${since.toISOString()}::timestamp
+      )` : sql``}
     order by l.atualizado_em desc
     limit 500
   `);
@@ -17834,7 +17840,12 @@ activityRoutes.get("/recent", async (c) => {
 });
 activityRoutes.get("/funil", async (c) => {
   const produtoId = parseProdutoId2(c);
-  const snapshot = await getFunilSnapshot(produtoId);
+  const sinceParam = c.req.query("since");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  const snapshot = await getFunilSnapshot(
+    produtoId,
+    since && !Number.isNaN(since.getTime()) ? since : null
+  );
   return c.json(snapshot);
 });
 
