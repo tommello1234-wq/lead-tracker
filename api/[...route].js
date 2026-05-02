@@ -17404,7 +17404,11 @@ async function getFunilSnapshot(produtoId = null) {
       l.contato,
       l.status,
       l.valor_assinatura,
-      l.atualizado_em,
+      coalesce(
+        (select max(received_at) from eventos
+         where lead_id = l.id and processed_ok = true),
+        l.atualizado_em
+      ) as atualizado_em,
       coalesce(
         (select count(*)::int from mensagens_agendadas
          where lead_id = l.id and status = 'sent'),
