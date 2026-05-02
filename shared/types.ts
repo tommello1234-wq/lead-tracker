@@ -78,6 +78,37 @@ export type SaasMetricsResponse = {
   retencao: RetencaoPorMetodo[];
 };
 
+/* Live activity feed + funil snapshot */
+export type ActivityItem = {
+  id: number;
+  tipo: "evento" | "mensagem_enviada" | "mensagem_cancelada";
+  eventType: string;
+  leadId: number | null;
+  leadNome: string | null;
+  leadContato: string | null;
+  produtoId: number | null;
+  produtoNome: string | null;
+  receivedAt: string;
+  meta?: {
+    valor?: number | null;
+    template?: string | null;
+    erro?: string | null;
+  };
+};
+
+export type FunilSnapshotColumn = {
+  status: string;
+  count: number;
+  leads: Array<{
+    id: number;
+    nome: string;
+    contato: string | null;
+    valorAssinatura: number | null;
+    atualizadoEm: string;
+    horasNoEstagio: number;
+  }>;
+};
+
 export type Produto = {
   id: number;
   nome: string;

@@ -17311,6 +17311,146 @@ automacoesRoutes.delete("/eventos/:gatewayEvent", async (c) => {
   return c.json({ ok: true, removed: steps.length });
 });
 
+// server/lib/activity.ts
+async function getRecentActivity(produtoId = null, limit = 30) {
+  const eventosResult = await db.execute(sql`
+    select
+      e.id,
+      e.event_type,
+      e.received_at,
+      l.id as lead_id,
+      l.nome as lead_nome,
+      l.contato as lead_contato,
+      p.id as produto_id,
+      p.nome as produto_nome,
+      coalesce(
+        (e.payload->>'valor')::numeric,
+        ((e.payload->'item'->>'amount')::numeric / 100),
+        l.valor_assinatura
+      ) as valor
+    from eventos e
+    left join leads l on l.id = e.lead_id
+    left join produtos p on p.id = coalesce(e.produto_id, l.produto_id)
+    where e.processed_ok = true
+      ${produtoId != null ? sql`and (e.produto_id = ${produtoId} or l.produto_id = ${produtoId})` : sql``}
+    order by e.received_at desc
+    limit ${limit}
+  `);
+  const msgsResult = await db.execute(sql`
+    select
+      m.id,
+      m.status,
+      coalesce(m.enviado_em, m.criado_em) as sent_at,
+      m.template,
+      m.erro,
+      l.id as lead_id,
+      l.nome as lead_nome,
+      l.contato as lead_contato,
+      p.id as produto_id,
+      p.nome as produto_nome
+    from mensagens_agendadas m
+    join leads l on l.id = m.lead_id
+    left join produtos p on p.id = l.produto_id
+    where m.status in ('sent', 'skipped', 'failed')
+      ${produtoId != null ? sql`and l.produto_id = ${produtoId}` : sql``}
+    order by sent_at desc
+    limit ${limit}
+  `);
+  const items = [
+    ...eventosResult.map((e) => ({
+      id: e.id,
+      tipo: "evento",
+      eventType: e.event_type,
+      leadId: e.lead_id,
+      leadNome: e.lead_nome,
+      leadContato: e.lead_contato,
+      produtoId: e.produto_id,
+      produtoNome: e.produto_nome,
+      receivedAt: new Date(e.received_at).toISOString(),
+      meta: { valor: e.valor != null ? Number(e.valor) : null }
+    })),
+    ...msgsResult.map((m) => ({
+      id: m.id + 1e9,
+      // namespace pra não colidir com IDs de eventos
+      tipo: m.status === "sent" ? "mensagem_enviada" : "mensagem_cancelada",
+      eventType: m.status === "sent" ? "msg_sent" : `msg_${m.status}`,
+      leadId: m.lead_id,
+      leadNome: m.lead_nome,
+      leadContato: m.lead_contato,
+      produtoId: m.produto_id,
+      produtoNome: m.produto_nome,
+      receivedAt: new Date(m.sent_at).toISOString(),
+      meta: { template: m.template, erro: m.erro }
+    }))
+  ];
+  return items.sort(
+    (a, b2) => new Date(b2.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+  ).slice(0, limit);
+}
+async function getFunilSnapshot(produtoId = null) {
+  const ACTIVE_STATUSES = [
+    "lead_novo",
+    "carrinho_abandonado",
+    "pix_gerado",
+    "pix_expirado",
+    "cliente_ativo",
+    "cliente_em_risco",
+    "cliente_cancelado"
+  ];
+  const cond = [inArray(leads.status, ACTIVE_STATUSES)];
+  if (produtoId != null) cond.push(eq(leads.produtoId, produtoId));
+  const all = await db.select({
+    id: leads.id,
+    nome: leads.nome,
+    contato: leads.contato,
+    status: leads.status,
+    valorAssinatura: leads.valorAssinatura,
+    atualizadoEm: leads.atualizadoEm
+  }).from(leads).where(and(...cond)).orderBy(desc(leads.atualizadoEm)).limit(500);
+  const now = Date.now();
+  const grouped = /* @__PURE__ */ new Map();
+  for (const l of all) {
+    const horas = l.atualizadoEm != null ? Math.floor((now - new Date(l.atualizadoEm).getTime()) / (60 * 60 * 1e3)) : 0;
+    const arr = grouped.get(l.status) ?? [];
+    if (arr.length < 8) {
+      arr.push({
+        id: l.id,
+        nome: l.nome,
+        contato: l.contato,
+        valorAssinatura: l.valorAssinatura,
+        atualizadoEm: new Date(l.atualizadoEm).toISOString(),
+        horasNoEstagio: horas
+      });
+    }
+    grouped.set(l.status, arr);
+  }
+  return ACTIVE_STATUSES.map((status) => ({
+    status,
+    count: all.filter((l) => l.status === status).length,
+    leads: grouped.get(status) ?? []
+  }));
+}
+
+// server/routes/activity.ts
+var activityRoutes = new Hono2();
+function parseProdutoId2(c) {
+  const v = c.req.query("produtoId");
+  if (!v || v === "all") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+activityRoutes.get("/recent", async (c) => {
+  const produtoId = parseProdutoId2(c);
+  const limit = Math.min(Number(c.req.query("limit") ?? 30) || 30, 100);
+  const items = await getRecentActivity(produtoId, limit);
+  return c.json(items);
+});
+activityRoutes.get("/funil", async (c) => {
+  const produtoId = parseProdutoId2(c);
+  const snapshot = await getFunilSnapshot(produtoId);
+  return c.json(snapshot);
+});
+
 // server/middleware/auth.ts
 var requireAuth = async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE);
@@ -17332,10 +17472,12 @@ app.use("/produtos/*", requireAuth);
 app.use("/leads/*", requireAuth);
 app.use("/dashboard/*", requireAuth);
 app.use("/automacoes/*", requireAuth);
+app.use("/activity/*", requireAuth);
 app.route("/produtos", produtosRoutes);
 app.route("/leads", leadsRoutes);
 app.route("/dashboard", dashboardRoutes);
 app.route("/automacoes", automacoesRoutes);
+app.route("/activity", activityRoutes);
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {
   console.error("[hono error]", err);
