@@ -11,6 +11,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ProdutoProvider } from "@/contexts/produto-context";
+import { ProductSwitcher } from "@/components/product-switcher";
 import type { SidebarCounts } from "@shared/types";
 
 function AppShell() {
@@ -67,8 +68,9 @@ function AppShell() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
         <header className="flex items-center justify-between gap-4 px-8 py-5">
-          <div className="text-2xl font-bold tracking-tight">
-            Lead Tracker
+          <div className="flex items-center gap-4">
+            <div className="text-2xl font-bold tracking-tight">Lead Tracker</div>
+            <ProductSwitcher />
           </div>
           <div className="flex items-center gap-3">
             <button className="size-11 rounded-2xl bg-card border border-border grid place-items-center text-foreground/70 hover:text-foreground transition-colors">
