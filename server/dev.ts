@@ -2,15 +2,14 @@
  * Dev server — roda Hono standalone na porta 8787.
  * Vite proxya /api → localhost:8787 (ver vite.config.ts).
  *
- * Em produção, este arquivo NÃO é usado — o Hono é deployado como
- * Vercel Function via api/[[...route]].ts.
+ * IMPORTANTE: dotenv carrega ANTES do dynamic import do start.ts.
+ * Em ESM, top-level imports são hoisted/evaluados em paralelo — então tem
+ * que separar pra forçar ordem (env primeiro, depois import do app que
+ * lê process.env.DATABASE_URL).
  */
-import "dotenv/config";
-import { serve } from "@hono/node-server";
-import { app } from "./app";
+import { config as loadEnv } from "dotenv";
 
-const port = Number(process.env.API_PORT ?? 8787);
+loadEnv({ path: ".env.local" });
+loadEnv();
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`[hono] API rodando em http://localhost:${info.port}/api`);
-});
+await import("./start");

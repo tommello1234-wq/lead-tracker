@@ -1,10 +1,17 @@
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { LayoutDashboard, Users, Workflow, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  Workflow,
+  LogOut,
+  Search,
+  Bell,
+  MessageCircle,
+} from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ProdutoProvider } from "@/contexts/produto-context";
-
-type SidebarCounts = { emRisco: number; filaMensagens: number };
+import type { SidebarCounts } from "@shared/types";
 
 function AppShell() {
   const navigate = useNavigate();
@@ -25,46 +32,70 @@ function AppShell() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Sidebar */}
-      <aside className="w-60 bg-sidebar text-sidebar-foreground p-4 flex flex-col gap-1">
-        <div className="flex items-center gap-2 px-2 py-3 mb-4">
-          <div className="size-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center font-bold text-sm">
-            LT
-          </div>
-          <span className="font-semibold">Lead Tracker</span>
+      {/* Sidebar light cream */}
+      <aside className="w-[88px] bg-sidebar border-r border-sidebar-border py-6 flex flex-col items-center gap-1">
+        {/* Logo */}
+        <div className="size-11 rounded-2xl bg-forest grid place-items-center text-[oklch(0.96_0.04_130)] mb-4">
+          <Logo />
         </div>
 
-        <nav className="flex flex-col gap-1 flex-1">
-          <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-          <SidebarItem to="/leads" icon={Users} label="Leads" />
-          <SidebarItem
+        {/* Nav */}
+        <nav className="flex flex-col gap-2 flex-1 items-center pt-4">
+          <SideIcon to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
+          <SideIcon to="/leads" icon={Users} label="Leads" />
+          <SideIcon
             to="/automacoes"
             icon={Workflow}
             label="Automações"
-            badge={counts?.filaMensagens}
+            badge={counts?.filaMensagens && counts.filaMensagens > 0 ? counts.filaMensagens : undefined}
           />
         </nav>
 
+        {/* Logout */}
         <button
           type="button"
           onClick={() => logout.mutate()}
           disabled={logout.isPending}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+          title="Sair"
+          className="size-11 rounded-2xl grid place-items-center text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all disabled:opacity-50"
         >
-          <LogOut className="size-4" />
-          <span>Sair</span>
+          <LogOut className="size-5" />
         </button>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 p-6 overflow-auto">
-        <Outlet />
-      </main>
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <header className="flex items-center justify-between gap-4 px-8 py-5">
+          <div className="text-2xl font-bold tracking-tight">
+            Lead Tracker
+          </div>
+          <div className="flex items-center gap-3">
+            <button className="size-11 rounded-2xl bg-card border border-border grid place-items-center text-foreground/70 hover:text-foreground transition-colors">
+              <Search className="size-4" />
+            </button>
+            <button className="size-11 rounded-2xl bg-card border border-border grid place-items-center text-foreground/70 hover:text-foreground transition-colors">
+              <MessageCircle className="size-4" />
+            </button>
+            <button className="size-11 rounded-2xl bg-card border border-border grid place-items-center text-foreground/70 hover:text-foreground transition-colors relative">
+              <Bell className="size-4" />
+              <span className="absolute top-2 right-2 size-2 rounded-full bg-destructive" />
+            </button>
+            <div className="size-11 rounded-2xl bg-lime-soft grid place-items-center font-semibold text-foreground text-sm">
+              W
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 px-8 pb-8 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
 
-function SidebarItem({
+function SideIcon({
   to,
   icon: Icon,
   label,
@@ -78,25 +109,34 @@ function SidebarItem({
   return (
     <NavLink
       to={to}
+      title={label}
       className={({ isActive }) =>
         [
-          "flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all",
+          "size-11 rounded-2xl grid place-items-center transition-all relative",
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-            : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent",
         ].join(" ")
       }
     >
-      <span className="flex items-center gap-2.5">
-        <Icon className="size-4 shrink-0" />
-        {label}
-      </span>
-      {badge && badge > 0 ? (
-        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-sidebar-accent tabular-nums">
+      <Icon className="size-5" />
+      {badge !== undefined ? (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-destructive text-white text-[10px] font-bold grid place-items-center px-1 tabular-nums">
           {badge}
         </span>
       ) : null}
     </NavLink>
+  );
+}
+
+function Logo() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="size-5">
+      <circle cx="6" cy="6" r="2.5" fill="currentColor" />
+      <circle cx="18" cy="6" r="2.5" fill="currentColor" />
+      <circle cx="6" cy="18" r="2.5" fill="currentColor" />
+      <circle cx="18" cy="18" r="2.5" fill="currentColor" />
+    </svg>
   );
 }
 

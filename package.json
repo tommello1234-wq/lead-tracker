@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n web,api -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
-    "dev:api": "tsx watch server/dev.ts",
+    "dev:api": "tsx watch --tsconfig ./tsconfig.server.json server/dev.ts",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",

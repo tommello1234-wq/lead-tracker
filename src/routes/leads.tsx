@@ -1,12 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
+import { Search, Filter, Plus } from "lucide-react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
+import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
+import type { LeadStatus } from "@shared/labels";
 
 type Lead = {
   id: number;
   nome: string;
   contato: string | null;
-  status: string;
+  status: LeadStatus;
   valorAssinatura: number | null;
   criadoEm: string;
 };
@@ -14,40 +18,100 @@ type Lead = {
 export function LeadsPage() {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const [search, setSearch] = useState("");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["leads", produtoParam],
     queryFn: () => api.get<Lead[]>(`/api/leads?produtoId=${produtoParam}`),
   });
 
+  const filtered = (data ?? []).filter((l) =>
+    search ? l.nome.toLowerCase().includes(search.toLowerCase()) : true,
+  );
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Leads</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {data ? `${data.length} leads no total` : "Carregando..."}
+          </p>
+        </div>
+        <button className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all">
+          <Plus className="size-4" />
+          Novo lead
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <div className="card-soft p-2 flex items-center gap-2">
+        <div className="size-10 rounded-xl bg-secondary grid place-items-center shrink-0">
+          <Search className="size-4 text-foreground/60" />
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nome..."
+          className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+        />
+        <button className="size-10 rounded-xl bg-secondary hover:bg-lime-soft grid place-items-center shrink-0 transition-colors">
+          <Filter className="size-4 text-foreground/60" />
+        </button>
+      </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+        <div className="card-soft p-8 text-center text-sm text-muted-foreground">
+          Carregando...
+        </div>
       ) : error ? (
-        <p className="text-sm text-destructive">
-          Erro: {error instanceof Error ? error.message : "?"}
-        </p>
+        <div className="card-soft p-8 text-center text-sm text-destructive">
+          {error instanceof Error ? error.message : "Erro ao carregar"}
+        </div>
       ) : (
-        <div className="rounded-3xl border border-border bg-card overflow-hidden">
+        <div className="card-soft overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">Nome</th>
-                <th className="text-left px-4 py-3 font-medium">Contato</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-right px-4 py-3 font-medium">Valor</th>
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                  Nome
+                </th>
+                <th className="text-left px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                  Contato
+                </th>
+                <th className="text-left px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="text-right px-6 py-4 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                  Valor
+                </th>
               </tr>
             </thead>
             <tbody>
-              {data?.map((l) => (
-                <tr key={l.id} className="border-t border-border">
-                  <td className="px-4 py-3">{l.nome}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.contato ?? "—"}</td>
-                  <td className="px-4 py-3">{l.status}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+              {filtered.map((l) => (
+                <tr
+                  key={l.id}
+                  className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
+                >
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="size-9 rounded-xl bg-lime-soft grid place-items-center text-forest font-semibold text-xs">
+                        {l.nome.slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="font-medium">{l.nome}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-muted-foreground">{l.contato ?? "—"}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`text-xs font-medium px-2.5 py-1 rounded-lg ${STATUS_COLOR[l.status] ?? "bg-muted text-foreground"}`}
+                    >
+                      {STATUS_LABEL[l.status] ?? l.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums font-medium">
                     {l.valorAssinatura
                       ? l.valorAssinatura.toLocaleString("pt-BR", {
                           style: "currency",
@@ -57,14 +121,17 @@ export function LeadsPage() {
                   </td>
                 </tr>
               ))}
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground text-sm">
+                    Nenhum lead encontrado.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        UI completa (filtros, edição inline, drag&drop de status) vem na próxima iteração.
-      </p>
     </div>
   );
 }
