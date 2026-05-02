@@ -5,11 +5,6 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// node_modules/hono/dist/adapter/vercel/handler.js
-var handle = (app2) => (req) => {
-  return app2.fetch(req);
-};
-
 // node_modules/hono/dist/compose.js
 var compose = (middleware, onError, onNotFound) => {
   return (context, next) => {
@@ -7300,7 +7295,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         break;
       }
       try {
-        handle2(incoming.subarray(0, length + 1));
+        handle(incoming.subarray(0, length + 1));
       } catch (e) {
         query && (query.cursorFn || query.describeFirst) && write(Sync);
         errored(e);
@@ -7407,7 +7402,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     delay = (typeof backoff2 === "function" ? backoff2(options.shared.retries) : backoff2) * 1e3;
     onclose(connection2, Errors.connection("CONNECTION_CLOSED", options, socket));
   }
-  function handle2(xs, x = xs[0]) {
+  function handle(xs, x = xs[0]) {
     (x === 68 ? DataRow : (
       // D
       x === 100 ? CopyData : (
@@ -7993,13 +7988,13 @@ function Subscribe(postgres2, options) {
     }
     function data(x2) {
       if (x2[0] === 119) {
-        parse2(x2.subarray(25), state2, sql3.options.parsers, handle2, options.transform);
+        parse2(x2.subarray(25), state2, sql3.options.parsers, handle, options.transform);
       } else if (x2[0] === 107 && x2[17]) {
         state2.lsn = x2.subarray(1, 9);
         pong();
       }
     }
-    function handle2(a, b2) {
+    function handle(a, b2) {
       const path = b2.relation.schema + "." + b2.relation.table;
       call("*", a, b2);
       call("*:" + path, a, b2);
@@ -8023,7 +8018,7 @@ function Subscribe(postgres2, options) {
 function Time(x) {
   return new Date(Date.UTC(2e3, 0, 1) + Number(x / BigInt(1e3)));
 }
-function parse2(x, state, parsers2, handle2, transform) {
+function parse2(x, state, parsers2, handle, transform) {
   const char2 = (acc, [k, v]) => (acc[k.charCodeAt(0)] = v, acc);
   Object.entries({
     R: (x2) => {
@@ -8062,7 +8057,7 @@ function parse2(x, state, parsers2, handle2, transform) {
       let i = 1;
       const relation = state[x2.readUInt32BE(i)];
       const { row } = tuples(x2, relation.columns, i += 7, transform);
-      handle2(row, {
+      handle(row, {
         command: "insert",
         relation
       });
@@ -8072,7 +8067,7 @@ function parse2(x, state, parsers2, handle2, transform) {
       const relation = state[x2.readUInt32BE(i)];
       i += 4;
       const key = x2[i] === 75;
-      handle2(
+      handle(
         key || x2[i] === 79 ? tuples(x2, relation.columns, i += 3, transform).row : null,
         {
           command: "delete",
@@ -8089,7 +8084,7 @@ function parse2(x, state, parsers2, handle2, transform) {
       const xs = key || x2[i] === 79 ? tuples(x2, relation.columns, i += 3, transform) : null;
       xs && (i = xs.i);
       const { row } = tuples(x2, relation.columns, i + 3, transform);
-      handle2(row, {
+      handle(row, {
         command: "update",
         relation,
         key,
@@ -8628,8 +8623,8 @@ var ConsoleLogWriter = class {
 var DefaultLogger = class {
   static [entityKind] = "DefaultLogger";
   writer;
-  constructor(config2) {
-    this.writer = config2?.writer ?? new ConsoleLogWriter();
+  constructor(config) {
+    this.writer = config?.writer ?? new ConsoleLogWriter();
   }
   logQuery(query, params) {
     const stringifiedParams = params.map((p) => {
@@ -8675,24 +8670,24 @@ var QueryPromise = class {
 
 // node_modules/drizzle-orm/column.js
 var Column = class {
-  constructor(table, config2) {
+  constructor(table, config) {
     this.table = table;
-    this.config = config2;
-    this.name = config2.name;
-    this.keyAsName = config2.keyAsName;
-    this.notNull = config2.notNull;
-    this.default = config2.default;
-    this.defaultFn = config2.defaultFn;
-    this.onUpdateFn = config2.onUpdateFn;
-    this.hasDefault = config2.hasDefault;
-    this.primary = config2.primaryKey;
-    this.isUnique = config2.isUnique;
-    this.uniqueName = config2.uniqueName;
-    this.uniqueType = config2.uniqueType;
-    this.dataType = config2.dataType;
-    this.columnType = config2.columnType;
-    this.generated = config2.generated;
-    this.generatedIdentity = config2.generatedIdentity;
+    this.config = config;
+    this.name = config.name;
+    this.keyAsName = config.keyAsName;
+    this.notNull = config.notNull;
+    this.default = config.default;
+    this.defaultFn = config.defaultFn;
+    this.onUpdateFn = config.onUpdateFn;
+    this.hasDefault = config.hasDefault;
+    this.primary = config.primaryKey;
+    this.isUnique = config.isUnique;
+    this.uniqueName = config.uniqueName;
+    this.uniqueType = config.uniqueType;
+    this.dataType = config.dataType;
+    this.columnType = config.columnType;
+    this.generated = config.generated;
+    this.generatedIdentity = config.generatedIdentity;
   }
   static [entityKind] = "Column";
   name;
@@ -8839,9 +8834,9 @@ var ForeignKeyBuilder = class {
   _onUpdate = "no action";
   /** @internal */
   _onDelete = "no action";
-  constructor(config2, actions) {
+  constructor(config, actions) {
     this.reference = () => {
-      const { name, columns, foreignColumns } = config2();
+      const { name, columns, foreignColumns } = config();
       return { name, columns, foreignTable: foreignColumns[0].table, foreignColumns };
     };
     if (actions) {
@@ -9029,10 +9024,10 @@ var PgColumnBuilder = class extends ColumnBuilder {
     this.foreignKeyConfigs.push({ ref, actions });
     return this;
   }
-  unique(name, config2) {
+  unique(name, config) {
     this.config.isUnique = true;
     this.config.uniqueName = name;
-    this.config.uniqueType = config2?.nulls;
+    this.config.uniqueType = config?.nulls;
     return this;
   }
   generatedAlwaysAs(as) {
@@ -9071,11 +9066,11 @@ var PgColumnBuilder = class extends ColumnBuilder {
   }
 };
 var PgColumn = class extends Column {
-  constructor(table, config2) {
-    if (!config2.uniqueName) {
-      config2.uniqueName = uniqueKeyName(table, [config2.name]);
+  constructor(table, config) {
+    if (!config.uniqueName) {
+      config.uniqueName = uniqueKeyName(table, [config.name]);
     }
-    super(table, config2);
+    super(table, config);
     this.table = table;
   }
   static [entityKind] = "PgColumn";
@@ -9176,11 +9171,11 @@ var PgArrayBuilder = class extends PgColumnBuilder {
   }
 };
 var PgArray = class _PgArray extends PgColumn {
-  constructor(table, config2, baseColumn, range) {
-    super(table, config2);
+  constructor(table, config, baseColumn, range) {
+    super(table, config);
     this.baseColumn = baseColumn;
     this.range = range;
-    this.size = config2.size;
+    this.size = config.size;
   }
   size;
   static [entityKind] = "PgArray";
@@ -9221,9 +9216,9 @@ var PgEnumObjectColumn = class extends PgColumn {
   static [entityKind] = "PgEnumObjectColumn";
   enum;
   enumValues = this.config.enum.enumValues;
-  constructor(table, config2) {
-    super(table, config2);
-    this.enum = config2.enum;
+  constructor(table, config) {
+    super(table, config);
+    this.enum = config.enum;
   }
   getSQLType() {
     return this.enum.enumName;
@@ -9251,9 +9246,9 @@ var PgEnumColumn = class extends PgColumn {
   static [entityKind] = "PgEnumColumn";
   enum = this.config.enum;
   enumValues = this.config.enum.enumValues;
-  constructor(table, config2) {
-    super(table, config2);
-    this.enum = config2.enum;
+  constructor(table, config) {
+    super(table, config);
+    this.enum = config.enum;
   }
   getSQLType() {
     return this.enum.enumName;
@@ -9437,9 +9432,9 @@ var SQL = class _SQL {
     this.queryChunks.push(...query.queryChunks);
     return this;
   }
-  toQuery(config2) {
+  toQuery(config) {
     return tracer.startActiveSpan("drizzle.buildSQL", (span) => {
-      const query = this.buildQueryFromSourceParams(this.queryChunks, config2);
+      const query = this.buildQueryFromSourceParams(this.queryChunks, config);
       span?.setAttributes({
         "drizzle.query.text": query.sql,
         "drizzle.query.params": JSON.stringify(query.params)
@@ -9448,7 +9443,7 @@ var SQL = class _SQL {
     });
   }
   buildQueryFromSourceParams(chunks, _config) {
-    const config2 = Object.assign({}, _config, {
+    const config = Object.assign({}, _config, {
       inlineParams: _config.inlineParams || this.shouldInlineParams,
       paramStartIndex: _config.paramStartIndex || { value: 0 }
     });
@@ -9459,7 +9454,7 @@ var SQL = class _SQL {
       prepareTyping,
       inlineParams,
       paramStartIndex
-    } = config2;
+    } = config;
     return mergeQueries(chunks.map((chunk) => {
       if (is(chunk, StringChunk)) {
         return { sql: chunk.value.join(""), params: [] };
@@ -9479,11 +9474,11 @@ var SQL = class _SQL {
           }
         }
         result.push(new StringChunk(")"));
-        return this.buildQueryFromSourceParams(result, config2);
+        return this.buildQueryFromSourceParams(result, config);
       }
       if (is(chunk, _SQL)) {
         return this.buildQueryFromSourceParams(chunk.queryChunks, {
-          ...config2,
+          ...config,
           inlineParams: inlineParams || chunk.shouldInlineParams
         });
       }
@@ -9520,10 +9515,10 @@ var SQL = class _SQL {
         }
         const mappedValue = chunk.value === null ? null : chunk.encoder.mapToDriverValue(chunk.value);
         if (is(mappedValue, _SQL)) {
-          return this.buildQueryFromSourceParams([mappedValue], config2);
+          return this.buildQueryFromSourceParams([mappedValue], config);
         }
         if (inlineParams) {
-          return { sql: this.mapInlineParam(mappedValue, config2), params: [] };
+          return { sql: this.mapInlineParam(mappedValue, config), params: [] };
         }
         let typings = ["none"];
         if (prepareTyping) {
@@ -9546,7 +9541,7 @@ var SQL = class _SQL {
           chunk._.sql,
           new StringChunk(") "),
           new Name(chunk._.alias)
-        ], config2);
+        ], config);
       }
       if (isPgEnum(chunk)) {
         if (chunk.schema) {
@@ -9556,16 +9551,16 @@ var SQL = class _SQL {
       }
       if (isSQLWrapper(chunk)) {
         if (chunk.shouldOmitSQLParens?.()) {
-          return this.buildQueryFromSourceParams([chunk.getSQL()], config2);
+          return this.buildQueryFromSourceParams([chunk.getSQL()], config);
         }
         return this.buildQueryFromSourceParams([
           new StringChunk("("),
           chunk.getSQL(),
           new StringChunk(")")
-        ], config2);
+        ], config);
       }
       if (inlineParams) {
-        return { sql: this.mapInlineParam(chunk, config2), params: [] };
+        return { sql: this.mapInlineParam(chunk, config), params: [] };
       }
       return { sql: escapeParam(paramStartIndex.value++, chunk), params: [chunk], typings: ["none"] };
     }));
@@ -9878,8 +9873,8 @@ function mapColumnsInSQLToAlias(query, alias) {
 var SelectionProxyHandler = class _SelectionProxyHandler {
   static [entityKind] = "SelectionProxyHandler";
   config;
-  constructor(config2) {
-    this.config = { ...config2 };
+  constructor(config) {
+    this.config = { ...config };
   }
   get(subquery, prop) {
     if (prop === "_") {
@@ -10179,8 +10174,8 @@ var PgBigInt64 = class extends PgColumn {
   }
 };
 function bigint(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (config2.mode === "number") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (config.mode === "number") {
     return new PgBigInt53Builder(name);
   }
   return new PgBigInt64Builder(name);
@@ -10239,8 +10234,8 @@ var PgBigSerial64 = class extends PgColumn {
   }
 };
 function bigserial(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (config2.mode === "number") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (config.mode === "number") {
     return new PgBigSerial53Builder(name);
   }
   return new PgBigSerial64Builder(name);
@@ -10270,10 +10265,10 @@ function boolean(name) {
 // node_modules/drizzle-orm/pg-core/columns/char.js
 var PgCharBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgCharBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "string", "PgChar");
-    this.config.length = config2.length;
-    this.config.enumValues = config2.enum;
+    this.config.length = config.length;
+    this.config.enumValues = config.enum;
   }
   /** @internal */
   build(table) {
@@ -10292,8 +10287,8 @@ var PgChar = class extends PgColumn {
   }
 };
 function char(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgCharBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgCharBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/cidr.js
@@ -10338,11 +10333,11 @@ var PgCustomColumn = class extends PgColumn {
   sqlName;
   mapTo;
   mapFrom;
-  constructor(table, config2) {
-    super(table, config2);
-    this.sqlName = config2.customTypeParams.dataType(config2.fieldConfig);
-    this.mapTo = config2.customTypeParams.toDriver;
-    this.mapFrom = config2.customTypeParams.fromDriver;
+  constructor(table, config) {
+    super(table, config);
+    this.sqlName = config.customTypeParams.dataType(config.fieldConfig);
+    this.mapTo = config.customTypeParams.toDriver;
+    this.mapFrom = config.customTypeParams.fromDriver;
   }
   getSQLType() {
     return this.sqlName;
@@ -10356,8 +10351,8 @@ var PgCustomColumn = class extends PgColumn {
 };
 function customType(customTypeParams) {
   return (a, b2) => {
-    const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-    return new PgCustomColumnBuilder(name, config2, customTypeParams);
+    const { name, config } = getColumnNameAndConfig(a, b2);
+    return new PgCustomColumnBuilder(name, config, customTypeParams);
   };
 }
 
@@ -10417,8 +10412,8 @@ var PgDateString = class extends PgColumn {
   }
 };
 function date(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (config2?.mode === "date") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (config?.mode === "date") {
     return new PgDateBuilder(name);
   }
   return new PgDateStringBuilder(name);
@@ -10525,8 +10520,8 @@ var PgInterval = class extends PgColumn {
   }
 };
 function interval(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgIntervalBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgIntervalBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/json.js
@@ -10542,8 +10537,8 @@ var PgJsonBuilder = class extends PgColumnBuilder {
 };
 var PgJson = class extends PgColumn {
   static [entityKind] = "PgJson";
-  constructor(table, config2) {
-    super(table, config2);
+  constructor(table, config) {
+    super(table, config);
   }
   getSQLType() {
     return "json";
@@ -10579,8 +10574,8 @@ var PgJsonbBuilder = class extends PgColumnBuilder {
 };
 var PgJsonb = class extends PgColumn {
   static [entityKind] = "PgJsonb";
-  constructor(table, config2) {
-    super(table, config2);
+  constructor(table, config) {
+    super(table, config);
   }
   getSQLType() {
     return "jsonb";
@@ -10657,8 +10652,8 @@ var PgLineABC = class extends PgColumn {
   }
 };
 function line(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (!config2?.mode || config2.mode === "tuple") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (!config?.mode || config.mode === "tuple") {
     return new PgLineBuilder(name);
   }
   return new PgLineABCBuilder(name);
@@ -10723,10 +10718,10 @@ var PgNumeric = class extends PgColumn {
   static [entityKind] = "PgNumeric";
   precision;
   scale;
-  constructor(table, config2) {
-    super(table, config2);
-    this.precision = config2.precision;
-    this.scale = config2.scale;
+  constructor(table, config) {
+    super(table, config);
+    this.precision = config.precision;
+    this.scale = config.scale;
   }
   mapFromDriverValue(value) {
     if (typeof value === "string") return value;
@@ -10761,10 +10756,10 @@ var PgNumericNumber = class extends PgColumn {
   static [entityKind] = "PgNumericNumber";
   precision;
   scale;
-  constructor(table, config2) {
-    super(table, config2);
-    this.precision = config2.precision;
-    this.scale = config2.scale;
+  constructor(table, config) {
+    super(table, config);
+    this.precision = config.precision;
+    this.scale = config.scale;
   }
   mapFromDriverValue(value) {
     if (typeof value === "number") return value;
@@ -10800,10 +10795,10 @@ var PgNumericBigInt = class extends PgColumn {
   static [entityKind] = "PgNumericBigInt";
   precision;
   scale;
-  constructor(table, config2) {
-    super(table, config2);
-    this.precision = config2.precision;
-    this.scale = config2.scale;
+  constructor(table, config) {
+    super(table, config);
+    this.precision = config.precision;
+    this.scale = config.scale;
   }
   mapFromDriverValue = BigInt;
   mapToDriverValue = String;
@@ -10818,9 +10813,9 @@ var PgNumericBigInt = class extends PgColumn {
   }
 };
 function numeric(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  const mode = config2?.mode;
-  return mode === "number" ? new PgNumericNumberBuilder(name, config2?.precision, config2?.scale) : mode === "bigint" ? new PgNumericBigIntBuilder(name, config2?.precision, config2?.scale) : new PgNumericBuilder(name, config2?.precision, config2?.scale);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  const mode = config?.mode;
+  return mode === "number" ? new PgNumericNumberBuilder(name, config?.precision, config?.scale) : mode === "bigint" ? new PgNumericBigIntBuilder(name, config?.precision, config?.scale) : new PgNumericBuilder(name, config?.precision, config?.scale);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/point.js
@@ -10883,8 +10878,8 @@ var PgPointObject = class extends PgColumn {
   }
 };
 function point(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (!config2?.mode || config2.mode === "tuple") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (!config?.mode || config.mode === "tuple") {
     return new PgPointTupleBuilder(name);
   }
   return new PgPointObjectBuilder(name);
@@ -10982,8 +10977,8 @@ var PgGeometryObject = class extends PgColumn {
   }
 };
 function geometry(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (!config2?.mode || config2.mode === "tuple") {
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (!config?.mode || config.mode === "tuple") {
     return new PgGeometryBuilder(name);
   }
   return new PgGeometryObjectBuilder(name);
@@ -11003,8 +10998,8 @@ var PgRealBuilder = class extends PgColumnBuilder {
 };
 var PgReal = class extends PgColumn {
   static [entityKind] = "PgReal";
-  constructor(table, config2) {
-    super(table, config2);
+  constructor(table, config) {
+    super(table, config);
   }
   getSQLType() {
     return "real";
@@ -11099,9 +11094,9 @@ function smallserial(name) {
 // node_modules/drizzle-orm/pg-core/columns/text.js
 var PgTextBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgTextBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "string", "PgText");
-    this.config.enumValues = config2.enum;
+    this.config.enumValues = config.enum;
   }
   /** @internal */
   build(table) {
@@ -11116,8 +11111,8 @@ var PgText = class extends PgColumn {
   }
 };
 function text(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgTextBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgTextBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/time.js
@@ -11139,10 +11134,10 @@ var PgTime = class extends PgColumn {
   static [entityKind] = "PgTime";
   withTimezone;
   precision;
-  constructor(table, config2) {
-    super(table, config2);
-    this.withTimezone = config2.withTimezone;
-    this.precision = config2.precision;
+  constructor(table, config) {
+    super(table, config);
+    this.withTimezone = config.withTimezone;
+    this.precision = config.precision;
   }
   getSQLType() {
     const precision = this.precision === void 0 ? "" : `(${this.precision})`;
@@ -11150,8 +11145,8 @@ var PgTime = class extends PgColumn {
   }
 };
 function time2(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgTimeBuilder(name, config2.withTimezone ?? false, config2.precision);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgTimeBuilder(name, config.withTimezone ?? false, config.precision);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/timestamp.js
@@ -11171,10 +11166,10 @@ var PgTimestamp = class extends PgColumn {
   static [entityKind] = "PgTimestamp";
   withTimezone;
   precision;
-  constructor(table, config2) {
-    super(table, config2);
-    this.withTimezone = config2.withTimezone;
-    this.precision = config2.precision;
+  constructor(table, config) {
+    super(table, config);
+    this.withTimezone = config.withTimezone;
+    this.precision = config.precision;
   }
   getSQLType() {
     const precision = this.precision === void 0 ? "" : ` (${this.precision})`;
@@ -11207,10 +11202,10 @@ var PgTimestampString = class extends PgColumn {
   static [entityKind] = "PgTimestampString";
   withTimezone;
   precision;
-  constructor(table, config2) {
-    super(table, config2);
-    this.withTimezone = config2.withTimezone;
-    this.precision = config2.precision;
+  constructor(table, config) {
+    super(table, config);
+    this.withTimezone = config.withTimezone;
+    this.precision = config.precision;
   }
   getSQLType() {
     const precision = this.precision === void 0 ? "" : `(${this.precision})`;
@@ -11228,11 +11223,11 @@ var PgTimestampString = class extends PgColumn {
   }
 };
 function timestamp(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  if (config2?.mode === "string") {
-    return new PgTimestampStringBuilder(name, config2.withTimezone ?? false, config2.precision);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  if (config?.mode === "string") {
+    return new PgTimestampStringBuilder(name, config.withTimezone ?? false, config.precision);
   }
-  return new PgTimestampBuilder(name, config2?.withTimezone ?? false, config2?.precision);
+  return new PgTimestampBuilder(name, config?.withTimezone ?? false, config?.precision);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/uuid.js
@@ -11265,10 +11260,10 @@ function uuid(name) {
 // node_modules/drizzle-orm/pg-core/columns/varchar.js
 var PgVarcharBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgVarcharBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "string", "PgVarchar");
-    this.config.length = config2.length;
-    this.config.enumValues = config2.enum;
+    this.config.length = config.length;
+    this.config.enumValues = config.enum;
   }
   /** @internal */
   build(table) {
@@ -11287,16 +11282,16 @@ var PgVarchar = class extends PgColumn {
   }
 };
 function varchar(a, b2 = {}) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgVarcharBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgVarcharBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/vector_extension/bit.js
 var PgBinaryVectorBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgBinaryVectorBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "string", "PgBinaryVector");
-    this.config.dimensions = config2.dimensions;
+    this.config.dimensions = config.dimensions;
   }
   /** @internal */
   build(table) {
@@ -11314,16 +11309,16 @@ var PgBinaryVector = class extends PgColumn {
   }
 };
 function bit(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgBinaryVectorBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgBinaryVectorBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/vector_extension/halfvec.js
 var PgHalfVectorBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgHalfVectorBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "array", "PgHalfVector");
-    this.config.dimensions = config2.dimensions;
+    this.config.dimensions = config.dimensions;
   }
   /** @internal */
   build(table) {
@@ -11347,16 +11342,16 @@ var PgHalfVector = class extends PgColumn {
   }
 };
 function halfvec(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgHalfVectorBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgHalfVectorBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/vector_extension/sparsevec.js
 var PgSparseVectorBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgSparseVectorBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "string", "PgSparseVector");
-    this.config.dimensions = config2.dimensions;
+    this.config.dimensions = config.dimensions;
   }
   /** @internal */
   build(table) {
@@ -11374,16 +11369,16 @@ var PgSparseVector = class extends PgColumn {
   }
 };
 function sparsevec(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgSparseVectorBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgSparseVectorBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/vector_extension/vector.js
 var PgVectorBuilder = class extends PgColumnBuilder {
   static [entityKind] = "PgVectorBuilder";
-  constructor(name, config2) {
+  constructor(name, config) {
     super(name, "array", "PgVector");
-    this.config.dimensions = config2.dimensions;
+    this.config.dimensions = config.dimensions;
   }
   /** @internal */
   build(table) {
@@ -11407,8 +11402,8 @@ var PgVector = class extends PgColumn {
   }
 };
 function vector(a, b2) {
-  const { name, config: config2 } = getColumnNameAndConfig(a, b2);
-  return new PgVectorBuilder(name, config2);
+  const { name, config } = getColumnNameAndConfig(a, b2);
+  return new PgVectorBuilder(name, config);
 }
 
 // node_modules/drizzle-orm/pg-core/columns/all.js
@@ -11750,16 +11745,16 @@ var Relation = class {
   fieldName;
 };
 var Relations = class {
-  constructor(table, config2) {
+  constructor(table, config) {
     this.table = table;
-    this.config = config2;
+    this.config = config;
   }
   static [entityKind] = "Relations";
 };
 var One = class _One extends Relation {
-  constructor(sourceTable, referencedTable, config2, isNullable) {
-    super(sourceTable, referencedTable, config2?.relationName);
-    this.config = config2;
+  constructor(sourceTable, referencedTable, config, isNullable) {
+    super(sourceTable, referencedTable, config?.relationName);
+    this.config = config;
     this.isNullable = isNullable;
   }
   static [entityKind] = "One";
@@ -11775,9 +11770,9 @@ var One = class _One extends Relation {
   }
 };
 var Many = class _Many extends Relation {
-  constructor(sourceTable, referencedTable, config2) {
-    super(sourceTable, referencedTable, config2?.relationName);
-    this.config = config2;
+  constructor(sourceTable, referencedTable, config) {
+    super(sourceTable, referencedTable, config?.relationName);
+    this.config = config;
   }
   static [entityKind] = "Many";
   withFieldName(fieldName) {
@@ -11887,18 +11882,18 @@ function extractTablesRelationalConfig(schema, configHelpers) {
   return { tables: tablesConfig, tableNamesMap };
 }
 function createOne(sourceTable) {
-  return function one(table, config2) {
+  return function one(table, config) {
     return new One(
       sourceTable,
       table,
-      config2,
-      config2?.fields.reduce((res, f) => res && f.notNull, true) ?? false
+      config,
+      config?.fields.reduce((res, f) => res && f.notNull, true) ?? false
     );
   };
 }
 function createMany(sourceTable) {
-  return function many(referencedTable, config2) {
-    return new Many(sourceTable, referencedTable, config2);
+  return function many(referencedTable, config) {
+    return new Many(sourceTable, referencedTable, config);
   };
 }
 function normalizeRelation(schema, tableNamesMap, relation) {
@@ -12008,12 +12003,12 @@ var PgDialect = class {
   static [entityKind] = "PgDialect";
   /** @internal */
   casing;
-  constructor(config2) {
-    this.casing = new CasingCache(config2?.casing);
+  constructor(config) {
+    this.casing = new CasingCache(config?.casing);
   }
-  async migrate(migrations, session, config2) {
-    const migrationsTable = typeof config2 === "string" ? "__drizzle_migrations" : config2.migrationsTable ?? "__drizzle_migrations";
-    const migrationsSchema = typeof config2 === "string" ? "drizzle" : config2.migrationsSchema ?? "drizzle";
+  async migrate(migrations, session, config) {
+    const migrationsTable = typeof config === "string" ? "__drizzle_migrations" : config.migrationsTable ?? "__drizzle_migrations";
+    const migrationsSchema = typeof config === "string" ? "drizzle" : config.migrationsSchema ?? "drizzle";
     const migrationTableCreate = sql`
 			CREATE TABLE IF NOT EXISTS ${sql.identifier(migrationsSchema)}.${sql.identifier(migrationsTable)} (
 				id SERIAL PRIMARY KEY,
@@ -12892,7 +12887,7 @@ var PgDialect = class {
     tableNamesMap,
     table,
     tableConfig,
-    queryConfig: config2,
+    queryConfig: config,
     tableAlias,
     nestedQueryRelation,
     joinOn
@@ -12900,7 +12895,7 @@ var PgDialect = class {
     let selection = [];
     let limit, offset, orderBy = [], where;
     const joins = [];
-    if (config2 === true) {
+    if (config === true) {
       const selectionEntries = Object.entries(tableConfig.columns);
       selection = selectionEntries.map(([key, value]) => ({
         dbKey: value.name,
@@ -12914,15 +12909,15 @@ var PgDialect = class {
       const aliasedColumns = Object.fromEntries(
         Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)])
       );
-      if (config2.where) {
-        const whereSql = typeof config2.where === "function" ? config2.where(aliasedColumns, getOperators()) : config2.where;
+      if (config.where) {
+        const whereSql = typeof config.where === "function" ? config.where(aliasedColumns, getOperators()) : config.where;
         where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
       }
       const fieldsSelection = [];
       let selectedColumns = [];
-      if (config2.columns) {
+      if (config.columns) {
         let isIncludeMode = false;
-        for (const [field, value] of Object.entries(config2.columns)) {
+        for (const [field, value] of Object.entries(config.columns)) {
           if (value === void 0) {
             continue;
           }
@@ -12934,7 +12929,7 @@ var PgDialect = class {
           }
         }
         if (selectedColumns.length > 0) {
-          selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config2.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
+          selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
         }
       } else {
         selectedColumns = Object.keys(tableConfig.columns);
@@ -12944,12 +12939,12 @@ var PgDialect = class {
         fieldsSelection.push({ tsKey: field, value: column });
       }
       let selectedRelations = [];
-      if (config2.with) {
-        selectedRelations = Object.entries(config2.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
+      if (config.with) {
+        selectedRelations = Object.entries(config.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
       }
       let extras;
-      if (config2.extras) {
-        extras = typeof config2.extras === "function" ? config2.extras(aliasedColumns, { sql }) : config2.extras;
+      if (config.extras) {
+        extras = typeof config.extras === "function" ? config.extras(aliasedColumns, { sql }) : config.extras;
         for (const [tsKey, value] of Object.entries(extras)) {
           fieldsSelection.push({
             tsKey,
@@ -12967,7 +12962,7 @@ var PgDialect = class {
           selection: []
         });
       }
-      let orderByOrig = typeof config2.orderBy === "function" ? config2.orderBy(aliasedColumns, getOrderByOperators()) : config2.orderBy ?? [];
+      let orderByOrig = typeof config.orderBy === "function" ? config.orderBy(aliasedColumns, getOrderByOperators()) : config.orderBy ?? [];
       if (!Array.isArray(orderByOrig)) {
         orderByOrig = [orderByOrig];
       }
@@ -12977,8 +12972,8 @@ var PgDialect = class {
         }
         return mapColumnsInSQLToAlias(orderByValue, tableAlias);
       });
-      limit = config2.limit;
-      offset = config2.offset;
+      limit = config.limit;
+      offset = config.offset;
       for (const {
         tsKey: selectedRelationTsKey,
         queryConfig: selectedRelationConfigValue,
@@ -13125,14 +13120,14 @@ var PgSelectBuilder = class {
   dialect;
   withList = [];
   distinct;
-  constructor(config2) {
-    this.fields = config2.fields;
-    this.session = config2.session;
-    this.dialect = config2.dialect;
-    if (config2.withList) {
-      this.withList = config2.withList;
+  constructor(config) {
+    this.fields = config.fields;
+    this.session = config.session;
+    this.dialect = config.dialect;
+    if (config.withList) {
+      this.withList = config.withList;
     }
-    this.distinct = config2.distinct;
+    this.distinct = config.distinct;
   }
   authToken;
   /** @internal */
@@ -13821,8 +13816,8 @@ var PgSelectQueryBuilderBase = class extends TypedQueryBuilder {
    * @param strength the lock strength.
    * @param config the lock configuration.
    */
-  for(strength, config2 = {}) {
-    this.config.lockingClause = { strength, config: config2 };
+  for(strength, config = {}) {
+    this.config.lockingClause = { strength, config };
     return this;
   }
   /** @internal */
@@ -13854,8 +13849,8 @@ var PgSelectQueryBuilderBase = class extends TypedQueryBuilder {
   $dynamic() {
     return this;
   }
-  $withCache(config2) {
-    this.cacheConfig = config2 === void 0 ? { config: {}, enable: true, autoInvalidate: true } : config2 === false ? { enable: false } : { enable: true, autoInvalidate: true, ...config2 };
+  $withCache(config) {
+    this.cacheConfig = config === void 0 ? { config: {}, enable: true, autoInvalidate: true } : config === false ? { enable: false } : { enable: true, autoInvalidate: true, ...config };
     return this;
   }
 };
@@ -13863,11 +13858,11 @@ var PgSelectBase = class extends PgSelectQueryBuilderBase {
   static [entityKind] = "PgSelect";
   /** @internal */
   _prepare(name) {
-    const { session, config: config2, dialect, joinsNotNullableMap, authToken, cacheConfig, usedTables } = this;
+    const { session, config, dialect, joinsNotNullableMap, authToken, cacheConfig, usedTables } = this;
     if (!session) {
       throw new Error("Cannot execute a query on a query builder. Please use a database instance instead.");
     }
-    const { fields } = config2;
+    const { fields } = config;
     return tracer.startActiveSpan("drizzle.prepareQuery", () => {
       const fieldsList = orderSelectedFields(fields);
       const query = session.prepareQuery(dialect.sqlToQuery(this.getSQL()), fieldsList, name, true, void 0, {
@@ -14221,13 +14216,13 @@ var PgInsertBase = class extends QueryPromise {
    *   .onConflictDoNothing({ target: cars.id });
    * ```
    */
-  onConflictDoNothing(config2 = {}) {
-    if (config2.target === void 0) {
+  onConflictDoNothing(config = {}) {
+    if (config.target === void 0) {
       this.config.onConflict = sql`do nothing`;
     } else {
       let targetColumn = "";
-      targetColumn = Array.isArray(config2.target) ? config2.target.map((it) => this.dialect.escapeName(this.dialect.casing.getColumnCasing(it))).join(",") : this.dialect.escapeName(this.dialect.casing.getColumnCasing(config2.target));
-      const whereSql = config2.where ? sql` where ${config2.where}` : void 0;
+      targetColumn = Array.isArray(config.target) ? config.target.map((it) => this.dialect.escapeName(this.dialect.casing.getColumnCasing(it))).join(",") : this.dialect.escapeName(this.dialect.casing.getColumnCasing(config.target));
+      const whereSql = config.where ? sql` where ${config.where}` : void 0;
       this.config.onConflict = sql`(${sql.raw(targetColumn)})${whereSql} do nothing`;
     }
     return this;
@@ -14261,18 +14256,18 @@ var PgInsertBase = class extends QueryPromise {
    *   });
    * ```
    */
-  onConflictDoUpdate(config2) {
-    if (config2.where && (config2.targetWhere || config2.setWhere)) {
+  onConflictDoUpdate(config) {
+    if (config.where && (config.targetWhere || config.setWhere)) {
       throw new Error(
         'You cannot use both "where" and "targetWhere"/"setWhere" at the same time - "where" is deprecated, use "targetWhere" or "setWhere" instead.'
       );
     }
-    const whereSql = config2.where ? sql` where ${config2.where}` : void 0;
-    const targetWhereSql = config2.targetWhere ? sql` where ${config2.targetWhere}` : void 0;
-    const setWhereSql = config2.setWhere ? sql` where ${config2.setWhere}` : void 0;
-    const setSql = this.dialect.buildUpdateSet(this.config.table, mapUpdateSet(this.config.table, config2.set));
+    const whereSql = config.where ? sql` where ${config.where}` : void 0;
+    const targetWhereSql = config.targetWhere ? sql` where ${config.targetWhere}` : void 0;
+    const setWhereSql = config.setWhere ? sql` where ${config.setWhere}` : void 0;
+    const setSql = this.dialect.buildUpdateSet(this.config.table, mapUpdateSet(this.config.table, config.set));
     let targetColumn = "";
-    targetColumn = Array.isArray(config2.target) ? config2.target.map((it) => this.dialect.escapeName(this.dialect.casing.getColumnCasing(it))).join(",") : this.dialect.escapeName(this.dialect.casing.getColumnCasing(config2.target));
+    targetColumn = Array.isArray(config.target) ? config.target.map((it) => this.dialect.escapeName(this.dialect.casing.getColumnCasing(it))).join(",") : this.dialect.escapeName(this.dialect.casing.getColumnCasing(config.target));
     this.config.onConflict = sql`(${sql.raw(targetColumn)})${targetWhereSql} do update set ${setSql}${whereSql}${setWhereSql}`;
     return this;
   }
@@ -14652,7 +14647,7 @@ var RelationalQueryBuilder = class {
     this.session = session;
   }
   static [entityKind] = "PgRelationalQueryBuilder";
-  findMany(config2) {
+  findMany(config) {
     return new PgRelationalQuery(
       this.fullSchema,
       this.schema,
@@ -14661,11 +14656,11 @@ var RelationalQueryBuilder = class {
       this.tableConfig,
       this.dialect,
       this.session,
-      config2 ? config2 : {},
+      config ? config : {},
       "many"
     );
   }
-  findFirst(config2) {
+  findFirst(config) {
     return new PgRelationalQuery(
       this.fullSchema,
       this.schema,
@@ -14674,13 +14669,13 @@ var RelationalQueryBuilder = class {
       this.tableConfig,
       this.dialect,
       this.session,
-      config2 ? { ...config2, limit: 1 } : { limit: 1 },
+      config ? { ...config, limit: 1 } : { limit: 1 },
       "first"
     );
   }
 };
 var PgRelationalQuery = class extends QueryPromise {
-  constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, config2, mode) {
+  constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, config, mode) {
     super();
     this.fullSchema = fullSchema;
     this.schema = schema;
@@ -14689,7 +14684,7 @@ var PgRelationalQuery = class extends QueryPromise {
     this.tableConfig = tableConfig;
     this.dialect = dialect;
     this.session = session;
-    this.config = config2;
+    this.config = config;
     this.mode = mode;
   }
   static [entityKind] = "PgRelationalQuery";
@@ -15056,8 +15051,8 @@ var PgDatabase = class {
       (result) => prepared.mapResult(result, true)
     );
   }
-  transaction(transaction, config2) {
-    return this.session.transaction(transaction, config2);
+  transaction(transaction, config) {
+    return this.session.transaction(transaction, config);
   }
 };
 
@@ -15230,21 +15225,21 @@ var PgTransaction = class extends PgDatabase {
     throw new TransactionRollbackError();
   }
   /** @internal */
-  getTransactionConfigSQL(config2) {
+  getTransactionConfigSQL(config) {
     const chunks = [];
-    if (config2.isolationLevel) {
-      chunks.push(`isolation level ${config2.isolationLevel}`);
+    if (config.isolationLevel) {
+      chunks.push(`isolation level ${config.isolationLevel}`);
     }
-    if (config2.accessMode) {
-      chunks.push(config2.accessMode);
+    if (config.accessMode) {
+      chunks.push(config.accessMode);
     }
-    if (typeof config2.deferrable === "boolean") {
-      chunks.push(config2.deferrable ? "deferrable" : "not deferrable");
+    if (typeof config.deferrable === "boolean") {
+      chunks.push(config.deferrable ? "deferrable" : "not deferrable");
     }
     return sql.raw(chunks.join(" "));
   }
-  setTransaction(config2) {
-    return this.session.execute(sql`set transaction ${this.getTransactionConfigSQL(config2)}`);
+  setTransaction(config) {
+    return this.session.execute(sql`set transaction ${this.getTransactionConfigSQL(config)}`);
   }
 };
 
@@ -15348,7 +15343,7 @@ var PostgresJsSession = class _PostgresJsSession extends PgSession {
   queryObjects(query, params) {
     return this.client.unsafe(query, params);
   }
-  transaction(transaction, config2) {
+  transaction(transaction, config) {
     return this.client.begin(async (client2) => {
       const session = new _PostgresJsSession(
         client2,
@@ -15357,8 +15352,8 @@ var PostgresJsSession = class _PostgresJsSession extends PgSession {
         this.options
       );
       const tx = new PostgresJsTransaction(this.dialect, session, this.schema);
-      if (config2) {
-        await tx.setTransaction(config2);
+      if (config) {
+        await tx.setTransaction(config);
       }
       return transaction(tx);
     });
@@ -15388,7 +15383,7 @@ var PostgresJsTransaction = class _PostgresJsTransaction extends PgTransaction {
 var PostgresJsDatabase = class extends PgDatabase {
   static [entityKind] = "PostgresJsDatabase";
 };
-function construct(client2, config2 = {}) {
+function construct(client2, config = {}) {
   const transparentParser = (val) => val;
   for (const type of ["1184", "1082", "1083", "1114", "1182", "1185", "1115", "1231"]) {
     client2.options.parsers[type] = transparentParser;
@@ -15396,31 +15391,31 @@ function construct(client2, config2 = {}) {
   }
   client2.options.serializers["114"] = transparentParser;
   client2.options.serializers["3802"] = transparentParser;
-  const dialect = new PgDialect({ casing: config2.casing });
+  const dialect = new PgDialect({ casing: config.casing });
   let logger2;
-  if (config2.logger === true) {
+  if (config.logger === true) {
     logger2 = new DefaultLogger();
-  } else if (config2.logger !== false) {
-    logger2 = config2.logger;
+  } else if (config.logger !== false) {
+    logger2 = config.logger;
   }
   let schema;
-  if (config2.schema) {
+  if (config.schema) {
     const tablesConfig = extractTablesRelationalConfig(
-      config2.schema,
+      config.schema,
       createTableRelationsHelpers
     );
     schema = {
-      fullSchema: config2.schema,
+      fullSchema: config.schema,
       schema: tablesConfig.tables,
       tableNamesMap: tablesConfig.tableNamesMap
     };
   }
-  const session = new PostgresJsSession(client2, dialect, schema, { logger: logger2, cache: config2.cache });
+  const session = new PostgresJsSession(client2, dialect, schema, { logger: logger2, cache: config.cache });
   const db2 = new PostgresJsDatabase(dialect, session, schema);
   db2.$client = client2;
-  db2.$cache = config2.cache;
+  db2.$cache = config.cache;
   if (db2.$cache) {
-    db2.$cache["invalidate"] = config2.cache?.onMutate;
+    db2.$cache["invalidate"] = config.cache?.onMutate;
   }
   return db2;
 }
@@ -15433,8 +15428,8 @@ function drizzle(...params) {
     const { connection: connection2, client: client2, ...drizzleConfig } = params[0];
     if (client2) return construct(client2, drizzleConfig);
     if (typeof connection2 === "object" && connection2.url !== void 0) {
-      const { url, ...config2 } = connection2;
-      const instance2 = src_default(url, config2);
+      const { url, ...config } = connection2;
+      const instance2 = src_default(url, config);
       return construct(instance2, drizzleConfig);
     }
     const instance = src_default(connection2);
@@ -15443,13 +15438,13 @@ function drizzle(...params) {
   return construct(params[0], params[1]);
 }
 ((drizzle2) => {
-  function mock(config2) {
+  function mock(config) {
     return construct({
       options: {
         parsers: {},
         serializers: {}
       }
-    }, config2);
+    }, config);
   }
   drizzle2.mock = mock;
 })(drizzle || (drizzle = {}));
@@ -17023,11 +17018,7 @@ app.onError((err, c) => {
 });
 
 // server-entry/handler.ts
-var config = {
-  runtime: "nodejs"
-};
-var handler_default = handle(app);
+var handler_default = app;
 export {
-  config,
   handler_default as default
 };
