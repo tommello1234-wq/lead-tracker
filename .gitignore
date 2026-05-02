@@ -10,6 +10,7 @@ tsconfig.server.tsbuildinfo
 
 # Vercel Function bundle (gerado por build:api)
 api/[[...route]].js
+api/[...route].js
 
 # env
 .env

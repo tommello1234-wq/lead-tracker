@@ -8,7 +8,7 @@
     "dev:web": "vite",
     "dev:api": "tsx watch --tsconfig ./tsconfig.server.json server/dev.ts",
     "build": "npm run build:api && vite build",
-    "build:api": "esbuild server-entry/handler.ts --bundle --platform=node --target=node20 --format=esm --outfile='api/[[...route]].js' --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "build:api": "esbuild server-entry/handler.ts --bundle --platform=node --target=node20 --format=esm --outfile='api/[...route].js' --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "lint": "eslint src server",
