@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Workflow,
+  Megaphone,
   LogOut,
   Search,
   Bell,
@@ -51,6 +52,7 @@ function AppShell() {
             label="Automações"
             badge={counts?.filaMensagens && counts.filaMensagens > 0 ? counts.filaMensagens : undefined}
           />
+          <SideIcon to="/ads" icon={Megaphone} label="Meta Ads" />
         </nav>
 
         {/* Logout */}

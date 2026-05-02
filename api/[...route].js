@@ -17849,6 +17849,141 @@ activityRoutes.get("/funil", async (c) => {
   return c.json(snapshot);
 });
 
+// server/lib/meta-ads.ts
+var BASE_URL2 = "https://graph.facebook.com/v21.0";
+function getToken() {
+  const t = process.env.META_ACCESS_TOKEN;
+  if (!t) throw new Error("META_ACCESS_TOKEN n\xE3o configurado");
+  return t;
+}
+function getAdAccountId() {
+  return process.env.META_AD_ACCOUNT_ID ? `act_${process.env.META_AD_ACCOUNT_ID.replace(/^act_/, "")}` : "act_918344584462338";
+}
+async function metaFetch(path, params) {
+  const url = new URL(`${BASE_URL2}${path}`);
+  url.searchParams.set("access_token", getToken());
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v);
+    }
+  }
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Meta API ${path}: ${res.status} ${body.substring(0, 200)}`);
+  }
+  return res.json();
+}
+function buildTimeRange(since, until) {
+  if (since && until) {
+    const fmtIso = (d) => d.toISOString().slice(0, 10);
+    return JSON.stringify({ since: fmtIso(since), until: fmtIso(until) });
+  }
+  return "";
+}
+function pickAction(actions, type) {
+  if (!actions) return 0;
+  const a = actions.find((x) => x.action_type === type);
+  return a ? Number(a.value) : 0;
+}
+async function getInsights(since, until) {
+  const account = getAdAccountId();
+  const params = {
+    fields: "spend,impressions,clicks,reach,cpc,cpm,ctr,actions"
+  };
+  if (since && until) {
+    params.time_range = buildTimeRange(since, until);
+  } else {
+    params.date_preset = "maximum";
+  }
+  const resp = await metaFetch(`/${account}/insights`, params);
+  const d = resp.data?.[0] ?? {};
+  const actions = d.actions;
+  const spend = Number(d.spend ?? 0);
+  const purchases = pickAction(actions, "omni_purchase");
+  const initiateCheckout = pickAction(actions, "initiate_checkout");
+  return {
+    spend,
+    impressions: Number(d.impressions ?? 0),
+    clicks: Number(d.clicks ?? 0),
+    reach: Number(d.reach ?? 0),
+    cpc: Number(d.cpc ?? 0),
+    cpm: Number(d.cpm ?? 0),
+    ctr: Number(d.ctr ?? 0),
+    purchases,
+    initiateCheckout,
+    cpa: purchases > 0 ? spend / purchases : 0,
+    cpic: initiateCheckout > 0 ? spend / initiateCheckout : 0
+  };
+}
+async function getCampaigns(since, until) {
+  const account = getAdAccountId();
+  const params = {
+    fields: "campaign_id,campaign_name,spend,clicks,ctr,actions",
+    level: "campaign",
+    limit: "50"
+  };
+  if (since && until) {
+    params.time_range = buildTimeRange(since, until);
+  } else {
+    params.date_preset = "maximum";
+  }
+  const resp = await metaFetch(`/${account}/insights`, params);
+  return (resp.data ?? []).map((c) => {
+    const actions = c.actions;
+    const spend = Number(c.spend ?? 0);
+    const purchases = pickAction(actions, "omni_purchase");
+    const ic = pickAction(actions, "initiate_checkout");
+    return {
+      campaignId: String(c.campaign_id ?? ""),
+      campaignName: String(c.campaign_name ?? "\u2014"),
+      spend,
+      purchases,
+      initiateCheckout: ic,
+      clicks: Number(c.clicks ?? 0),
+      cpa: purchases > 0 ? spend / purchases : null,
+      ctr: Number(c.ctr ?? 0)
+    };
+  });
+}
+
+// server/routes/meta-ads.ts
+var metaAdsRoutes = new Hono2();
+function parseRange(c) {
+  const sinceParam = c.req.query("since");
+  const untilParam = c.req.query("until");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  const until = untilParam ? new Date(untilParam) : /* @__PURE__ */ new Date();
+  return {
+    since: since && !Number.isNaN(since.getTime()) ? since : null,
+    until: until && !Number.isNaN(until.getTime()) ? until : /* @__PURE__ */ new Date()
+  };
+}
+metaAdsRoutes.get("/insights", async (c) => {
+  try {
+    const { since, until } = parseRange(c);
+    const data = await getInsights(since, until);
+    return c.json(data);
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : "Erro Meta API" },
+      500
+    );
+  }
+});
+metaAdsRoutes.get("/campaigns", async (c) => {
+  try {
+    const { since, until } = parseRange(c);
+    const data = await getCampaigns(since, until);
+    return c.json(data);
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : "Erro Meta API" },
+      500
+    );
+  }
+});
+
 // server/middleware/auth.ts
 var requireAuth = async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE);
@@ -17871,11 +18006,13 @@ app.use("/leads/*", requireAuth);
 app.use("/dashboard/*", requireAuth);
 app.use("/automacoes/*", requireAuth);
 app.use("/activity/*", requireAuth);
+app.use("/meta-ads/*", requireAuth);
 app.route("/produtos", produtosRoutes);
 app.route("/leads", leadsRoutes);
 app.route("/dashboard", dashboardRoutes);
 app.route("/automacoes", automacoesRoutes);
 app.route("/activity", activityRoutes);
+app.route("/meta-ads", metaAdsRoutes);
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {
   console.error("[hono error]", err);

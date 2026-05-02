@@ -110,6 +110,32 @@ export type FunilSnapshotColumn = {
   }>;
 };
 
+/* Meta Ads */
+export type MetaInsights = {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  purchases: number;
+  initiateCheckout: number;
+  cpa: number;
+  cpic: number;
+};
+
+export type MetaCampaign = {
+  campaignId: string;
+  campaignName: string;
+  spend: number;
+  purchases: number;
+  initiateCheckout: number;
+  clicks: number;
+  cpa: number | null;
+  ctr: number;
+};
+
 export type Produto = {
   id: number;
   nome: string;

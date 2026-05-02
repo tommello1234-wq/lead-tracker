@@ -9,6 +9,7 @@ import { leadsRoutes } from "./routes/leads.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { automacoesRoutes } from "./routes/automacoes.js";
 import { activityRoutes } from "./routes/activity.js";
+import { metaAdsRoutes } from "./routes/meta-ads.js";
 import { requireAuth } from "./middleware/auth.js";
 
 /**
@@ -35,12 +36,14 @@ app.use("/leads/*", requireAuth);
 app.use("/dashboard/*", requireAuth);
 app.use("/automacoes/*", requireAuth);
 app.use("/activity/*", requireAuth);
+app.use("/meta-ads/*", requireAuth);
 
 app.route("/produtos", produtosRoutes);
 app.route("/leads", leadsRoutes);
 app.route("/dashboard", dashboardRoutes);
 app.route("/automacoes", automacoesRoutes);
 app.route("/activity", activityRoutes);
+app.route("/meta-ads", metaAdsRoutes);
 
 // 404 padrão JSON
 app.notFound((c) => c.json({ error: "Not found" }, 404));
