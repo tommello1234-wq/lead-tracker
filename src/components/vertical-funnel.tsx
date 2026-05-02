@@ -49,11 +49,12 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
   const xLeft = (i: number) => PAD_X + (innerW - widths[i]) / 2;
   const xRight = (i: number) => PAD_X + (innerW + widths[i]) / 2;
 
-  // Build path going down on the right side, then up on the left
-  let d = `M ${xLeft(0)} ${yTop(0)}`;
+  // Path: começa no top-left, desce pela direita, atravessa o bottom,
+  // sobe pela esquerda. Bezier dentro de cada seção pra suavizar.
+  // Última seção tem largura constante (sem transição) pra não sumir num ponto.
+  let d = `M ${xLeft(0)} ${yTop(0)} L ${xRight(0)} ${yTop(0)}`;
 
-  // Lado direito: top→bottom com bezier entre seções
-  d += ` L ${xRight(0)} ${yTop(0)}`;
+  // Lado direito: desce, transitando widths[i] -> widths[i+1] dentro da seção i
   for (let i = 0; i < N; i++) {
     if (i === N - 1) {
       d += ` L ${xRight(i)} ${yBot(i)}`;
@@ -63,17 +64,16 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
     }
   }
 
-  // Bottom edge (left of last section)
+  // Bottom edge (constante, largura widths[N-1])
   d += ` L ${xLeft(N - 1)} ${yBot(N - 1)}`;
 
-  // Lado esquerdo: bottom→top com bezier entre seções
-  for (let i = N - 1; i >= 0; i--) {
-    if (i === 0) {
-      d += ` L ${xLeft(i)} ${yTop(i)}`;
-    } else {
-      const yMid = yTop(i) - sectionH / 2;
-      d += ` C ${xLeft(i)} ${yMid}, ${xLeft(i - 1)} ${yMid}, ${xLeft(i - 1)} ${yTop(i)}`;
-    }
+  // Lado esquerdo: sobe espelhando o lado direito.
+  // Última seção (i=N-1) primeiro: linha reta subindo (largura constante).
+  d += ` L ${xLeft(N - 1)} ${yTop(N - 1)}`;
+  // Demais seções: bezier indo da direita pra esquerda (alargando)
+  for (let i = N - 2; i >= 0; i--) {
+    const yMid = yTop(i) + sectionH / 2;
+    d += ` C ${xLeft(i + 1)} ${yMid}, ${xLeft(i)} ${yMid}, ${xLeft(i)} ${yTop(i)}`;
   }
 
   d += " Z";
