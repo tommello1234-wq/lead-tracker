@@ -161,28 +161,36 @@ export function DashboardPage() {
       </div>
 
       {/* Linha de aquisição: CAC blended (gasto Meta + clientes Lead Tracker) */}
-      {isSaasView && cac.data && cac.data.adSpend > 0 ? (
+      {isSaasView ? (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard
             label="CAC (real, blended)"
-            value={cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
-            hint={`${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`}
+            value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
+            hint={
+              cac.data
+                ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
+                : "Carregando..."
+            }
             icon={Target}
             iconTone="forest"
           />
           <StatCard
             label="Novos clientes"
-            value={cac.data.newCustomers.toLocaleString("pt-BR")}
-            hint={`${cac.data.organicCount} via orgânico/outros`}
+            value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}
+            hint={
+              cac.data
+                ? `${cac.data.organicCount} via orgânico/outros`
+                : "Carregando..."
+            }
             icon={Users}
             iconTone="lime"
           />
           <StatCard
             label="% Orgânico"
-            value={`${cac.data.organicPct.toFixed(1)}%`}
-            hint="Sem atribuição Meta"
+            value={cac.data ? `${cac.data.organicPct.toFixed(1)}%` : "—"}
+            hint={cac.data && cac.data.adSpend === 0 ? "Sem gasto Meta no período" : "Sem atribuição Meta"}
             icon={TrendingUp}
-            iconTone={cac.data.organicPct > 30 ? "forest" : "lime"}
+            iconTone={cac.data && cac.data.organicPct > 30 ? "forest" : "lime"}
           />
         </div>
       ) : null}
