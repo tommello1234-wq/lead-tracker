@@ -85,7 +85,10 @@ export type MetaCampaign = {
   initiateCheckout: number;
   clicks: number;
   cpa: number | null;
+  cpc: number;
   ctr: number;
+  purchaseValue: number;
+  roas: number;
 };
 
 /* ========================================================
@@ -192,7 +195,7 @@ export async function getCampaigns(
   const account = getAdAccountId();
   const params: Record<string, string> = {
     fields:
-      "campaign_id,campaign_name,spend,inline_link_clicks,inline_link_click_ctr,actions",
+      "campaign_id,campaign_name,spend,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click,actions,action_values",
     level: "campaign",
     limit: "50",
   };
@@ -218,12 +221,13 @@ export async function getCampaigns(
     statusById.set(String(c.id ?? ""), (c.effective_status as CampaignStatus) ?? "UNKNOWN");
   }
 
-  const resp = insightsResp;
-  return (resp.data ?? []).map((c) => {
+  return (insightsResp.data ?? []).map((c) => {
     const actions = c.actions as Array<{ action_type: string; value: string }> | undefined;
+    const actionValues = c.action_values as Array<{ action_type: string; value: string }> | undefined;
     const spend = Number(c.spend ?? 0);
     const purchases = pickAction(actions, "omni_purchase");
     const ic = pickAction(actions, "initiate_checkout");
+    const purchaseValue = pickActionValue(actionValues, "omni_purchase");
     const id = String(c.campaign_id ?? "");
     return {
       campaignId: id,
@@ -234,7 +238,10 @@ export async function getCampaigns(
       initiateCheckout: ic,
       clicks: Number(c.inline_link_clicks ?? 0),
       cpa: purchases > 0 ? spend / purchases : null,
+      cpc: Number(c.cost_per_inline_link_click ?? 0),
       ctr: Number(c.inline_link_click_ctr ?? 0),
+      purchaseValue,
+      roas: spend > 0 ? purchaseValue / spend : 0,
     };
   });
 }

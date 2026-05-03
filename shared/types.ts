@@ -166,7 +166,10 @@ export type MetaCampaign = {
   initiateCheckout: number;
   clicks: number;
   cpa: number | null;
+  cpc: number;
   ctr: number;
+  purchaseValue: number;
+  roas: number;
 };
 
 export type Produto = {

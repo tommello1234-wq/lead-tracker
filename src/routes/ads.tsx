@@ -188,23 +188,36 @@ export function AdsPage() {
                 Nenhuma campanha com gasto no período.
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       Campanha
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       Gasto
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       Clicks
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      CPC
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       CTR
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      IC
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       Compras
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Receita
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      ROAS
                     </th>
                     <th className="text-right px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       CPA
@@ -225,15 +238,41 @@ export function AdsPage() {
                             <span className="truncate">{c.campaignName}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">{brl(c.spend)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        <td className="px-3 py-3 text-right tabular-nums">{brl(c.spend)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
                           {num(c.clicks)}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
+                          {c.cpc > 0 ? brlSmall(c.cpc) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
                           {pct(c.ctr)}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">
+                        <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
+                          {c.initiateCheckout > 0 ? num(c.initiateCheckout) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
                           {c.purchases > 0 ? num(c.purchases) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {c.purchaseValue > 0 ? brl(c.purchaseValue) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {c.roas > 0 ? (
+                            <span
+                              className={
+                                c.roas >= 3
+                                  ? "text-forest font-semibold"
+                                  : c.roas < 1
+                                    ? "text-destructive font-semibold"
+                                    : ""
+                              }
+                            >
+                              {c.roas.toFixed(2)}x
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right tabular-nums">
                           {c.cpa != null ? (
@@ -256,6 +295,7 @@ export function AdsPage() {
                     ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 
