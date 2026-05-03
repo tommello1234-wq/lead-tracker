@@ -22,8 +22,6 @@ export type ActivityItem = {
     template?: string | null;
     erro?: string | null;
     paymentMethod?: string | null;
-    cardBrand?: string | null;
-    cardLast4?: string | null;
   };
 };
 
@@ -75,9 +73,7 @@ export async function getRecentActivity(
         ((e.payload->'item'->>'amount')::numeric / 100),
         l.valor_assinatura
       ) as valor,
-      e.payload->>'payment_method' as payment_method,
-      e.payload->'transaction'->'cards'->0->>'brand' as card_brand,
-      e.payload->'transaction'->'cards'->0->>'last_digits' as card_last4
+      e.payload->>'payment_method' as payment_method
     from eventos e
     left join leads l on l.id = e.lead_id
     left join produtos p on p.id = coalesce(e.produto_id, l.produto_id)
@@ -134,8 +130,6 @@ export async function getRecentActivity(
       produto_nome: string | null;
       valor: number | null;
       payment_method: string | null;
-      card_brand: string | null;
-      card_last4: string | null;
     }>).map((e) => ({
       id: e.id,
       tipo: "evento" as const,
@@ -149,8 +143,6 @@ export async function getRecentActivity(
       meta: {
         valor: e.valor != null ? Number(e.valor) : null,
         paymentMethod: e.payment_method,
-        cardBrand: e.card_brand,
-        cardLast4: e.card_last4,
       },
     })),
     ...(msgsResult as unknown as Array<{

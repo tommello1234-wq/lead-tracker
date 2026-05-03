@@ -94,10 +94,6 @@ export type ActivityItem = {
     template?: string | null;
     erro?: string | null;
     paymentMethod?: string | null;
-    /** Bandeira do cartão (master, visa, etc) — só presente em transações de cartão */
-    cardBrand?: string | null;
-    /** Últimos 4 dígitos do cartão */
-    cardLast4?: string | null;
   };
 };
 
