@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Megaphone,
   MousePointerClick,
@@ -10,6 +10,9 @@ import {
   ExternalLink,
   Image as ImageIcon,
   Link2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -38,6 +41,49 @@ const STATUS_LABELS: Record<CampaignStatus, string> = {
   WITH_ISSUES: "Com problema",
   UNKNOWN: "—",
 };
+
+type SortKey =
+  | "campaignName"
+  | "spend"
+  | "clicks"
+  | "cpc"
+  | "ctr"
+  | "initiateCheckout"
+  | "purchases"
+  | "purchaseValue"
+  | "roas"
+  | "cpa";
+
+function SortHeader({
+  label,
+  sortKey,
+  current,
+  onClick,
+  align = "right",
+}: {
+  label: string;
+  sortKey: SortKey;
+  current: { key: SortKey; dir: "asc" | "desc" };
+  onClick: (k: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = current.key === sortKey;
+  const Icon = !isActive ? ArrowUpDown : current.dir === "desc" ? ArrowDown : ArrowUp;
+  return (
+    <th
+      className={`text-${align} px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider`}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(sortKey)}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${align === "right" ? "" : ""} ${isActive ? "text-foreground" : ""}`}
+      >
+        {label}
+        <Icon className={`size-3 ${isActive ? "" : "opacity-40"}`} />
+      </button>
+    </th>
+  );
+}
 
 function StatusDot({ status }: { status: CampaignStatus }) {
   const isActive = status === "ACTIVE";
@@ -73,6 +119,10 @@ const num = (n: number) => n.toLocaleString("pt-BR");
 const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export function AdsPage() {
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "spend",
+    dir: "desc",
+  });
   const { produtoId, period, customDate } = useProdutoContext();
   const { since, until } = useMemo(
     () => periodToRange(period, customDate),
@@ -109,6 +159,30 @@ export function AdsPage() {
 
   const i = insights.data;
   const cs = campaigns.data ?? [];
+
+  const toggleSort = (k: SortKey) => {
+    setSort((prev) =>
+      prev.key === k
+        ? { key: k, dir: prev.dir === "desc" ? "asc" : "desc" }
+        : { key: k, dir: "desc" },
+    );
+  };
+
+  const sortedCampaigns = useMemo(() => {
+    const arr = [...cs];
+    arr.sort((a, b) => {
+      const dir = sort.dir === "desc" ? -1 : 1;
+      const av = a[sort.key];
+      const bv = b[sort.key];
+      if (typeof av === "string" && typeof bv === "string") {
+        return av.localeCompare(bv) * dir;
+      }
+      const an = (av ?? 0) as number;
+      const bn = (bv ?? 0) as number;
+      return (an - bn) * dir;
+    });
+    return arr;
+  }, [cs, sort]);
   const isError = insights.isError || campaigns.isError;
   const errorMsg = insights.error instanceof Error ? insights.error.message : null;
 
@@ -224,42 +298,20 @@ export function AdsPage() {
               <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Campanha
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Gasto
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Clicks
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      CPC
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      CTR
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      IC
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Compras
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Receita
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      ROAS
-                    </th>
-                    <th className="text-right px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      CPA
-                    </th>
+                    <SortHeader label="Campanha" sortKey="campaignName" current={sort} onClick={toggleSort} align="left" />
+                    <SortHeader label="Gasto" sortKey="spend" current={sort} onClick={toggleSort} />
+                    <SortHeader label="Clicks" sortKey="clicks" current={sort} onClick={toggleSort} />
+                    <SortHeader label="CPC" sortKey="cpc" current={sort} onClick={toggleSort} />
+                    <SortHeader label="CTR" sortKey="ctr" current={sort} onClick={toggleSort} />
+                    <SortHeader label="IC" sortKey="initiateCheckout" current={sort} onClick={toggleSort} />
+                    <SortHeader label="Compras" sortKey="purchases" current={sort} onClick={toggleSort} />
+                    <SortHeader label="Receita" sortKey="purchaseValue" current={sort} onClick={toggleSort} />
+                    <SortHeader label="ROAS" sortKey="roas" current={sort} onClick={toggleSort} />
+                    <SortHeader label="CPA" sortKey="cpa" current={sort} onClick={toggleSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {[...cs]
-                    .sort((a, b) => b.spend - a.spend)
-                    .map((c) => (
+                  {sortedCampaigns.map((c) => (
                       <tr
                         key={c.campaignId}
                         className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
