@@ -11,8 +11,14 @@ function produtoCondition(produtoId: number | null) {
   return produtoId == null ? [] : [eq(leads.produtoId, produtoId)];
 }
 
-export async function getAllLeads(produtoId: number | null = null): Promise<Lead[]> {
+export async function getAllLeads(
+  produtoId: number | null = null,
+  since: Date | null = null,
+  until: Date | null = null,
+): Promise<Lead[]> {
   const cond = produtoCondition(produtoId);
+  if (since != null) cond.push(gte(leads.criadoEm, since));
+  if (until != null) cond.push(lte(leads.criadoEm, until));
   if (cond.length === 0) {
     return db.select().from(leads).orderBy(desc(leads.criadoEm));
   }

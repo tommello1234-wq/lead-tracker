@@ -185,13 +185,15 @@ export async function getRecentActivity(
  * Funil snapshot: leads agrupados por status atual
  * com tempo no estágio e principais infos.
  *
- * `since`: se fornecido, mostra só leads cujo último evento real
- * (received_at) é >= since. Útil pro filtro "Hoje", "7d", etc.
- * Se null, mostra snapshot atual de TODOS os leads.
+ * `since`/`until`: filtra leads cuja DATA DE CRIAÇÃO (criado_em) cai
+ * na janela. Não filtra por evento mais (semântica antiga deixava
+ * kanban vazio quando user testava com período curto e leads sem
+ * atividade recente).
  * ============================================================ */
 export async function getFunilSnapshot(
   produtoId: number | null = null,
   since: Date | null = null,
+  until: Date | null = null,
 ): Promise<FunilSnapshot[]> {
   // Apenas status "ativos" (não inclui legados como "novo", "respondeu")
   const ACTIVE_STATUSES: LeadStatus[] = [
@@ -235,12 +237,8 @@ export async function getFunilSnapshot(
     from leads l
     where l.status in ${sql.raw(`(${ACTIVE_STATUSES.map((s) => `'${s}'`).join(",")})`)}
       ${produtoId != null ? sql`and l.produto_id = ${produtoId}` : sql``}
-      ${since != null ? sql`and exists (
-        select 1 from eventos e
-        where e.lead_id = l.id
-          and e.processed_ok = true
-          and e.received_at >= ${since.toISOString()}::timestamp
-      )` : sql``}
+      ${since != null ? sql`and l.criado_em >= ${since.toISOString()}::timestamp` : sql``}
+      ${until != null ? sql`and l.criado_em <= ${until.toISOString()}::timestamp` : sql``}
     order by l.atualizado_em desc
     limit 500
   `);

@@ -3,6 +3,7 @@ import { Search, Filter, Plus, List, LayoutGrid } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
+import { periodToRange } from "@/lib/period";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
 import { FunilBoard } from "@/components/funil-board";
@@ -40,15 +41,21 @@ function formatDateBR(iso: string): { date: string; time: string } {
 }
 
 export function LeadsPage() {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const [search, setSearch] = useState("");
   const [view, setView] = useState<View>("funil");
   const [activityCollapsed, setActivityCollapsed] = useState(false);
 
+  // Filtra leads por criadoEm dentro do período selecionado
+  const { since, until } = periodToRange(period, customDate);
+  const sinceParam = since ? since.toISOString() : "";
+  const untilParam = until.toISOString();
+  const qs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["leads", produtoParam],
-    queryFn: () => api.get<Lead[]>(`/api/leads?produtoId=${produtoParam}`),
+    queryKey: ["leads", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<Lead[]>(`/api/leads?${qs}`),
   });
 
   const filtered = (data ?? []).filter((l) =>

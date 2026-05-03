@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LayoutGrid, MessageSquare } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
+import { periodToRange } from "@/lib/period";
 import { STATUS_LABEL } from "@shared/labels";
 import type { FunilSnapshotColumn } from "@shared/types";
 
@@ -25,17 +26,19 @@ function timeAgo(horas: number): string {
 }
 
 export function FunilBoard() {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const { since, until } = periodToRange(period, customDate);
+  const sinceParam = since ? since.toISOString() : "";
+  const untilParam = until.toISOString();
 
-  // Kanban sempre mostra snapshot atual de TODOS os leads ativos
-  // (filtro de período afeta dashboard/metrics, não o kanban — que é
-  // visualização de estado, não de janela de tempo).
+  // Kanban filtra leads por DATA DE CRIAÇÃO no período. "Tudo" = todos os
+  // ativos, "Hoje" = só leads que entraram hoje, etc.
   const { data, isLoading } = useQuery({
-    queryKey: ["activity", "funil", produtoParam],
+    queryKey: ["activity", "funil", produtoParam, sinceParam, untilParam],
     queryFn: () =>
       api.get<FunilSnapshotColumn[]>(
-        `/api/activity/funil?produtoId=${produtoParam}`,
+        `/api/activity/funil?produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`,
       ),
     refetchInterval: 8000, // poll a cada 8s
   });

@@ -51,7 +51,15 @@ leadsRoutes.get("/", async (c) => {
   const produtoId = produtoIdParam && produtoIdParam !== "all"
     ? Number(produtoIdParam) || null
     : null;
-  const list = await getAllLeads(produtoId);
+  const sinceParam = c.req.query("since");
+  const untilParam = c.req.query("until");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  const until = untilParam ? new Date(untilParam) : null;
+  const list = await getAllLeads(
+    produtoId,
+    since && !Number.isNaN(since.getTime()) ? since : null,
+    until && !Number.isNaN(until.getTime()) ? until : null,
+  );
   return c.json(list);
 });
 
