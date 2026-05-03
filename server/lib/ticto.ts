@@ -32,6 +32,41 @@ function pick<T = unknown>(obj: AnyObject, ...keys: string[]): T | undefined {
 }
 
 /**
+ * Detecta placeholders que a Ticto manda quando campo nao foi preenchido
+ * pelo cliente. Tratamos como null pra (1) nao salvar lixo, (2) nao matchar
+ * leads diferentes em findOrCreateLead pelo mesmo placeholder ("Não informado")
+ * — bug real que mesclou Felipe + Clodoaldo no mesmo lead.
+ */
+const PLACEHOLDER_VALUES = new Set([
+  "não informado",
+  "nao informado",
+  "n/a",
+  "na",
+  "null",
+  "undefined",
+  "-",
+]);
+
+function sanitizeStr(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (PLACEHOLDER_VALUES.has(t.toLowerCase())) return null;
+  return t;
+}
+
+/**
+ * Email mais estrito: além de placeholder, exige formato válido (tem @, ponto).
+ * Evita matchar email vazio/genérico em findOrCreateLead.
+ */
+function sanitizeEmail(v: unknown): string | null {
+  const s = sanitizeStr(v);
+  if (!s) return null;
+  if (!s.includes("@") || !s.includes(".")) return null;
+  return s.toLowerCase();
+}
+
+/**
  * Mapa de status -> evento interno.
  *
  * Ticto v2 manda `status` em ingles snake_case. Algumas situacoes precisam
@@ -131,9 +166,13 @@ export function parseTictoWebhook(payload: AnyObject): EventInput | null {
   if (!eventType) return null;
 
   const nome =
-    pick<string>(payload, "customer.name", "buyer.name", "client.name", "name") ?? "Cliente Ticto";
+    sanitizeStr(
+      pick<string>(payload, "customer.name", "buyer.name", "client.name", "name"),
+    ) ?? "Cliente Ticto";
   const email =
-    pick<string>(payload, "customer.email", "buyer.email", "client.email", "email") ?? null;
+    sanitizeEmail(
+      pick<string>(payload, "customer.email", "buyer.email", "client.email", "email"),
+    ) ?? null;
 
   // phone: Ticto v2 manda objeto, antigas mandavam string. parsePhone aceita os dois.
   const phoneRaw = pick(

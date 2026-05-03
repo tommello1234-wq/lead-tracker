@@ -95,24 +95,29 @@ const STATUS_TRANSITIONS: Record<
 
 /**
  * Encontra ou cria um lead com base nos identificadores do gateway.
- * Prioridade: gatewayCustomerId > email > contato.
+ * Prioridade: telefone > email > gatewayCustomerId.
+ *
+ * Telefone primeiro porque é o id mais estável (vai pro WhatsApp). Email pode
+ * ser vazio/placeholder e gatewayCustomerId muda entre checkouts da Ticto
+ * (cada session tem hash novo). Cuidado pra não buscar com placeholder
+ * (ticto-parser já sanitiza, mas defesa em profundidade).
  */
 async function findOrCreateLead(input: EventInput): Promise<Lead> {
-  if (input.gatewayCustomerId) {
+  if (input.contato) {
     const existing = await db.query.leads.findFirst({
-      where: eq(leads.gatewayCustomerId, input.gatewayCustomerId),
+      where: eq(leads.contato, input.contato),
     });
     if (existing) return existing;
   }
-  if (input.email) {
+  if (input.email && input.email.includes("@")) {
     const existing = await db.query.leads.findFirst({
       where: eq(leads.email, input.email),
     });
     if (existing) return existing;
   }
-  if (input.contato) {
+  if (input.gatewayCustomerId) {
     const existing = await db.query.leads.findFirst({
-      where: eq(leads.contato, input.contato),
+      where: eq(leads.gatewayCustomerId, input.gatewayCustomerId),
     });
     if (existing) return existing;
   }
@@ -305,16 +310,18 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     };
   }
 
-  // Atualiza o lead
+  // Atualiza o lead — preserva campos existentes quando input é null/vazio
+  // (webhooks como carrinho_abandonado vem com payload simplificado, sem
+  // dados ricos do customer; não pode sobrescrever email/nome bons com vazio).
   const updates: Record<string, unknown> = {
     status: transition.lead,
     subscriptionStatus: transition.subscription,
     atualizadoEm: now,
-    nome: input.nome || lead.nome,
-    contato: input.contato ?? lead.contato,
-    email: input.email ?? lead.email,
-    gatewayLastOrderId: input.gatewayLastOrderId ?? lead.gatewayLastOrderId,
-    planoNome: input.planoNome ?? lead.planoNome,
+    nome: input.nome && input.nome !== "Cliente Ticto" ? input.nome : lead.nome,
+    contato: input.contato || lead.contato,
+    email: input.email || lead.email,
+    gatewayLastOrderId: input.gatewayLastOrderId || lead.gatewayLastOrderId,
+    planoNome: input.planoNome || lead.planoNome,
     valorAssinatura: input.valor ?? lead.valorAssinatura,
   };
 
