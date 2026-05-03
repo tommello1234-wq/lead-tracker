@@ -35,8 +35,8 @@ function AppShell() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Sidebar light cream */}
-      <aside className="w-[88px] bg-sidebar border-r border-sidebar-border py-6 flex flex-col items-center gap-1">
+      {/* Sidebar light cream — sticky pra não rolar junto com conteúdo */}
+      <aside className="w-[88px] bg-sidebar border-r border-sidebar-border py-6 flex flex-col items-center gap-1 sticky top-0 h-screen self-start">
         {/* Logo */}
         <div className="size-11 rounded-2xl bg-forest grid place-items-center text-[oklch(0.96_0.04_130)] mb-4">
           <Logo />
