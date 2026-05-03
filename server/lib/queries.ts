@@ -62,6 +62,9 @@ export type DashboardMetrics = {
   vendasMes: number;
   mrr: number;
   mrrPotencial: number;
+  arpu: number;
+  ltv: number;
+  avgLifetimeMonths: number;
   clientesAtivos: number;
   pixGerados: number;
   pixPagos: number;
@@ -175,6 +178,22 @@ export async function getDashboardMetrics(
       ? all.filter((l) => inPeriod(l.criadoEm)).length
       : all.length;
 
+  // LTV (Lifetime Value): receita média projetada por cliente.
+  // Fórmula simples: ARPU * tempo médio de assinatura em meses.
+  //   ARPU = MRR / clientesAtivos
+  //   tempo médio = média de (canceladoEm OR now - pagouEm) em meses, pra todos
+  //   que já pagaram (ativos contam o que já pagaram até agora).
+  const arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
+  const paidLeads = all.filter((l) => l.pagouEm);
+  const lifetimes = paidLeads.map((l) => {
+    const start = l.pagouEm!.getTime();
+    const end = (l.canceladoEm ?? new Date()).getTime();
+    return Math.max((end - start) / (30 * 24 * 60 * 60 * 1000), 0.1);
+  });
+  const avgLifetimeMonths =
+    lifetimes.length > 0 ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
+  const ltv = arpu * avgLifetimeMonths;
+
   return {
     totalLeads: all.length,
     novosLeadsNoPeriodo,
@@ -182,6 +201,9 @@ export async function getDashboardMetrics(
     vendasMes: vendasMes.length,
     mrr,
     mrrPotencial,
+    arpu,
+    ltv,
+    avgLifetimeMonths,
     clientesAtivos: clientesAtivos.length,
     pixGerados: pixGeradosNoPeriodo.length,
     pixPagos: pixPagosCohort.length,

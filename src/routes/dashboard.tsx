@@ -130,14 +130,25 @@ export function DashboardPage() {
         hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
       />
 
-      {/* KPI grid principal — 4 colunas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI grid principal */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           label="MRR atual"
           value={m ? brl(m.mrr) : "—"}
-          hint={m ? `${m.clientesAtivos} ativos` : undefined}
+          hint={m ? `${m.clientesAtivos} ativos · ARPU ${brl(m.arpu)}` : undefined}
           icon={DollarSign}
           iconTone="lime"
+        />
+        <StatCard
+          label="LTV (lifetime value)"
+          value={m ? brl(m.ltv) : "—"}
+          hint={
+            m
+              ? `${m.avgLifetimeMonths.toFixed(1)} meses médios de assinatura`
+              : undefined
+          }
+          icon={TrendingUp}
+          iconTone="forest"
         />
         <StatCard
           label="Faturamento no período"
@@ -150,6 +161,10 @@ export function DashboardPage() {
           icon={Banknote}
           iconTone="forest"
         />
+      </div>
+
+      {/* PIX */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard
           label="Tx Conversão PIX"
           value={m ? pct(m.taxaConversaoPix) : "—"}

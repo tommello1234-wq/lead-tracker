@@ -10,6 +10,9 @@ export type DashboardMetrics = {
   vendasMes: number;
   mrr: number;
   mrrPotencial: number;
+  arpu: number;
+  ltv: number;
+  avgLifetimeMonths: number;
   clientesAtivos: number;
   pixGerados: number;
   pixPagos: number;
