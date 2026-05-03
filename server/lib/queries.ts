@@ -178,23 +178,32 @@ export async function getDashboardMetrics(
       ? all.filter((l) => inPeriod(l.criadoEm)).length
       : all.length;
 
-  // LTV (Lifetime Value): receita média que um cliente gera durante sua vida.
+  // LTV (Lifetime Value): receita média efetivamente entrada no caixa por
+  // cliente que finalizou (cancelou ou reembolsou).
   //
-  // Como Ticto cobra MENSAL (signup + renovações a cada 30d), contamos
-  // MESES PAGOS por cliente, não tempo fracionário. Cliente que cancelou
-  // em 6 dias pagou 1 mês completo (não 20% de mês).
+  // Regras:
+  //  - Reembolsado: 0 meses pagos (devolveu o dinheiro, não faturou nada)
+  //  - Cancelado normal: floor(lifespan_meses) + 1 meses (signup conta como 1
+  //    pagamento, +1 a cada renovação completa). Ex:
+  //      6 dias  → 1 mês  (signup, sem renovação)
+  //      35 dias → 2 meses (signup + 1 renovação)
+  //      95 dias → 4 meses (signup + 3 renovações)
   //
-  //   meses_pagos = max(1, ceil(lifespan_em_meses))
-  //   Ex: 0.20m → 1 mês, 1.29m → 2 meses, 8m → 8 meses
-  //
-  // LTV = ARPU * média de meses_pagos dos cancelados.
-  // Usa só cancelados (lifespan realizado). Ativos têm lifespan em curso.
-  const cancelledLeads = all.filter((l) => l.pagouEm && l.canceladoEm);
-  const monthsPaidPerCustomer = cancelledLeads.map((l) => {
+  // Inclui só leads "finalizados" (cancelada ou reembolsada). Ativos
+  // ainda estão pagando, lifespan em curso.
+  const finishedLeads = all.filter(
+    (l) =>
+      l.pagouEm &&
+      (l.subscriptionStatus === "cancelada" ||
+        l.subscriptionStatus === "reembolsada"),
+  );
+  const monthsPaidPerCustomer = finishedLeads.map((l) => {
+    if (l.subscriptionStatus === "reembolsada") return 0;
+    if (!l.canceladoEm) return 1; // pagou mas sem data de cancelamento
     const lifespanMonths =
-      (l.canceladoEm!.getTime() - l.pagouEm!.getTime()) /
+      (l.canceladoEm.getTime() - l.pagouEm!.getTime()) /
       (30 * 24 * 60 * 60 * 1000);
-    return Math.max(1, Math.ceil(lifespanMonths));
+    return Math.floor(lifespanMonths) + 1;
   });
   const avgLifetimeMonths =
     monthsPaidPerCustomer.length > 0
@@ -203,10 +212,10 @@ export async function getDashboardMetrics(
       : 0;
 
   let arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
-  if (arpu === 0 && cancelledLeads.length > 0) {
+  if (arpu === 0 && finishedLeads.length > 0) {
     arpu =
-      cancelledLeads.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) /
-      cancelledLeads.length;
+      finishedLeads.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) /
+      finishedLeads.length;
   }
   const ltv = arpu * avgLifetimeMonths;
 
