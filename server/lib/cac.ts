@@ -2,7 +2,6 @@ import { db } from "../../db/client.js";
 import { leads } from "../../db/schema.js";
 import { and, eq, gte, lte, isNotNull, sql } from "drizzle-orm";
 import { getInsights } from "./meta-ads.js";
-import { withCache } from "./cache.js";
 
 export type CacMetrics = {
   adSpend: number;
@@ -68,27 +67,28 @@ async function _getCacMetrics(
  * cada refresh do dashboard puxa de novo. Com cache, primeira é lenta,
  * próximas são instantâneas.
  *
- * Normalizamos as datas pra YYYY-MM-DD (granularidade diária) antes de cachear,
- * pra que vários refreshes no mesmo dia compartilhem o mesmo entry. O wrapper
- * `withCache` usa JSON.stringify(args) como key — sem normalização, cada
- * milissegundo de "until = NOW" geraria um entry novo (cache nunca acertaria).
+ * Cache key normalizada por minuto (não por dia) — passamos as Dates ORIGINAIS
+ * pra `_getCacMetrics`, mas o key do cache é `cac:produtoId:sinceMin:untilMin`,
+ * arredondando pro minuto pra que refreshes seguidos batam cache. Sem isso,
+ * cada milissegundo de "until=NOW" geraria entry novo.
  */
-const cachedByDateKey = withCache(
-  async (produtoId: number | null, sinceDay: string, untilDay: string) => {
-    const since = sinceDay === "" ? null : new Date(sinceDay + "T00:00:00Z");
-    const until = new Date(untilDay + "T23:59:59Z");
-    return _getCacMetrics(produtoId, since, until);
-  },
-  "cac",
-  300,
-);
+const memCache = new Map<string, { value: CacMetrics; expiresAt: number }>();
 
 export async function getCacMetrics(
   produtoId: number | null,
   since: Date | null,
   until: Date | null,
 ): Promise<CacMetrics> {
-  const sinceDay = since ? since.toISOString().slice(0, 10) : "";
-  const untilDay = (until ?? new Date()).toISOString().slice(0, 10);
-  return cachedByDateKey(produtoId, sinceDay, untilDay);
+  // Arredonda pra minuto pra ter chave estável (refreshes em 1min batem cache)
+  const sinceMin = since ? Math.floor(since.getTime() / 60_000) : "all";
+  const untilMin = until ? Math.floor(until.getTime() / 60_000) : "now";
+  const key = `cac:${produtoId ?? "all"}:${sinceMin}:${untilMin}`;
+  const now = Date.now();
+  const cached = memCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+  const value = await _getCacMetrics(produtoId, since, until);
+  memCache.set(key, { value, expiresAt: now + 300_000 });
+  return value;
 }
