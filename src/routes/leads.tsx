@@ -6,7 +6,7 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
 import { FunilBoard } from "@/components/funil-board";
-import { LiveActivityFeed } from "@/components/live-activity";
+import { LiveActivityFeed, LiveActivityFeedCollapsed } from "@/components/live-activity";
 
 type View = "table" | "funil";
 
@@ -44,6 +44,7 @@ export function LeadsPage() {
   const produtoParam = produtoId ?? "all";
   const [search, setSearch] = useState("");
   const [view, setView] = useState<View>("funil");
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["leads", produtoParam],
@@ -87,11 +88,26 @@ export function LeadsPage() {
         </div>
       </div>
 
-      {/* Activity feed (30%) + Kanban (70%) lado a lado em telas lg+ */}
+      {/* Activity feed (esquerda) + Kanban (direita). Activity recolhe pra
+          slim 56px liberando espaço pro kanban quando user quer focar nele. */}
       {view === "funil" ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4 items-start">
+        <div
+          className={`grid grid-cols-1 gap-4 items-start ${
+            activityCollapsed
+              ? "lg:grid-cols-[56px_1fr]"
+              : "lg:grid-cols-[3fr_7fr]"
+          }`}
+        >
           <div className="min-w-0">
-            <LiveActivityFeed />
+            {activityCollapsed ? (
+              <LiveActivityFeedCollapsed
+                onExpand={() => setActivityCollapsed(false)}
+              />
+            ) : (
+              <LiveActivityFeed
+                onToggleCollapsed={() => setActivityCollapsed(true)}
+              />
+            )}
           </div>
           <div className="min-w-0">
             <FunilBoard />

@@ -12,6 +12,8 @@ import {
   MessageSquareOff,
   Activity,
   ChevronDown,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -161,16 +163,21 @@ function groupByLead(items: ActivityItem[]): Group[] {
   return Array.from(map.values()).sort((a, b) => b.latestAt - a.latestAt);
 }
 
-export function LiveActivityFeed() {
+export function LiveActivityFeed({
+  collapsed = false,
+  onToggleCollapsed,
+}: {
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+} = {}) {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [panelOpen, setPanelOpen] = useState(true);
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["activity", "recent", produtoParam],
     queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
-    refetchInterval: panelOpen ? 5000 : false,
+    refetchInterval: collapsed ? false : 5000,
     refetchIntervalInBackground: false,
   });
 
@@ -187,64 +194,93 @@ export function LiveActivityFeed() {
 
   return (
     <div className="card-soft p-5">
-      <button
-        type="button"
-        onClick={() => setPanelOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-3 hover:opacity-80 transition-opacity"
-        aria-expanded={panelOpen}
-      >
-        <div className="flex items-center gap-2">
-          <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center shrink-0">
             <Activity className="size-4" />
           </div>
-          <div className="text-left">
-            <h3 className="font-semibold text-base">Atividade ao vivo</h3>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-base truncate">Atividade ao vivo</h3>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <span
-                className={`size-1.5 rounded-full ${
-                  panelOpen
-                    ? isFetching
-                      ? "bg-forest animate-pulse"
-                      : "bg-muted-foreground/40"
-                    : "bg-muted-foreground/40"
-                }`}
+                className={`size-1.5 rounded-full shrink-0 ${isFetching ? "bg-forest animate-pulse" : "bg-muted-foreground/40"}`}
               />
-              {!panelOpen
-                ? `${groups.length} lead${groups.length !== 1 ? "s" : ""} · clique pra abrir`
-                : isFetching
-                  ? "Atualizando..."
-                  : "Atualiza a cada 5s · agrupado por lead"}
+              <span className="truncate">
+                {isFetching ? "Atualizando..." : "Atualiza a cada 5s"}
+              </span>
             </p>
           </div>
         </div>
-        <ChevronDown
-          className={`size-5 text-muted-foreground shrink-0 transition-transform ${panelOpen ? "rotate-180" : ""}`}
-        />
-      </button>
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            title="Recolher painel (mais espaço pro kanban)"
+            className="size-8 rounded-xl hover:bg-muted/40 grid place-items-center shrink-0 transition-colors"
+          >
+            <PanelLeftClose className="size-4 text-muted-foreground" />
+          </button>
+        ) : null}
+      </div>
 
-      {panelOpen ? (
-        <div className="mt-4">
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
-          ) : groups.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              Sem atividade recente. Webhooks vão aparecer aqui em tempo real.
-            </p>
-          ) : (
-            <ul className="space-y-2 max-h-[600px] overflow-y-auto">
-              {groups.map((g) => (
-                <LeadGroupRow
-                  key={g.key}
-                  group={g}
-                  isExpanded={expanded.has(g.key)}
-                  onToggle={() => toggle(g.key)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
+      ) : groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">
+          Sem atividade recente. Webhooks vão aparecer aqui em tempo real.
+        </p>
+      ) : (
+        <ul className="space-y-2 max-h-[600px] overflow-y-auto">
+          {groups.map((g) => (
+            <LeadGroupRow
+              key={g.key}
+              group={g}
+              isExpanded={expanded.has(g.key)}
+              onToggle={() => toggle(g.key)}
+            />
+          ))}
+        </ul>
+      )}
     </div>
+  );
+}
+
+/**
+ * Versão fininha do painel quando recolhido. Mostra só ícone + contador
+ * e botão pra reabrir. Ocupa pouco espaço horizontal pro kanban respirar.
+ *
+ * TanStack Query dedupa pela queryKey — esse componente compartilha o
+ * cache com o LiveActivityFeed expandido, sem requests extras.
+ */
+export function LiveActivityFeedCollapsed({ onExpand }: { onExpand: () => void }) {
+  const { produtoId } = useProdutoContext();
+  const produtoParam = produtoId ?? "all";
+  const { data } = useQuery({
+    queryKey: ["activity", "recent", produtoParam],
+    queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
+    refetchInterval: 30_000, // collapsed: poll mais lento (30s)
+    refetchIntervalInBackground: false,
+  });
+  const groups = useMemo(() => (data ? groupByLead(data) : []), [data]);
+
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title="Expandir painel de atividade ao vivo"
+      className="card-soft py-5 px-2 flex flex-col items-center gap-3 hover:bg-muted/20 transition-colors h-full w-full"
+    >
+      <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
+        <Activity className="size-4" />
+      </div>
+      <PanelLeftOpen className="size-4 text-muted-foreground" />
+      <div
+        className="text-xs font-semibold text-muted-foreground"
+        style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+      >
+        Atividade · {groups.length} lead{groups.length !== 1 ? "s" : ""}
+      </div>
+    </button>
   );
 }
 
