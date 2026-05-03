@@ -143,21 +143,42 @@ function pickActionValue(
 }
 
 /**
- * Extrai URL de destino de um creative Meta. Tenta os formatos comuns:
- * link_data (single image/video), template_data (carousel), video_data CTA.
+ * Extrai URL de destino de um creative Meta. Cobre múltiplos formatos:
+ * - link_data (single image/video standard)
+ * - template_data (carousel)
+ * - video_data com CTA
+ * - asset_feed_spec (Advantage+ creative — formato novo da Meta)
+ * - photo_data (foto com link)
+ * - object_url no nível do creative (dark posts e ads de post existente)
  */
 function extractLpUrl(creative: AnyObject | undefined): string | null {
   if (!creative) return null;
+
+  // Primeiro: object_url direto no creative (dark posts, post boost)
+  const directUrl = creative.object_url as string | undefined;
+  if (directUrl) return directUrl;
+
   const oss = creative.object_story_spec as AnyObject | undefined;
-  if (!oss) return null;
-  const linkData = oss.link_data as { link?: string } | undefined;
-  if (linkData?.link) return linkData.link;
-  const templateData = oss.template_data as { link?: string } | undefined;
-  if (templateData?.link) return templateData.link;
-  const videoData = oss.video_data as
-    | { call_to_action?: { value?: { link?: string } } }
-    | undefined;
-  if (videoData?.call_to_action?.value?.link) return videoData.call_to_action.value.link;
+  if (oss) {
+    const linkData = oss.link_data as { link?: string } | undefined;
+    if (linkData?.link) return linkData.link;
+    const templateData = oss.template_data as { link?: string } | undefined;
+    if (templateData?.link) return templateData.link;
+    const videoData = oss.video_data as
+      | { call_to_action?: { value?: { link?: string } } }
+      | undefined;
+    if (videoData?.call_to_action?.value?.link) return videoData.call_to_action.value.link;
+    const photoData = oss.photo_data as { url?: string } | undefined;
+    if (photoData?.url) return photoData.url;
+  }
+
+  // Advantage+ creative (asset_feed_spec) — formato novo da Meta
+  const afs = creative.asset_feed_spec as AnyObject | undefined;
+  if (afs) {
+    const links = afs.link_urls as Array<{ website_url?: string }> | undefined;
+    if (links?.[0]?.website_url) return links[0].website_url;
+  }
+
   return null;
 }
 
@@ -247,7 +268,7 @@ export async function getCampaigns(
     }),
     metaFetch<{ data: AnyObject[] }>(`/${account}/ads`, {
       fields:
-        "id,campaign_id,effective_status,creative{object_story_spec{link_data{link},template_data{link},video_data{call_to_action{value{link}}}}}",
+        "id,campaign_id,effective_status,creative{object_url,object_story_spec{link_data{link},template_data{link},video_data{call_to_action{value{link}}},photo_data{url}},asset_feed_spec{link_urls}}",
       limit: "500",
     }),
   ]);
