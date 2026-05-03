@@ -76,6 +76,7 @@ export async function getRecentActivity(
     left join leads l on l.id = e.lead_id
     left join produtos p on p.id = coalesce(e.produto_id, l.produto_id)
     where e.processed_ok = true
+      and e.erro is null  -- esconde eventos retroativos (ex: carrinho_abandonado depois do cliente pagar)
       ${produtoId != null ? sql`and (e.produto_id = ${produtoId} or l.produto_id = ${produtoId})` : sql``}
     order by e.received_at desc
     limit ${limit}
