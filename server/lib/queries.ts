@@ -178,27 +178,28 @@ export async function getDashboardMetrics(
       ? all.filter((l) => inPeriod(l.criadoEm)).length
       : all.length;
 
-  // LTV (Lifetime Value): receita média que um cliente gera durante sua
-  // vida na plataforma. Fórmula = ARPU * tempo médio de assinatura.
+  // LTV (Lifetime Value): receita média que um cliente gera durante sua vida.
   //
-  // Tempo médio = média de (canceladoEm - pagouEm) em meses, considerando
-  // SÓ os cancelados (clientes ativos têm lifespan ainda em curso e enviesam
-  // pra baixo se incluídos).
+  // Como Ticto cobra MENSAL (signup + renovações a cada 30d), contamos
+  // MESES PAGOS por cliente, não tempo fracionário. Cliente que cancelou
+  // em 6 dias pagou 1 mês completo (não 20% de mês).
   //
-  // ARPU = ticket médio mensal. Usa MRR/ativos quando há ativos; senão,
-  // avg do valor_assinatura dos cancelados (caso degenerado sem ativos).
+  //   meses_pagos = max(1, ceil(lifespan_em_meses))
+  //   Ex: 0.20m → 1 mês, 1.29m → 2 meses, 8m → 8 meses
+  //
+  // LTV = ARPU * média de meses_pagos dos cancelados.
+  // Usa só cancelados (lifespan realizado). Ativos têm lifespan em curso.
   const cancelledLeads = all.filter((l) => l.pagouEm && l.canceladoEm);
-  const lifespans = cancelledLeads.map(
-    (l) =>
-      Math.max(
-        (l.canceladoEm!.getTime() - l.pagouEm!.getTime()) /
-          (30 * 24 * 60 * 60 * 1000),
-        0.1,
-      ),
-  );
+  const monthsPaidPerCustomer = cancelledLeads.map((l) => {
+    const lifespanMonths =
+      (l.canceladoEm!.getTime() - l.pagouEm!.getTime()) /
+      (30 * 24 * 60 * 60 * 1000);
+    return Math.max(1, Math.ceil(lifespanMonths));
+  });
   const avgLifetimeMonths =
-    lifespans.length > 0
-      ? lifespans.reduce((a, b) => a + b, 0) / lifespans.length
+    monthsPaidPerCustomer.length > 0
+      ? monthsPaidPerCustomer.reduce((a, b) => a + b, 0) /
+        monthsPaidPerCustomer.length
       : 0;
 
   let arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
