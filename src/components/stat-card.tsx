@@ -30,37 +30,34 @@ export function StatCard({
   }[iconTone];
 
   return (
-    <div className="card-soft p-5 sm:p-6 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        {Icon ? (
-          <div className={`size-10 rounded-2xl grid place-items-center ${toneClass}`}>
-            <Icon className="size-5" />
-          </div>
-        ) : (
-          <div />
-        )}
-        {trend ? (
-          <span
-            className={[
-              "text-xs font-semibold px-2 py-1 rounded-lg tabular-nums",
-              trend.positive
-                ? "text-[oklch(0.55_0.18_140)] bg-[oklch(0.94_0.07_130)]"
-                : "text-[oklch(0.55_0.18_25)] bg-[oklch(0.95_0.04_25)]",
-            ].join(" ")}
-          >
-            {trend.positive ? "↗" : "↘"} {trend.value > 0 ? "+" : ""}
-            {trend.value}%
-          </span>
-        ) : null}
-      </div>
+    <div className="card-soft p-4 flex items-center gap-4 relative">
+      {Icon ? (
+        <div className={`size-12 rounded-2xl grid place-items-center shrink-0 ${toneClass}`}>
+          <Icon className="size-5" />
+        </div>
+      ) : null}
 
-      <div className="space-y-1">
-        <p className="text-2xl sm:text-3xl font-bold tabular-nums tracking-tight">
+      <div className="flex-1 min-w-0">
+        <p className="text-xl sm:text-2xl font-bold tabular-nums tracking-tight leading-tight">
           {value}
         </p>
         <p className="text-sm text-muted-foreground">{label}</p>
-        {hint ? <p className="text-xs text-muted-foreground/80">{hint}</p> : null}
+        {hint ? <p className="text-xs text-muted-foreground/80 truncate">{hint}</p> : null}
       </div>
+
+      {trend ? (
+        <span
+          className={[
+            "absolute top-3 right-3 text-xs font-semibold px-2 py-1 rounded-lg tabular-nums",
+            trend.positive
+              ? "text-[oklch(0.55_0.18_140)] bg-[oklch(0.94_0.07_130)]"
+              : "text-[oklch(0.55_0.18_25)] bg-[oklch(0.95_0.04_25)]",
+          ].join(" ")}
+        >
+          {trend.positive ? "↗" : "↘"} {trend.value > 0 ? "+" : ""}
+          {trend.value}%
+        </span>
+      ) : null}
     </div>
   );
 }
