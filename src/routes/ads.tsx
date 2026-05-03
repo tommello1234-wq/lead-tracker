@@ -6,6 +6,8 @@ import {
   DollarSign,
   TrendingUp,
   AlertCircle,
+  ExternalLink,
+  Image as ImageIcon,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -232,10 +234,34 @@ export function AdsPage() {
                         key={c.campaignId}
                         className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
                       >
-                        <td className="px-5 py-3 font-medium truncate max-w-[400px]">
+                        <td className="px-5 py-3 font-medium max-w-[400px]">
                           <div className="flex items-center gap-2">
                             <StatusDot status={c.status} />
                             <span className="truncate">{c.campaignName}</span>
+                            <div className="flex items-center gap-1 ml-1 shrink-0">
+                              {c.landingPageUrl ? (
+                                <a
+                                  href={c.landingPageUrl}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  title={`Abrir LP: ${c.landingPageUrl}`}
+                                  className="size-6 rounded-md grid place-items-center text-muted-foreground hover:text-forest hover:bg-lime-soft transition-colors"
+                                >
+                                  <ExternalLink className="size-3.5" />
+                                </a>
+                              ) : null}
+                              {c.sampleAdId ? (
+                                <a
+                                  href={`https://business.facebook.com/adsmanager/manage/ads?act=918344584462338&selected_ad_ids=${c.sampleAdId}`}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  title="Ver criativo no Ads Manager"
+                                  className="size-6 rounded-md grid place-items-center text-muted-foreground hover:text-forest hover:bg-lime-soft transition-colors"
+                                >
+                                  <ImageIcon className="size-3.5" />
+                                </a>
+                              ) : null}
+                            </div>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums">{brl(c.spend)}</td>

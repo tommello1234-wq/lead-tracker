@@ -89,6 +89,10 @@ export type MetaCampaign = {
   ctr: number;
   purchaseValue: number;
   roas: number;
+  /** URL da LP (do primeiro ad ativo da campanha) — pra abrir e conferir destino */
+  landingPageUrl: string | null;
+  /** ID de um ad da campanha — pra montar URL do Ads Manager e ver o criativo */
+  sampleAdId: string | null;
 };
 
 /* ========================================================
@@ -127,6 +131,25 @@ function pickActionValue(
   if (!actionValues) return 0;
   const a = actionValues.find((x) => x.action_type === type);
   return a ? Number(a.value) : 0;
+}
+
+/**
+ * Extrai URL de destino de um creative Meta. Tenta os formatos comuns:
+ * link_data (single image/video), template_data (carousel), video_data CTA.
+ */
+function extractLpUrl(creative: AnyObject | undefined): string | null {
+  if (!creative) return null;
+  const oss = creative.object_story_spec as AnyObject | undefined;
+  if (!oss) return null;
+  const linkData = oss.link_data as { link?: string } | undefined;
+  if (linkData?.link) return linkData.link;
+  const templateData = oss.template_data as { link?: string } | undefined;
+  if (templateData?.link) return templateData.link;
+  const videoData = oss.video_data as
+    | { call_to_action?: { value?: { link?: string } } }
+    | undefined;
+  if (videoData?.call_to_action?.value?.link) return videoData.call_to_action.value.link;
+  return null;
 }
 
 /* ========================================================
@@ -205,20 +228,42 @@ export async function getCampaigns(
     params.date_preset = "maximum";
   }
 
-  // 2 chamadas em paralelo: insights (metricas) + campanhas (status atual).
-  // Insights so retorna campanhas com atividade no periodo; status vem de TODAS
-  // pra cobrir o caso onde a campanha foi pausada hoje mas teve gasto ontem.
-  const [insightsResp, statusResp] = await Promise.all([
+  // 3 chamadas em paralelo: insights (métricas), status das campanhas, e ads
+  // (pra extrair LP URL + sample ad ID por campanha — atalho na tabela).
+  const [insightsResp, statusResp, adsResp] = await Promise.all([
     metaFetch<{ data: AnyObject[] }>(`/${account}/insights`, params),
     metaFetch<{ data: AnyObject[] }>(`/${account}/campaigns`, {
       fields: "id,effective_status",
       limit: "200",
+    }),
+    metaFetch<{ data: AnyObject[] }>(`/${account}/ads`, {
+      fields:
+        "id,campaign_id,effective_status,creative{object_story_spec{link_data{link},template_data{link},video_data{call_to_action{value{link}}}}}",
+      limit: "500",
     }),
   ]);
 
   const statusById = new Map<string, CampaignStatus>();
   for (const c of statusResp.data ?? []) {
     statusById.set(String(c.id ?? ""), (c.effective_status as CampaignStatus) ?? "UNKNOWN");
+  }
+
+  // Pra cada campanha, pega 1 ad (preferindo ACTIVE) com sua LP URL.
+  type AdInfo = { adId: string; lpUrl: string | null; isActive: boolean };
+  const adsByCampaign = new Map<string, AdInfo>();
+  for (const ad of adsResp.data ?? []) {
+    const campId = String(ad.campaign_id ?? "");
+    if (!campId) continue;
+    const info: AdInfo = {
+      adId: String(ad.id ?? ""),
+      lpUrl: extractLpUrl(ad.creative as AnyObject | undefined),
+      isActive: String(ad.effective_status ?? "") === "ACTIVE",
+    };
+    const existing = adsByCampaign.get(campId);
+    // Prefere ad ACTIVE; se atual já é ACTIVE, mantém. Senão, sobrescreve.
+    if (!existing || (!existing.isActive && info.isActive)) {
+      adsByCampaign.set(campId, info);
+    }
   }
 
   return (insightsResp.data ?? []).map((c) => {
@@ -229,6 +274,7 @@ export async function getCampaigns(
     const ic = pickAction(actions, "initiate_checkout");
     const purchaseValue = pickActionValue(actionValues, "omni_purchase");
     const id = String(c.campaign_id ?? "");
+    const adInfo = adsByCampaign.get(id);
     return {
       campaignId: id,
       campaignName: String(c.campaign_name ?? "—"),
@@ -242,6 +288,8 @@ export async function getCampaigns(
       ctr: Number(c.inline_link_click_ctr ?? 0),
       purchaseValue,
       roas: spend > 0 ? purchaseValue / spend : 0,
+      landingPageUrl: adInfo?.lpUrl ?? null,
+      sampleAdId: adInfo?.adId ?? null,
     };
   });
 }

@@ -170,6 +170,8 @@ export type MetaCampaign = {
   ctr: number;
   purchaseValue: number;
   roas: number;
+  landingPageUrl: string | null;
+  sampleAdId: string | null;
 };
 
 export type Produto = {
