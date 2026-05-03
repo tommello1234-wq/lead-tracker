@@ -12,7 +12,7 @@
  */
 import { db } from "../../db/client.js";
 import { eventos, leads } from "../../db/schema.js";
-import { sql, eq, and, inArray, gte } from "drizzle-orm";
+import { sql, eq, and, inArray, gte, lte } from "drizzle-orm";
 
 export type PaymentMethod = "cartao" | "pix" | "boleto" | "indefinido";
 
@@ -93,6 +93,7 @@ const valorExpr = sql<number>`coalesce(
 export async function getMetodoBreakdown(
   produtoId: number | null = null,
   since: Date | null = null,
+  until: Date | null = null,
 ): Promise<MetodoBreakdown[]> {
   const conditions = [
     inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
@@ -100,6 +101,7 @@ export async function getMetodoBreakdown(
   ];
   if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) conditions.push(gte(eventos.receivedAt, since));
+  if (until != null) conditions.push(lte(eventos.receivedAt, until));
 
   // Total transações + receita por método
   const transacoes = await db
@@ -195,10 +197,12 @@ export async function getMetodoBreakdown(
 export async function getFunilPix(
   produtoId: number | null = null,
   since: Date | null = null,
+  until: Date | null = null,
 ): Promise<FunilPix> {
   const cond = [eq(eventos.processedOk, true)];
   if (produtoId != null) cond.push(eq(eventos.produtoId, produtoId));
   if (since != null) cond.push(gte(eventos.receivedAt, since));
+  if (until != null) cond.push(lte(eventos.receivedAt, until));
 
   const counts = await db
     .select({

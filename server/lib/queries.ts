@@ -1,6 +1,6 @@
 import { db } from "../../db/client.js";
 import { leads, mensagensAgendadas, eventos, type Lead } from "../../db/schema.js";
-import { desc, eq, and, gte, sql, inArray } from "drizzle-orm";
+import { desc, eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withCache } from "./cache.js";
 
 /**
@@ -86,6 +86,7 @@ function startOfMonth(d: Date) {
 export async function getDashboardMetrics(
   produtoId: number | null = null,
   since: Date | null = null,
+  until: Date | null = null,
 ): Promise<DashboardMetrics> {
   const cond = produtoCondition(produtoId);
   const all = cond.length === 0
@@ -94,23 +95,31 @@ export async function getDashboardMetrics(
   const today = startOfDay(new Date());
   const monthStart = startOfMonth(new Date());
 
+  // Helper: testa se data cai no período [since, until]. null = aberto.
+  const inPeriod = (d: Date | null | undefined): boolean => {
+    if (!d) return false;
+    if (since && d < since) return false;
+    if (until && d > until) return false;
+    return true;
+  };
+
   // MRR e clientesAtivos sempre snapshot atual (não dependem de período).
   const clientesAtivos = all.filter((l) => l.subscriptionStatus === "ativa");
   const mrr = clientesAtivos.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
 
   // Receita do PERÍODO selecionado (compras pagas no intervalo).
-  // Se since=null, conta histórico todo. Se since=hoje, só conta vendas de hoje.
+  // Se since=null e until=null, conta histórico todo.
   const pixPagosTotal = all.filter((l) => l.pagouEm != null);
-  const pixPagosNoPeriodo = since
-    ? pixPagosTotal.filter((l) => l.pagouEm! >= since)
-    : pixPagosTotal;
+  const pixPagosNoPeriodo =
+    since || until
+      ? pixPagosTotal.filter((l) => inPeriod(l.pagouEm))
+      : pixPagosTotal;
 
   // Cohort de PIX no período: leads que GERARAM PIX dentro da janela.
-  // Taxa de conversão e receita perdida usam esse cohort pra ficar
-  // coerente com o filtro de tempo (antes pegava lifetime e quebrava).
-  const pixGeradosNoPeriodo = since
-    ? all.filter((l) => l.pixGeradoEm && l.pixGeradoEm >= since)
-    : all.filter((l) => l.pixGeradoEm != null);
+  const pixGeradosNoPeriodo =
+    since || until
+      ? all.filter((l) => inPeriod(l.pixGeradoEm))
+      : all.filter((l) => l.pixGeradoEm != null);
   const pixPagosCohort = pixGeradosNoPeriodo.filter((l) => l.pagouEm != null);
   const pixExpiradosNoPeriodo = pixGeradosNoPeriodo.filter(
     (l) => l.status === "pix_expirado",
@@ -298,6 +307,7 @@ export async function getTipoBreakdown(
 export async function getFaturamento(
   produtoId: number | null = null,
   since: Date | null = null,
+  until: Date | null = null,
 ): Promise<{ count: number; total: number }> {
   const conditions = [
     inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
@@ -305,6 +315,7 @@ export async function getFaturamento(
   ];
   if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) conditions.push(gte(eventos.receivedAt, since));
+  if (until != null) conditions.push(lte(eventos.receivedAt, until));
 
   // Extrai valor com fallbacks pros vários formatos de payload
   const valorExpr = sql<number>`coalesce(

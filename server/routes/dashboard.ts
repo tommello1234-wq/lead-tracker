@@ -30,6 +30,13 @@ function parseSince(c: { req: { query: (k: string) => string | undefined } }): D
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function parseUntil(c: { req: { query: (k: string) => string | undefined } }): Date | null {
+  const v = c.req.query("until");
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /* ==========================================================================
  * GET /api/dashboard/sidebar-counts
  * ========================================================================== */
@@ -44,7 +51,8 @@ dashboardRoutes.get("/sidebar-counts", async (c) => {
 dashboardRoutes.get("/metrics", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
-  const metrics = await getDashboardMetrics(produtoId, since);
+  const until = parseUntil(c);
+  const metrics = await getDashboardMetrics(produtoId, since, until);
   return c.json(metrics);
 });
 
@@ -64,7 +72,8 @@ dashboardRoutes.get("/daily", async (c) => {
 dashboardRoutes.get("/faturamento", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
-  const data = await getFaturamento(produtoId, since);
+  const until = parseUntil(c);
+  const data = await getFaturamento(produtoId, since, until);
   return c.json(data);
 });
 
@@ -111,9 +120,10 @@ dashboardRoutes.get("/cac", async (c) => {
 dashboardRoutes.get("/saas", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
+  const until = parseUntil(c);
   const [metodos, funilPix, retencao] = await Promise.all([
-    getMetodoBreakdown(produtoId, since),
-    getFunilPix(produtoId, since),
+    getMetodoBreakdown(produtoId, since, until),
+    getFunilPix(produtoId, since, until),
     getRetencaoPorMetodo(produtoId),
   ]);
   return c.json({ metodos, funilPix, retencao });

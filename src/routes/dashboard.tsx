@@ -65,15 +65,18 @@ export function DashboardPage() {
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const produtoParam = produtoId ?? "all";
-  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}`;
-  const cacQs = `${baseQs}&until=${untilParam}`;
+  // baseQs agora carrega since + until — antes só since, então "Ontem" e
+  // "Personalizado" (que precisam de upper bound) pegavam até NOW e o
+  // filtro virava ineficaz.
+  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  const cacQs = baseQs;
 
   const metrics = useQuery({
-    queryKey: ["dashboard", "metrics", produtoParam, sinceParam],
+    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
   });
   const faturamento = useQuery({
-    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam],
+    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<Faturamento>(`/api/dashboard/faturamento?${baseQs}`),
   });
   const daily = useQuery({
@@ -98,7 +101,7 @@ export function DashboardPage() {
   const isSaasView = produtoId == null || produtoSel?.tipo === "saas";
 
   const saasMetrics = useQuery({
-    queryKey: ["dashboard", "saas", produtoParam, sinceParam],
+    queryKey: ["dashboard", "saas", produtoParam, sinceParam, untilParam],
     queryFn: () =>
       api.get<SaasMetricsResponse>(`/api/dashboard/saas?${baseQs}`),
     enabled: isSaasView,
