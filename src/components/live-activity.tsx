@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import {
   CheckCircle2,
   XCircle,
@@ -6,11 +7,11 @@ import {
   AlertCircle,
   RefreshCw,
   ShoppingCart,
-  Banknote,
   RotateCcw,
   MessageSquare,
   MessageSquareOff,
   Activity,
+  ChevronDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -105,16 +106,68 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86400)}d atrás`;
 }
 
+type Group = {
+  key: string;
+  leadId: number | null;
+  leadNome: string;
+  items: ActivityItem[];
+  latestAt: number;
+};
+
+/** Agrupa eventos por lead. Eventos sem lead viram grupo individual. */
+function groupByLead(items: ActivityItem[]): Group[] {
+  const map = new Map<string, Group>();
+  for (const item of items) {
+    const key =
+      item.leadId != null
+        ? `lead-${item.leadId}`
+        : `solo-${item.tipo}-${item.id}`;
+    const existing = map.get(key);
+    const ts = new Date(item.receivedAt).getTime();
+    if (existing) {
+      existing.items.push(item);
+      if (ts > existing.latestAt) existing.latestAt = ts;
+    } else {
+      map.set(key, {
+        key,
+        leadId: item.leadId,
+        leadNome: item.leadNome ?? "Sem lead",
+        items: [item],
+        latestAt: ts,
+      });
+    }
+  }
+  for (const g of map.values()) {
+    g.items.sort(
+      (a, b) =>
+        new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+    );
+  }
+  return Array.from(map.values()).sort((a, b) => b.latestAt - a.latestAt);
+}
+
 export function LiveActivityFeed() {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["activity", "recent", produtoParam],
-    queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=30`),
-    refetchInterval: 5000, // poll a cada 5s
+    queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
+    refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
+
+  const groups = useMemo(() => (data ? groupByLead(data) : []), [data]);
+
+  const toggle = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
     <div className="card-soft p-5">
@@ -129,7 +182,7 @@ export function LiveActivityFeed() {
               <span
                 className={`size-1.5 rounded-full ${isFetching ? "bg-forest animate-pulse" : "bg-muted-foreground/40"}`}
               />
-              {isFetching ? "Atualizando..." : "Atualiza a cada 5s"}
+              {isFetching ? "Atualizando..." : "Atualiza a cada 5s · agrupado por lead"}
             </p>
           </div>
         </div>
@@ -137,14 +190,19 @@ export function LiveActivityFeed() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
-      ) : !data || data.length === 0 ? (
+      ) : groups.length === 0 ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
           Sem atividade recente. Webhooks vão aparecer aqui em tempo real.
         </p>
       ) : (
         <ul className="space-y-2 max-h-[600px] overflow-y-auto">
-          {data.map((item) => (
-            <ActivityRow key={`${item.tipo}-${item.id}`} item={item} />
+          {groups.map((g) => (
+            <LeadGroupRow
+              key={g.key}
+              group={g}
+              isExpanded={expanded.has(g.key)}
+              onToggle={() => toggle(g.key)}
+            />
           ))}
         </ul>
       )}
@@ -152,43 +210,108 @@ export function LiveActivityFeed() {
   );
 }
 
-function ActivityRow({ item }: { item: ActivityItem }) {
-  const meta = EVENT_META[item.eventType] ?? EVENT_META.default;
+function LeadGroupRow({
+  group,
+  isExpanded,
+  onToggle,
+}: {
+  group: Group;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const latest = group.items[0];
+  const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
-  const lead = item.leadNome ?? "Sem lead";
-  const valor = item.meta?.valor ? brl(item.meta.valor) : null;
-  const time = timeFmt.format(new Date(item.receivedAt));
+  const valor = latest.meta?.valor ? brl(latest.meta.valor) : null;
+  const count = group.items.length;
 
   return (
-    <li className="flex items-start gap-3 p-3 rounded-2xl hover:bg-muted/30 transition-colors group">
-      <div className={`size-9 rounded-2xl grid place-items-center shrink-0 ${meta.tone}`}>
-        <Icon className="size-4" />
+    <li className="rounded-2xl border border-border/40 overflow-hidden bg-background/40">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start gap-3 p-3 hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className={`size-9 rounded-2xl grid place-items-center shrink-0 ${meta.tone}`}>
+          <Icon className="size-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm truncate">{group.leadNome}</span>
+            {count > 1 ? (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-lime-soft text-forest">
+                {count} eventos
+              </span>
+            ) : null}
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-sm text-muted-foreground">{meta.label}</span>
+            {valor ? (
+              <span className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-md bg-secondary">
+                {valor}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+            {latest.produtoNome ? (
+              <>
+                <span className="truncate">{latest.produtoNome}</span>
+                <span>·</span>
+              </>
+            ) : null}
+            <span className="tabular-nums shrink-0">
+              {timeFmt.format(new Date(latest.receivedAt))}
+            </span>
+            <span>·</span>
+            <span className="shrink-0">{relativeTime(latest.receivedAt)}</span>
+          </div>
+        </div>
+        {count > 1 ? (
+          <ChevronDown
+            className={`size-4 text-muted-foreground shrink-0 mt-2 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+          />
+        ) : null}
+      </button>
+
+      {isExpanded && count > 1 ? (
+        <ul className="border-t border-border/40 bg-muted/20">
+          {group.items.map((item) => (
+            <NestedRow key={`${item.tipo}-${item.id}`} item={item} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function NestedRow({ item }: { item: ActivityItem }) {
+  const meta = EVENT_META[item.eventType] ?? EVENT_META.default;
+  const Icon = meta.icon;
+  const valor = item.meta?.valor ? brl(item.meta.valor) : null;
+
+  return (
+    <li className="flex items-start gap-3 px-3 py-2 pl-12 hover:bg-muted/30 transition-colors border-t border-border/30 first:border-t-0">
+      <div className={`size-7 rounded-xl grid place-items-center shrink-0 ${meta.tone}`}>
+        <Icon className="size-3.5" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-sm truncate">{lead}</span>
-          <span className="text-xs text-muted-foreground">·</span>
-          <span className="text-sm text-muted-foreground">{meta.label}</span>
+          <span className="text-sm">{meta.label}</span>
           {valor ? (
-            <span className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-md bg-secondary">
+            <span className="text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-secondary">
               {valor}
             </span>
           ) : null}
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-          {item.produtoNome ? (
-            <>
-              <span className="truncate">{item.produtoNome}</span>
-              <span>·</span>
-            </>
-          ) : null}
           {item.meta?.template ? (
             <>
               <span className="truncate font-mono">{item.meta.template}</span>
               <span>·</span>
             </>
           ) : null}
-          <span className="tabular-nums shrink-0">{time}</span>
+          <span className="tabular-nums shrink-0">
+            {timeFmt.format(new Date(item.receivedAt))}
+          </span>
           <span>·</span>
           <span className="shrink-0">{relativeTime(item.receivedAt)}</span>
         </div>
