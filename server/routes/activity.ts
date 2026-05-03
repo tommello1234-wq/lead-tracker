@@ -10,11 +10,20 @@ function parseProdutoId(c: { req: { query: (k: string) => string | undefined } }
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/* GET /api/activity/recent?produtoId=X&limit=30 */
+/* GET /api/activity/recent?produtoId=X&limit=30&since=ISO&until=ISO */
 activityRoutes.get("/recent", async (c) => {
   const produtoId = parseProdutoId(c);
   const limit = Math.min(Number(c.req.query("limit") ?? 30) || 30, 100);
-  const items = await getRecentActivity(produtoId, limit);
+  const sinceParam = c.req.query("since");
+  const untilParam = c.req.query("until");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  const until = untilParam ? new Date(untilParam) : null;
+  const items = await getRecentActivity(
+    produtoId,
+    limit,
+    since && !Number.isNaN(since.getTime()) ? since : null,
+    until && !Number.isNaN(until.getTime()) ? until : null,
+  );
   return c.json(items);
 });
 

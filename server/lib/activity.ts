@@ -46,6 +46,8 @@ export type FunilSnapshot = {
 export async function getRecentActivity(
   produtoId: number | null = null,
   limit = 30,
+  since: Date | null = null,
+  until: Date | null = null,
 ): Promise<ActivityItem[]> {
   // 1. Eventos do gateway (com lead joined)
   const eventosResult = await db.execute<{
@@ -80,6 +82,8 @@ export async function getRecentActivity(
     where e.processed_ok = true
       and e.erro is null  -- esconde eventos retroativos (ex: carrinho_abandonado depois do cliente pagar)
       ${produtoId != null ? sql`and (e.produto_id = ${produtoId} or l.produto_id = ${produtoId})` : sql``}
+      ${since != null ? sql`and e.received_at >= ${since.toISOString()}::timestamp` : sql``}
+      ${until != null ? sql`and e.received_at <= ${until.toISOString()}::timestamp` : sql``}
     order by e.received_at desc
     limit ${limit}
   `);
@@ -113,6 +117,8 @@ export async function getRecentActivity(
     left join produtos p on p.id = l.produto_id
     where m.status in ('sent', 'skipped', 'failed')
       ${produtoId != null ? sql`and l.produto_id = ${produtoId}` : sql``}
+      ${since != null ? sql`and coalesce(m.enviado_em, m.criado_em) >= ${since.toISOString()}::timestamp` : sql``}
+      ${until != null ? sql`and coalesce(m.enviado_em, m.criado_em) <= ${until.toISOString()}::timestamp` : sql``}
     order by sent_at desc
     limit ${limit}
   `);

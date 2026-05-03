@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
+import { periodToRange } from "@/lib/period";
 import type { ActivityItem } from "@shared/types";
 
 const EVENT_META: Record<
@@ -170,13 +171,22 @@ export function LiveActivityFeed({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 } = {}) {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
+  const sinceParam = since ? since.toISOString() : "";
+  const untilParam = until.toISOString();
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["activity", "recent", produtoParam],
-    queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
+    queryKey: ["activity", "recent", produtoParam, sinceParam, untilParam],
+    queryFn: () =>
+      api.get<ActivityItem[]>(
+        `/api/activity/recent?produtoId=${produtoParam}&limit=50&since=${sinceParam}&until=${untilParam}`,
+      ),
     refetchInterval: collapsed ? false : 5000,
     refetchIntervalInBackground: false,
   });
@@ -253,11 +263,20 @@ export function LiveActivityFeed({
  * cache com o LiveActivityFeed expandido, sem requests extras.
  */
 export function LiveActivityFeedCollapsed({ onExpand }: { onExpand: () => void }) {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
+  const sinceParam = since ? since.toISOString() : "";
+  const untilParam = until.toISOString();
   const { data } = useQuery({
-    queryKey: ["activity", "recent", produtoParam],
-    queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
+    queryKey: ["activity", "recent", produtoParam, sinceParam, untilParam],
+    queryFn: () =>
+      api.get<ActivityItem[]>(
+        `/api/activity/recent?produtoId=${produtoParam}&limit=50&since=${sinceParam}&until=${untilParam}`,
+      ),
     refetchInterval: 30_000, // collapsed: poll mais lento (30s)
     refetchIntervalInBackground: false,
   });
