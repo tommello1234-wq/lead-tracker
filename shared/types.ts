@@ -179,6 +179,21 @@ export type MetaCampaign = {
   sampleAdId: string | null;
 };
 
+export type DetailLead = {
+  id: number;
+  nome: string;
+  contato: string | null;
+  email: string | null;
+  status: string;
+  subscriptionStatus: string;
+  planoNome: string | null;
+  valorAssinatura: number | null;
+  pagouEm: string | null;
+  canceladoEm: string | null;
+  criadoEm: string;
+  atualizadoEm: string;
+};
+
 export type Produto = {
   id: number;
   nome: string;

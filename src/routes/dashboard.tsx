@@ -18,6 +18,7 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange, PERIOD_LABELS, PERIODS, type Period } from "@/lib/period";
 import { HeroCard } from "@/components/hero-card";
 import { StatCard } from "@/components/stat-card";
+import { DetailsModal, type DetailsKind } from "@/components/details-modal";
 import {
   ConversionTrendChart,
   DailyVolumeChart,
@@ -60,6 +61,7 @@ const SHORT_LABELS: Record<Period, string> = {
 };
 
 export function DashboardPage() {
+  const [details, setDetails] = useState<DetailsKind | null>(null);
   const { produtoId, period, customDate } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
@@ -138,6 +140,7 @@ export function DashboardPage() {
           hint={m ? `${m.clientesAtivos} ativos · ARPU ${brl(m.arpu)}` : undefined}
           icon={DollarSign}
           iconTone="lime"
+          onClick={() => setDetails("ativos")}
         />
         <StatCard
           label="LTV (lifetime value)"
@@ -149,6 +152,7 @@ export function DashboardPage() {
           }
           icon={TrendingUp}
           iconTone="forest"
+          onClick={() => setDetails("cancelados")}
         />
         <StatCard
           label="Faturamento no período"
@@ -160,6 +164,7 @@ export function DashboardPage() {
           }
           icon={Banknote}
           iconTone="forest"
+          onClick={() => setDetails("compras")}
         />
       </div>
 
@@ -171,6 +176,7 @@ export function DashboardPage() {
           hint={m ? `${m.pixPagos}/${m.pixGerados} pagos` : undefined}
           icon={TrendingUp}
           iconTone="lime"
+          onClick={() => setDetails("pix_gerados")}
         />
         <StatCard
           label="Receita perdida em PIX"
@@ -178,6 +184,7 @@ export function DashboardPage() {
           hint={m ? `${m.pixExpirados} PIX expiraram` : undefined}
           icon={PiggyBank}
           iconTone="rose"
+          onClick={() => setDetails("pix_expirados")}
         />
       </div>
 
@@ -209,6 +216,7 @@ export function DashboardPage() {
             }
             icon={Users}
             iconTone="lime"
+            onClick={() => setDetails("compras")}
           />
           <StatCard
             label="% Orgânico"
@@ -235,6 +243,7 @@ export function DashboardPage() {
             hint="Cliente pediu dinheiro de volta"
             icon={RotateCcw}
             iconTone="rose"
+            onClick={() => setDetails("reembolsos")}
           />
         </div>
       ) : null}
@@ -257,6 +266,10 @@ export function DashboardPage() {
           <p className="text-sm text-muted-foreground">Carregando gráficos...</p>
         </div>
       )}
+
+      {details ? (
+        <DetailsModal kind={details} onClose={() => setDetails(null)} />
+      ) : null}
     </div>
   );
 }

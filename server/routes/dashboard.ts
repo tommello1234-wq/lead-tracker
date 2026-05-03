@@ -13,6 +13,7 @@ import {
   getRetencaoPorMetodo,
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
+import { getDetails, type DetailsKind } from "../lib/details.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -88,6 +89,34 @@ dashboardRoutes.get("/breakdowns", async (c) => {
     getTipoBreakdown(produtoId),
   ]);
   return c.json({ planos, tipos });
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/details?kind=X&produtoId=N&since=ISO&until=ISO
+ * Drill-down: lista de leads relevantes ao card clicado.
+ * ========================================================================== */
+const ALLOWED_KINDS = new Set<string>([
+  "ativos",
+  "novos",
+  "em_risco",
+  "pix_gerados",
+  "pix_pagos",
+  "pix_expirados",
+  "cancelados",
+  "reembolsos",
+  "compras",
+  "fila_msgs",
+]);
+dashboardRoutes.get("/details", async (c) => {
+  const kind = c.req.query("kind");
+  if (!kind || !ALLOWED_KINDS.has(kind)) {
+    return c.json({ error: "kind inválido" }, 400);
+  }
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const data = await getDetails(kind as DetailsKind, produtoId, since, until);
+  return c.json(data);
 });
 
 /* ==========================================================================

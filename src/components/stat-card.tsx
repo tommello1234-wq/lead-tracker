@@ -14,6 +14,7 @@ export function StatCard({
   icon: Icon,
   trend,
   iconTone = "lime",
+  onClick,
 }: {
   label: string;
   value: ReactNode;
@@ -21,6 +22,7 @@ export function StatCard({
   icon?: LucideIcon;
   trend?: Trend;
   iconTone?: "lime" | "forest" | "rose" | "amber";
+  onClick?: () => void;
 }) {
   const toneClass = {
     lime: "bg-lime-soft text-forest",
@@ -29,8 +31,8 @@ export function StatCard({
     amber: "bg-[oklch(0.95_0.05_85)] text-[oklch(0.55_0.18_75)]",
   }[iconTone];
 
-  return (
-    <div className="card-soft p-4 flex items-center gap-4 relative">
+  const inner = (
+    <>
       {Icon ? (
         <div className={`size-12 rounded-2xl grid place-items-center shrink-0 ${toneClass}`}>
           <Icon className="size-5" />
@@ -58,6 +60,21 @@ export function StatCard({
           {trend.value}%
         </span>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="card-soft p-4 flex items-center gap-4 relative text-left hover:bg-muted/20 hover:border-foreground/20 transition-colors cursor-pointer w-full"
+      >
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <div className="card-soft p-4 flex items-center gap-4 relative">{inner}</div>
   );
 }
