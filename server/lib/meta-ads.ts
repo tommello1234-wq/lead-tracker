@@ -30,12 +30,21 @@ async function metaFetch<T>(path: string, params?: Record<string, string>): Prom
       url.searchParams.set(k, v);
     }
   }
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Meta API ${path}: ${res.status} ${body.substring(0, 200)}`);
+  // Timeout 15s — date_preset=maximum em conta grande pode travar pra sempre,
+  // sem timeout o handler espera até o function timeout do Vercel (60s) e o
+  // user vê "Carregando..." infinito.
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Meta API ${path}: ${res.status} ${body.substring(0, 200)}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(t);
   }
-  return res.json() as Promise<T>;
 }
 
 /* ========================================================

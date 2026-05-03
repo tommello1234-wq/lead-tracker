@@ -167,9 +167,11 @@ export function DashboardPage() {
             label="CAC (real, blended)"
             value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
             hint={
-              cac.data
-                ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
-                : "Carregando..."
+              cac.isError
+                ? "Erro ao buscar Meta"
+                : cac.data
+                  ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
+                  : "Carregando..."
             }
             icon={Target}
             iconTone="forest"
@@ -178,9 +180,11 @@ export function DashboardPage() {
             label="Novos clientes"
             value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}
             hint={
-              cac.data
-                ? `${cac.data.organicCount} via orgânico/outros`
-                : "Carregando..."
+              cac.isError
+                ? "—"
+                : cac.data
+                  ? `${cac.data.organicCount} via orgânico/outros`
+                  : "Carregando..."
             }
             icon={Users}
             iconTone="lime"
@@ -188,7 +192,13 @@ export function DashboardPage() {
           <StatCard
             label="% Orgânico"
             value={cac.data ? `${cac.data.organicPct.toFixed(1)}%` : "—"}
-            hint={cac.data && cac.data.adSpend === 0 ? "Sem gasto Meta no período" : "Sem atribuição Meta"}
+            hint={
+              cac.isError
+                ? "Meta API falhou (timeout/limite)"
+                : cac.data && cac.data.adSpend === 0
+                  ? "Sem gasto Meta no período"
+                  : "Sem atribuição Meta"
+            }
             icon={TrendingUp}
             iconTone={cac.data && cac.data.organicPct > 30 ? "forest" : "lime"}
           />
