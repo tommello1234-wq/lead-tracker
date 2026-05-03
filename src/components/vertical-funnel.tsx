@@ -5,6 +5,20 @@ const num = (n: number) => n.toLocaleString("pt-BR");
 type Step = { label: string; value: number };
 
 /**
+ * Benchmark grosseiro pra step-rate "ruim" — quando uma transição cai
+ * abaixo desses %, marcamos vermelho pra sinalizar gargalo no funil.
+ * Valores conservadores baseados em padrões de e-commerce/SaaS.
+ */
+function stepRateThreshold(from: string, to: string): number {
+  if (from === "Clicks" && to === "Vis. LP") return 80;
+  if (to === "View Content") return 25;
+  if (to === "Add to Cart") return 25;
+  if (to === "Initiate Checkout") return 8;
+  if (to === "Compras") return 30;
+  return 5;
+}
+
+/**
  * Funil de conversão visual vertical. A forma afina de cima pra baixo,
  * cada seção tem largura proporcional ao valor (relativo à primeira etapa).
  *
@@ -104,18 +118,37 @@ export function VerticalFunnel({ insights }: { insights: MetaInsights }) {
           {/* Forma do funil */}
           <path d={d} fill="url(#vFunnelGrad)" />
 
-          {/* Divisores horizontais entre seções (só na area do funil) */}
-          {steps.slice(1).map((_, i) => (
-            <line
-              key={i}
-              x1={FUNNEL_X0 - 4}
-              y1={(i + 1) * sectionH}
-              x2={FUNNEL_X1 + 4}
-              y2={(i + 1) * sectionH}
-              stroke="oklch(0.85 0.02 145)"
-              strokeWidth="1"
-            />
-          ))}
+          {/* Divisores horizontais entre seções + taxa de conversão step-by-step */}
+          {steps.slice(0, -1).map((step, i) => {
+            const next = steps[i + 1];
+            const stepRate = step.value > 0 ? (next.value / step.value) * 100 : 0;
+            const isWeak = stepRate < stepRateThreshold(step.label, next.label);
+            const stepRateText =
+              stepRate >= 10 ? Math.round(stepRate).toString() : stepRate.toFixed(1);
+            const dividerY = (i + 1) * sectionH;
+            return (
+              <g key={`divider-${i}`}>
+                <line
+                  x1={FUNNEL_X0 - 4}
+                  y1={dividerY}
+                  x2={FUNNEL_X1 + 4}
+                  y2={dividerY}
+                  stroke="oklch(0.85 0.02 145)"
+                  strokeWidth="1"
+                />
+                <text
+                  x={FUNNEL_X1 + 8}
+                  y={dividerY + 4}
+                  textAnchor="start"
+                  fontSize="12"
+                  fontWeight="600"
+                  fill={isWeak ? "oklch(0.6 0.21 25)" : "oklch(0.5 0.15 145)"}
+                >
+                  ↓ {stepRateText}%
+                </text>
+              </g>
+            );
+          })}
 
           {/* Labels: nome (esq, fora) · % (centro, dentro) · valor (dir, fora) */}
           {steps.map((step, i) => {
