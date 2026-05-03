@@ -211,37 +211,18 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {/* Linha 2: operação */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total de leads"
-          value={m ? m.totalLeads.toLocaleString("pt-BR") : "—"}
-          hint="Acumulado histórico"
-          icon={Users}
-          iconTone="lime"
-        />
-        <StatCard
-          label="Fila de mensagens"
-          value={m ? m.filaSuporte.toLocaleString("pt-BR") : "—"}
-          hint={m ? `${m.mensagensEnviadasHoje} enviadas hoje` : undefined}
-          icon={Inbox}
-          iconTone="lime"
-        />
-        <StatCard
-          label="Em risco"
-          value={m ? m.emRisco.toLocaleString("pt-BR") : "—"}
-          hint="Sinais de churn"
-          icon={AlertTriangle}
-          iconTone="amber"
-        />
-        <StatCard
-          label="Reembolsos"
-          value={m ? m.reembolsos.toLocaleString("pt-BR") : "—"}
-          hint="No período"
-          icon={RotateCcw}
-          iconTone="rose"
-        />
-      </div>
+      {/* Reembolsos isolado (Total leads/Fila/Em risco moveram pra /leads) */}
+      {m && m.reembolsos > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Reembolsos no período"
+            value={m.reembolsos.toLocaleString("pt-BR")}
+            hint="Cliente pediu dinheiro de volta"
+            icon={RotateCcw}
+            iconTone="rose"
+          />
+        </div>
+      ) : null}
 
       {/* SaaS metrics — só pra produtos saas ou visão Todos */}
       {isSaasView && saasMetrics.data ? (

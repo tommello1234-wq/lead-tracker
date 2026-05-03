@@ -1,11 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search, Filter, Plus, List, LayoutGrid } from "lucide-react";
+import {
+  Search,
+  Filter,
+  Plus,
+  List,
+  LayoutGrid,
+  Users,
+  Inbox,
+  AlertTriangle,
+  UserPlus,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange } from "@/lib/period";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
+import type { DashboardMetrics } from "@shared/types";
+import { StatCard } from "@/components/stat-card";
 import { FunilBoard } from "@/components/funil-board";
 import { LiveActivityFeed, LiveActivityFeedCollapsed } from "@/components/live-activity";
 
@@ -61,6 +73,13 @@ export function LeadsPage() {
     queryFn: () => api.get<Lead[]>(`/api/leads?${qs}`),
   });
 
+  const metricsQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  const metrics = useQuery({
+    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${metricsQs}`),
+  });
+  const m = metrics.data;
+
   const filtered = (data ?? []).filter((l) =>
     search ? l.nome.toLowerCase().includes(search.toLowerCase()) : true,
   );
@@ -96,6 +115,38 @@ export function LeadsPage() {
             Novo lead
           </button>
         </div>
+      </div>
+
+      {/* KPIs de leads */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Novos no período"
+          value={m ? m.novosLeadsNoPeriodo.toLocaleString("pt-BR") : "—"}
+          hint={m ? `${m.totalLeads} no total` : undefined}
+          icon={UserPlus}
+          iconTone="forest"
+        />
+        <StatCard
+          label="Em risco"
+          value={m ? m.emRisco.toLocaleString("pt-BR") : "—"}
+          hint="Sinais de churn"
+          icon={AlertTriangle}
+          iconTone="amber"
+        />
+        <StatCard
+          label="Fila de mensagens"
+          value={m ? m.filaSuporte.toLocaleString("pt-BR") : "—"}
+          hint={m ? `${m.mensagensEnviadasHoje} enviadas hoje` : undefined}
+          icon={Inbox}
+          iconTone="lime"
+        />
+        <StatCard
+          label="Clientes ativos"
+          value={m ? m.clientesAtivos.toLocaleString("pt-BR") : "—"}
+          hint="Pagando agora"
+          icon={Users}
+          iconTone="lime"
+        />
       </div>
 
       {/* Activity feed (esquerda) + Kanban (direita). Activity recolhe pra
