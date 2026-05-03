@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Search, Filter, Plus, List, LayoutGrid } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange } from "@/lib/period";
@@ -48,7 +48,10 @@ export function LeadsPage() {
   const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   // Filtra leads por criadoEm dentro do período selecionado
-  const { since, until } = periodToRange(period, customDate);
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const qs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;

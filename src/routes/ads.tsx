@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import {
   Megaphone,
   MousePointerClick,
@@ -68,7 +69,10 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export function AdsPage() {
   const { period, customDate } = useProdutoContext();
-  const { since, until } = periodToRange(period, customDate);
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const qs = `since=${sinceParam}&until=${untilParam}`;

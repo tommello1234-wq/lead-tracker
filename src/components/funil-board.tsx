@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { LayoutGrid, MessageSquare } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -28,7 +29,10 @@ function timeAgo(horas: number): string {
 export function FunilBoard() {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
-  const { since, until } = periodToRange(period, customDate);
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
 

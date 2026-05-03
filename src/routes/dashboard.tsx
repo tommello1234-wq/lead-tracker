@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import {
   Banknote,
   DollarSign,
@@ -12,7 +13,6 @@ import {
   ChevronDown,
   Target,
 } from "lucide-react";
-import { useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange, PERIOD_LABELS, PERIODS, type Period } from "@/lib/period";
@@ -61,7 +61,12 @@ const SHORT_LABELS: Record<Period, string> = {
 
 export function DashboardPage() {
   const { produtoId, period, customDate } = useProdutoContext();
-  const { since, until } = periodToRange(period, customDate);
+  // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
+  // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const produtoParam = produtoId ?? "all";
