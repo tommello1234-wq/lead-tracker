@@ -21,6 +21,7 @@ export type ActivityItem = {
     valor?: number | null;
     template?: string | null;
     erro?: string | null;
+    paymentMethod?: string | null;
   };
 };
 
@@ -71,7 +72,8 @@ export async function getRecentActivity(
         (e.payload->>'valor')::numeric,
         ((e.payload->'item'->>'amount')::numeric / 100),
         l.valor_assinatura
-      ) as valor
+      ) as valor,
+      e.payload->>'payment_method' as payment_method
     from eventos e
     left join leads l on l.id = e.lead_id
     left join produtos p on p.id = coalesce(e.produto_id, l.produto_id)
@@ -127,6 +129,7 @@ export async function getRecentActivity(
       produto_id: number | null;
       produto_nome: string | null;
       valor: number | null;
+      payment_method: string | null;
     }>).map((e) => ({
       id: e.id,
       tipo: "evento" as const,
@@ -137,7 +140,10 @@ export async function getRecentActivity(
       produtoId: e.produto_id,
       produtoNome: e.produto_nome,
       receivedAt: new Date(e.received_at).toISOString(),
-      meta: { valor: e.valor != null ? Number(e.valor) : null },
+      meta: {
+        valor: e.valor != null ? Number(e.valor) : null,
+        paymentMethod: e.payment_method,
+      },
     })),
     ...(msgsResult as unknown as Array<{
       id: number;

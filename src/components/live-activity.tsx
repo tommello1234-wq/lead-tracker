@@ -91,6 +91,21 @@ const EVENT_META: Record<
 const brl = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 
+const PAYMENT_LABELS: Record<string, string> = {
+  credit_card: "Cartão",
+  cartao: "Cartão",
+  pix: "PIX",
+  boleto: "Boleto",
+  bolepix: "Bolepix",
+  paypal: "PayPal",
+};
+
+function formatPayment(method: string | null | undefined): string | null {
+  if (!method) return null;
+  const key = method.toLowerCase().trim();
+  return PAYMENT_LABELS[key] ?? method;
+}
+
 const timeFmt = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
   hour: "2-digit",
@@ -223,6 +238,7 @@ function LeadGroupRow({
   const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
   const valor = latest.meta?.valor ? brl(latest.meta.valor) : null;
+  const payment = formatPayment(latest.meta?.paymentMethod);
   const count = group.items.length;
 
   return (
@@ -248,6 +264,11 @@ function LeadGroupRow({
             {valor ? (
               <span className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-md bg-secondary">
                 {valor}
+              </span>
+            ) : null}
+            {payment ? (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-foreground/70">
+                {payment}
               </span>
             ) : null}
           </div>
@@ -287,6 +308,7 @@ function NestedRow({ item }: { item: ActivityItem }) {
   const meta = EVENT_META[item.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
   const valor = item.meta?.valor ? brl(item.meta.valor) : null;
+  const payment = formatPayment(item.meta?.paymentMethod);
 
   return (
     <li className="flex items-start gap-3 px-3 py-2 pl-12 hover:bg-muted/30 transition-colors border-t border-border/30 first:border-t-0">
@@ -299,6 +321,11 @@ function NestedRow({ item }: { item: ActivityItem }) {
           {valor ? (
             <span className="text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-secondary">
               {valor}
+            </span>
+          ) : null}
+          {payment ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-foreground/70">
+              {payment}
             </span>
           ) : null}
         </div>

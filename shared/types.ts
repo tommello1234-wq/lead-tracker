@@ -93,6 +93,8 @@ export type ActivityItem = {
     valor?: number | null;
     template?: string | null;
     erro?: string | null;
+    /** Método de pagamento extraído do payload (credit_card, pix, boleto, etc) */
+    paymentMethod?: string | null;
   };
 };
 
