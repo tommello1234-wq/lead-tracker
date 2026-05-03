@@ -38,7 +38,9 @@ metaAdsRoutes.get("/debug-ad", async (c) => {
   const adRes = await fetch(
     `${META_BASE}/${adId}?access_token=${token}&fields=id,name,creative{id,name,object_url,effective_object_story_id,thumbnail_url,object_story_spec,asset_feed_spec}`,
   );
-  const ad = await adRes.json();
+  const ad = (await adRes.json()) as {
+    creative?: { effective_object_story_id?: string };
+  };
   const result: Record<string, unknown> = { ad };
   const storyId = ad?.creative?.effective_object_story_id;
   if (storyId) {
