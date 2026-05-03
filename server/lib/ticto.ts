@@ -201,17 +201,24 @@ export function parseTictoWebhook(payload: AnyObject): EventInput | null {
       ),
     ) ?? null;
 
-  // produto: Ticto v2 usa item.product_name + item.offer_name
+  // produto: Ticto v2 usa item.product_name + item.offer_name (precisa
+  // combinar os dois, senão pega só "Gravyx" sem distinguir Creator/Studio/etc)
+  const productName = pick<string>(
+    payload,
+    "item.product_name",
+    "product.name",
+    "product_name",
+  );
+  const offerName = pick<string>(
+    payload,
+    "item.offer_name",
+    "offer.name",
+    "plan.name",
+  );
   const planoNome =
-    pick<string>(
-      payload,
-      "item.product_name",
-      "item.offer_name",
-      "product.name",
-      "plan.name",
-      "offer.name",
-      "product_name",
-    ) ?? null;
+    productName && offerName
+      ? `${productName} ${offerName}`
+      : (productName ?? offerName ?? null);
 
   // Ticto v2 nao tem customer.id — usamos cpf/cnpj como identificador estavel do cliente
   const gatewayCustomerId =
