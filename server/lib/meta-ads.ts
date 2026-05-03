@@ -61,9 +61,25 @@ export type MetaInsights = {
   cpic: number; // spend / initiate checkout
 };
 
+export type CampaignStatus =
+  | "ACTIVE"
+  | "PAUSED"
+  | "DELETED"
+  | "ARCHIVED"
+  | "PENDING_REVIEW"
+  | "DISAPPROVED"
+  | "PREAPPROVED"
+  | "PENDING_BILLING_INFO"
+  | "CAMPAIGN_PAUSED"
+  | "ARCHIVED_BY_USER"
+  | "IN_PROCESS"
+  | "WITH_ISSUES"
+  | "UNKNOWN";
+
 export type MetaCampaign = {
   campaignId: string;
   campaignName: string;
+  status: CampaignStatus;
   spend: number;
   purchases: number;
   initiateCheckout: number;
@@ -186,15 +202,33 @@ export async function getCampaigns(
     params.date_preset = "maximum";
   }
 
-  const resp = await metaFetch<{ data: AnyObject[] }>(`/${account}/insights`, params);
+  // 2 chamadas em paralelo: insights (metricas) + campanhas (status atual).
+  // Insights so retorna campanhas com atividade no periodo; status vem de TODAS
+  // pra cobrir o caso onde a campanha foi pausada hoje mas teve gasto ontem.
+  const [insightsResp, statusResp] = await Promise.all([
+    metaFetch<{ data: AnyObject[] }>(`/${account}/insights`, params),
+    metaFetch<{ data: AnyObject[] }>(`/${account}/campaigns`, {
+      fields: "id,effective_status",
+      limit: "200",
+    }),
+  ]);
+
+  const statusById = new Map<string, CampaignStatus>();
+  for (const c of statusResp.data ?? []) {
+    statusById.set(String(c.id ?? ""), (c.effective_status as CampaignStatus) ?? "UNKNOWN");
+  }
+
+  const resp = insightsResp;
   return (resp.data ?? []).map((c) => {
     const actions = c.actions as Array<{ action_type: string; value: string }> | undefined;
     const spend = Number(c.spend ?? 0);
     const purchases = pickAction(actions, "omni_purchase");
     const ic = pickAction(actions, "initiate_checkout");
+    const id = String(c.campaign_id ?? "");
     return {
-      campaignId: String(c.campaign_id ?? ""),
+      campaignId: id,
       campaignName: String(c.campaign_name ?? "—"),
+      status: statusById.get(id) ?? "UNKNOWN",
       spend,
       purchases,
       initiateCheckout: ic,

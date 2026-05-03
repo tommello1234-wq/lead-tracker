@@ -13,7 +13,49 @@ import { periodToSince, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
-import type { MetaInsights, MetaCampaign } from "@shared/types";
+import type { MetaInsights, MetaCampaign, CampaignStatus } from "@shared/types";
+
+const STATUS_LABELS: Record<CampaignStatus, string> = {
+  ACTIVE: "Ativa",
+  PAUSED: "Pausada",
+  CAMPAIGN_PAUSED: "Pausada",
+  ARCHIVED_BY_USER: "Arquivada",
+  ARCHIVED: "Arquivada",
+  DELETED: "Deletada",
+  PENDING_REVIEW: "Em revisão",
+  PREAPPROVED: "Pré-aprovada",
+  DISAPPROVED: "Reprovada",
+  PENDING_BILLING_INFO: "Sem billing",
+  IN_PROCESS: "Processando",
+  WITH_ISSUES: "Com problema",
+  UNKNOWN: "—",
+};
+
+function StatusDot({ status }: { status: CampaignStatus }) {
+  const isActive = status === "ACTIVE";
+  const isPaused =
+    status === "PAUSED" ||
+    status === "CAMPAIGN_PAUSED" ||
+    status === "ARCHIVED" ||
+    status === "ARCHIVED_BY_USER";
+  const isError =
+    status === "DISAPPROVED" ||
+    status === "WITH_ISSUES" ||
+    status === "PENDING_BILLING_INFO";
+  const color = isActive
+    ? "bg-lime-deep"
+    : isPaused
+      ? "bg-foreground/30"
+      : isError
+        ? "bg-destructive"
+        : "bg-amber-500";
+  return (
+    <span
+      title={STATUS_LABELS[status] ?? status}
+      className={`size-2 rounded-full shrink-0 ${color} ${isActive ? "animate-pulse" : ""}`}
+    />
+  );
+}
 
 const brl = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -178,7 +220,10 @@ export function AdsPage() {
                         className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
                       >
                         <td className="px-5 py-3 font-medium truncate max-w-[400px]">
-                          {c.campaignName}
+                          <div className="flex items-center gap-2">
+                            <StatusDot status={c.status} />
+                            <span className="truncate">{c.campaignName}</span>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{brl(c.spend)}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">

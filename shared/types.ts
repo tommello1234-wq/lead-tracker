@@ -142,9 +142,25 @@ export type MetaInsights = {
   cpic: number;
 };
 
+export type CampaignStatus =
+  | "ACTIVE"
+  | "PAUSED"
+  | "DELETED"
+  | "ARCHIVED"
+  | "PENDING_REVIEW"
+  | "DISAPPROVED"
+  | "PREAPPROVED"
+  | "PENDING_BILLING_INFO"
+  | "CAMPAIGN_PAUSED"
+  | "ARCHIVED_BY_USER"
+  | "IN_PROCESS"
+  | "WITH_ISSUES"
+  | "UNKNOWN";
+
 export type MetaCampaign = {
   campaignId: string;
   campaignName: string;
+  status: CampaignStatus;
   spend: number;
   purchases: number;
   initiateCheckout: number;
