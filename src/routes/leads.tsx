@@ -87,9 +87,9 @@ export function LeadsPage() {
         </div>
       </div>
 
-      {/* Funil view + Activity feed lado a lado */}
+      {/* Funil view + Activity feed lado a lado (70% / 30% em telas lg+) */}
       {view === "funil" ? (
-        <div className="grid grid-cols-1 2xl:grid-cols-[1fr_380px] gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4 items-start">
           <FunilBoard />
           <LiveActivityFeed />
         </div>
