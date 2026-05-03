@@ -60,8 +60,28 @@ metaAdsRoutes.get("/debug-ad", async (c) => {
   );
   try {
     const res = await fetch(url.toString());
-    const body = await res.text();
-    return c.json({ status: res.status, raw: JSON.parse(body) });
+    const adData = JSON.parse(await res.text());
+    const result: Record<string, unknown> = {
+      status: res.status,
+      raw: adData,
+    };
+    // Se tem story_id, tentar buscar o post tambem
+    const storyId = adData?.creative?.effective_object_story_id;
+    if (storyId) {
+      const postUrl = new URL(`${META_BASE}/${storyId}`);
+      postUrl.searchParams.set("access_token", token);
+      postUrl.searchParams.set(
+        "fields",
+        "id,permalink_url,attachments{target,unshimmed_url,url,type,description},call_to_action,message",
+      );
+      const postRes = await fetch(postUrl.toString());
+      const postBody = await postRes.text();
+      result.postFetch = {
+        status: postRes.status,
+        body: JSON.parse(postBody),
+      };
+    }
+    return c.json(result);
   } catch (e) {
     return c.json(
       { error: e instanceof Error ? e.message : "fetch falhou" },
