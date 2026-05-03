@@ -165,11 +165,12 @@ export function LiveActivityFeed() {
   const { produtoId } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [panelOpen, setPanelOpen] = useState(true);
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["activity", "recent", produtoParam],
     queryFn: () => api.get<ActivityItem[]>(`/api/activity/recent?produtoId=${produtoParam}&limit=50`),
-    refetchInterval: 5000,
+    refetchInterval: panelOpen ? 5000 : false,
     refetchIntervalInBackground: false,
   });
 
@@ -186,41 +187,63 @@ export function LiveActivityFeed() {
 
   return (
     <div className="card-soft p-5">
-      <div className="flex items-center justify-between gap-3 mb-4">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 hover:opacity-80 transition-opacity"
+        aria-expanded={panelOpen}
+      >
         <div className="flex items-center gap-2">
           <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
             <Activity className="size-4" />
           </div>
-          <div>
+          <div className="text-left">
             <h3 className="font-semibold text-base">Atividade ao vivo</h3>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <span
-                className={`size-1.5 rounded-full ${isFetching ? "bg-forest animate-pulse" : "bg-muted-foreground/40"}`}
+                className={`size-1.5 rounded-full ${
+                  panelOpen
+                    ? isFetching
+                      ? "bg-forest animate-pulse"
+                      : "bg-muted-foreground/40"
+                    : "bg-muted-foreground/40"
+                }`}
               />
-              {isFetching ? "Atualizando..." : "Atualiza a cada 5s · agrupado por lead"}
+              {!panelOpen
+                ? `${groups.length} lead${groups.length !== 1 ? "s" : ""} · clique pra abrir`
+                : isFetching
+                  ? "Atualizando..."
+                  : "Atualiza a cada 5s · agrupado por lead"}
             </p>
           </div>
         </div>
-      </div>
+        <ChevronDown
+          className={`size-5 text-muted-foreground shrink-0 transition-transform ${panelOpen ? "rotate-180" : ""}`}
+        />
+      </button>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
-      ) : groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          Sem atividade recente. Webhooks vão aparecer aqui em tempo real.
-        </p>
-      ) : (
-        <ul className="space-y-2 max-h-[600px] overflow-y-auto">
-          {groups.map((g) => (
-            <LeadGroupRow
-              key={g.key}
-              group={g}
-              isExpanded={expanded.has(g.key)}
-              onToggle={() => toggle(g.key)}
-            />
-          ))}
-        </ul>
-      )}
+      {panelOpen ? (
+        <div className="mt-4">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>
+          ) : groups.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              Sem atividade recente. Webhooks vão aparecer aqui em tempo real.
+            </p>
+          ) : (
+            <ul className="space-y-2 max-h-[600px] overflow-y-auto">
+              {groups.map((g) => (
+                <LeadGroupRow
+                  key={g.key}
+                  group={g}
+                  isExpanded={expanded.has(g.key)}
+                  onToggle={() => toggle(g.key)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
