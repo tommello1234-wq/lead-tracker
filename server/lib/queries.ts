@@ -178,25 +178,35 @@ export async function getDashboardMetrics(
       ? all.filter((l) => inPeriod(l.criadoEm)).length
       : all.length;
 
-  // LTV (Lifetime Value): fórmula SaaS clássica = ARPU / churn mensal.
-  // Churn 30d = % de clientes ativos hoje que cancelaram nos últimos 30 dias.
-  // Tempo médio esperado = 1 / churn mensal (em meses).
-  // LTV = ARPU * tempo médio esperado.
+  // LTV (Lifetime Value): receita média que um cliente gera durante sua
+  // vida na plataforma. Fórmula = ARPU * tempo médio de assinatura.
   //
-  // Antes usava "média de tempo desde pagamento" — quebrava porque clientes
-  // que pagaram esta semana puxam a média pra ~0.25 mês, dando LTV irrealista
-  // (ex: R$ 14 quando o real seria R$ 1000+).
-  const arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const churnedIn30d = all.filter(
-    (l) => l.canceladoEm && l.canceladoEm >= thirtyDaysAgo,
-  ).length;
-  // base = ativos hoje + os que cancelaram nesses 30d (= ativos 30 dias atrás aproximado)
-  const activeBackThen = clientesAtivos.length + churnedIn30d;
-  const monthlyChurnRate =
-    activeBackThen > 0 ? churnedIn30d / activeBackThen : 0;
-  // Cap em 24 meses quando churn = 0 (ainda não dá pra projetar com confiança)
-  const avgLifetimeMonths = monthlyChurnRate > 0 ? 1 / monthlyChurnRate : 24;
+  // Tempo médio = média de (canceladoEm - pagouEm) em meses, considerando
+  // SÓ os cancelados (clientes ativos têm lifespan ainda em curso e enviesam
+  // pra baixo se incluídos).
+  //
+  // ARPU = ticket médio mensal. Usa MRR/ativos quando há ativos; senão,
+  // avg do valor_assinatura dos cancelados (caso degenerado sem ativos).
+  const cancelledLeads = all.filter((l) => l.pagouEm && l.canceladoEm);
+  const lifespans = cancelledLeads.map(
+    (l) =>
+      Math.max(
+        (l.canceladoEm!.getTime() - l.pagouEm!.getTime()) /
+          (30 * 24 * 60 * 60 * 1000),
+        0.1,
+      ),
+  );
+  const avgLifetimeMonths =
+    lifespans.length > 0
+      ? lifespans.reduce((a, b) => a + b, 0) / lifespans.length
+      : 0;
+
+  let arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
+  if (arpu === 0 && cancelledLeads.length > 0) {
+    arpu =
+      cancelledLeads.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) /
+      cancelledLeads.length;
+  }
   const ltv = arpu * avgLifetimeMonths;
 
   return {
