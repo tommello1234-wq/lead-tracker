@@ -178,20 +178,25 @@ export async function getDashboardMetrics(
       ? all.filter((l) => inPeriod(l.criadoEm)).length
       : all.length;
 
-  // LTV (Lifetime Value): receita média projetada por cliente.
-  // Fórmula simples: ARPU * tempo médio de assinatura em meses.
-  //   ARPU = MRR / clientesAtivos
-  //   tempo médio = média de (canceladoEm OR now - pagouEm) em meses, pra todos
-  //   que já pagaram (ativos contam o que já pagaram até agora).
+  // LTV (Lifetime Value): fórmula SaaS clássica = ARPU / churn mensal.
+  // Churn 30d = % de clientes ativos hoje que cancelaram nos últimos 30 dias.
+  // Tempo médio esperado = 1 / churn mensal (em meses).
+  // LTV = ARPU * tempo médio esperado.
+  //
+  // Antes usava "média de tempo desde pagamento" — quebrava porque clientes
+  // que pagaram esta semana puxam a média pra ~0.25 mês, dando LTV irrealista
+  // (ex: R$ 14 quando o real seria R$ 1000+).
   const arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
-  const paidLeads = all.filter((l) => l.pagouEm);
-  const lifetimes = paidLeads.map((l) => {
-    const start = l.pagouEm!.getTime();
-    const end = (l.canceladoEm ?? new Date()).getTime();
-    return Math.max((end - start) / (30 * 24 * 60 * 60 * 1000), 0.1);
-  });
-  const avgLifetimeMonths =
-    lifetimes.length > 0 ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const churnedIn30d = all.filter(
+    (l) => l.canceladoEm && l.canceladoEm >= thirtyDaysAgo,
+  ).length;
+  // base = ativos hoje + os que cancelaram nesses 30d (= ativos 30 dias atrás aproximado)
+  const activeBackThen = clientesAtivos.length + churnedIn30d;
+  const monthlyChurnRate =
+    activeBackThen > 0 ? churnedIn30d / activeBackThen : 0;
+  // Cap em 24 meses quando churn = 0 (ainda não dá pra projetar com confiança)
+  const avgLifetimeMonths = monthlyChurnRate > 0 ? 1 / monthlyChurnRate : 24;
   const ltv = arpu * avgLifetimeMonths;
 
   return {
