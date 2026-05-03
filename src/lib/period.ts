@@ -19,16 +19,34 @@ export const PERIOD_LABELS: Record<Period, string> = {
   custom: "Personalizado",
 };
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+/**
+ * Retorna o dia formatado YYYY-MM-DD no fuso de São Paulo, independente
+ * do TZ do browser do user. Crucial pra "Hoje" significar "hoje em BRT"
+ * mesmo se o browser estiver com fuso diferente.
+ */
+function dayKeyBRT(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
+/**
+ * Início do dia em BRT (UTC-3, sem DST desde 2019).
+ * Hoje em BRT é "2026-05-03" → retorna 2026-05-03T03:00:00Z (= 00:00 BRT).
+ */
+function startOfDay(d: Date): Date {
+  return new Date(`${dayKeyBRT(d)}T03:00:00Z`);
+}
+
+/**
+ * Fim do dia em BRT = próximo dia 02:59:59.999 UTC.
+ */
 function endOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
+  const start = startOfDay(d);
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 }
 
 /**
