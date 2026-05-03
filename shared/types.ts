@@ -93,8 +93,11 @@ export type ActivityItem = {
     valor?: number | null;
     template?: string | null;
     erro?: string | null;
-    /** Método de pagamento extraído do payload (credit_card, pix, boleto, etc) */
     paymentMethod?: string | null;
+    /** Bandeira do cartão (master, visa, etc) — só presente em transações de cartão */
+    cardBrand?: string | null;
+    /** Últimos 4 dígitos do cartão */
+    cardLast4?: string | null;
   };
 };
 

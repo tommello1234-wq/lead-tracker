@@ -106,6 +106,15 @@ function formatPayment(method: string | null | undefined): string | null {
   return PAYMENT_LABELS[key] ?? method;
 }
 
+function formatCard(
+  brand: string | null | undefined,
+  last4: string | null | undefined,
+): string | null {
+  if (!brand && !last4) return null;
+  const b = brand ? brand[0].toUpperCase() + brand.slice(1).toLowerCase() : "Cartão";
+  return last4 ? `${b} •${last4}` : b;
+}
+
 const timeFmt = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
   hour: "2-digit",
@@ -238,7 +247,8 @@ function LeadGroupRow({
   const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
   const valor = latest.meta?.valor ? brl(latest.meta.valor) : null;
-  const payment = formatPayment(latest.meta?.paymentMethod);
+  const card = formatCard(latest.meta?.cardBrand, latest.meta?.cardLast4);
+  const payment = card ?? formatPayment(latest.meta?.paymentMethod);
   const count = group.items.length;
 
   return (
@@ -308,7 +318,8 @@ function NestedRow({ item }: { item: ActivityItem }) {
   const meta = EVENT_META[item.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
   const valor = item.meta?.valor ? brl(item.meta.valor) : null;
-  const payment = formatPayment(item.meta?.paymentMethod);
+  const card = formatCard(item.meta?.cardBrand, item.meta?.cardLast4);
+  const payment = card ?? formatPayment(item.meta?.paymentMethod);
 
   return (
     <li className="flex items-start gap-3 px-3 py-2 pl-12 hover:bg-muted/30 transition-colors border-t border-border/30 first:border-t-0">
