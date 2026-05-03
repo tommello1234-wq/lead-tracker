@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
-import { periodToSince, PERIOD_LABELS } from "@/lib/period";
+import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
@@ -67,18 +67,10 @@ const num = (n: number) => n.toLocaleString("pt-BR");
 const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export function AdsPage() {
-  const { period } = useProdutoContext();
-  const since = periodToSince(period);
-  // Meta UI's "últimos N dias" excludes today (7d = -7 → ontem fim do dia).
-  // Pra "today", "month" e "all", until = NOW pra incluir o dia parcial atual
-  // (mês corrente em andamento DEVE incluir hoje, senão dá < hoje).
-  const untilDate = new Date();
-  if (period === "7d" || period === "30d") {
-    untilDate.setDate(untilDate.getDate() - 1);
-    untilDate.setHours(23, 59, 59, 999);
-  }
+  const { period, customDate } = useProdutoContext();
+  const { since, until } = periodToRange(period, customDate);
   const sinceParam = since ? since.toISOString() : "";
-  const untilParam = untilDate.toISOString();
+  const untilParam = until.toISOString();
   const qs = `since=${sinceParam}&until=${untilParam}`;
 
   const insights = useQuery({

@@ -15,7 +15,7 @@ import {
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
-import { periodToSince, PERIOD_LABELS, PERIODS, type Period } from "@/lib/period";
+import { periodToRange, PERIOD_LABELS, PERIODS, type Period } from "@/lib/period";
 import { HeroCard } from "@/components/hero-card";
 import { StatCard } from "@/components/stat-card";
 import {
@@ -51,28 +51,22 @@ function greeting() {
 
 const SHORT_LABELS: Record<Period, string> = {
   today: "Hoje",
+  yesterday: "Ontem",
   "7d": "7 dias",
   "30d": "30 dias",
   month: "Mês",
   all: "Tudo",
+  custom: "Dia",
 };
 
 export function DashboardPage() {
-  const { produtoId, period } = useProdutoContext();
-  const since = periodToSince(period);
+  const { produtoId, period, customDate } = useProdutoContext();
+  const { since, until } = periodToRange(period, customDate);
   const sinceParam = since ? since.toISOString() : "";
+  const untilParam = until.toISOString();
   const produtoParam = produtoId ?? "all";
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}`;
-
-  // Para CAC: "últimos 7/30 dias" alinha com Meta UI (até ontem 23:59).
-  // Mês/today/all incluem hoje pra dia parcial não sumir.
-  const cacUntilDate = new Date();
-  if (period === "7d" || period === "30d") {
-    cacUntilDate.setDate(cacUntilDate.getDate() - 1);
-    cacUntilDate.setHours(23, 59, 59, 999);
-  }
-  const cacUntilParam = cacUntilDate.toISOString();
-  const cacQs = `${baseQs}&until=${cacUntilParam}`;
+  const cacQs = `${baseQs}&until=${untilParam}`;
 
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam],
@@ -112,7 +106,7 @@ export function DashboardPage() {
 
   // CAC: só faz sentido pra "all" ou produtos saas (que têm Meta tracking)
   const cac = useQuery({
-    queryKey: ["dashboard", "cac", produtoParam, sinceParam, cacUntilParam],
+    queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${cacQs}`),
     enabled: isSaasView,
     retry: 0,
