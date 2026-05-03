@@ -57,6 +57,7 @@ export const getSidebarCounts = withCache(
 
 export type DashboardMetrics = {
   totalLeads: number;
+  novosLeadsNoPeriodo: number;
   vendasHoje: number;
   vendasMes: number;
   mrr: number;
@@ -168,8 +169,15 @@ export async function getDashboardMetrics(
       ),
     );
 
+  // Novos leads no período (filtra por criado_em na janela)
+  const novosLeadsNoPeriodo =
+    since || until
+      ? all.filter((l) => inPeriod(l.criadoEm)).length
+      : all.length;
+
   return {
     totalLeads: all.length,
+    novosLeadsNoPeriodo,
     vendasHoje: vendasHoje.length,
     vendasMes: vendasMes.length,
     mrr,

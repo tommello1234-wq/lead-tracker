@@ -5,6 +5,7 @@
 
 export type DashboardMetrics = {
   totalLeads: number;
+  novosLeadsNoPeriodo: number;
   vendasHoje: number;
   vendasMes: number;
   mrr: number;

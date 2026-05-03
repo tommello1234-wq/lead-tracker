@@ -137,7 +137,11 @@ export function DashboardPage() {
         <StatCard
           label="Faturamento no período"
           value={faturamento.data ? brl(faturamento.data.total) : "—"}
-          hint={faturamento.data ? `${faturamento.data.count} transações` : undefined}
+          hint={
+            faturamento.data
+              ? `${faturamento.data.count} transações${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
+              : undefined
+          }
           icon={Banknote}
           iconTone="forest"
         />
