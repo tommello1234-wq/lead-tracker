@@ -182,6 +182,45 @@ function extractLpUrl(creative: AnyObject | undefined): string | null {
   return null;
 }
 
+/**
+ * Pra dark posts (vídeo/imagem que é um post existente do Facebook/Instagram),
+ * o creative só traz `effective_object_story_id` no formato "page_id_post_id".
+ * Pra achar a LP real, fazemos uma chamada extra ao post pegando o link
+ * via attachments ou call_to_action.
+ */
+async function fetchDarkPostLink(storyId: string): Promise<string | null> {
+  try {
+    const url = new URL(`${BASE_URL}/${storyId}`);
+    url.searchParams.set("access_token", getToken());
+    url.searchParams.set(
+      "fields",
+      "attachments{target,unshimmed_url},call_to_action,permalink_url",
+    );
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await fetch(url.toString(), { signal: controller.signal });
+      if (!res.ok) return null;
+      const data = (await res.json()) as AnyObject;
+      // attachments[0].target.url é o link de destino mais comum em dark posts
+      const attachments = data.attachments as
+        | { data?: Array<{ target?: { url?: string }; unshimmed_url?: string }> }
+        | undefined;
+      const att = attachments?.data?.[0];
+      if (att?.unshimmed_url) return att.unshimmed_url;
+      if (att?.target?.url) return att.target.url;
+      // call_to_action também pode ter link
+      const cta = data.call_to_action as { value?: { link?: string } } | undefined;
+      if (cta?.value?.link) return cta.value.link;
+      return null;
+    } finally {
+      clearTimeout(t);
+    }
+  } catch {
+    return null;
+  }
+}
+
 /* ========================================================
  * Insights agregados da conta
  * ======================================================== */
@@ -268,7 +307,7 @@ export async function getCampaigns(
     }),
     metaFetch<{ data: AnyObject[] }>(`/${account}/ads`, {
       fields:
-        "id,campaign_id,effective_status,creative{object_url,object_story_spec{link_data{link},template_data{link},video_data{call_to_action{value{link}}},photo_data{url}},asset_feed_spec{link_urls}}",
+        "id,campaign_id,effective_status,creative{object_url,effective_object_story_id,object_story_spec{link_data{link},template_data{link},video_data{call_to_action{value{link}}},photo_data{url}},asset_feed_spec{link_urls}}",
       limit: "500",
     }),
   ]);
@@ -279,22 +318,40 @@ export async function getCampaigns(
   }
 
   // Pra cada campanha, pega 1 ad (preferindo ACTIVE) com sua LP URL.
-  type AdInfo = { adId: string; lpUrl: string | null; isActive: boolean };
+  type AdInfo = {
+    adId: string;
+    lpUrl: string | null;
+    storyId: string | null;
+    isActive: boolean;
+  };
   const adsByCampaign = new Map<string, AdInfo>();
   for (const ad of adsResp.data ?? []) {
     const campId = String(ad.campaign_id ?? "");
     if (!campId) continue;
+    const creative = ad.creative as AnyObject | undefined;
     const info: AdInfo = {
       adId: String(ad.id ?? ""),
-      lpUrl: extractLpUrl(ad.creative as AnyObject | undefined),
+      lpUrl: extractLpUrl(creative),
+      storyId: (creative?.effective_object_story_id as string | undefined) ?? null,
       isActive: String(ad.effective_status ?? "") === "ACTIVE",
     };
     const existing = adsByCampaign.get(campId);
-    // Prefere ad ACTIVE; se atual já é ACTIVE, mantém. Senão, sobrescreve.
     if (!existing || (!existing.isActive && info.isActive)) {
       adsByCampaign.set(campId, info);
     }
   }
+
+  // Fallback: pra ads sem LP detectada mas que têm storyId (dark posts),
+  // busca o link no post. Em paralelo pra não atrasar.
+  const darkPostFetches = Array.from(adsByCampaign.entries())
+    .filter(([, info]) => !info.lpUrl && info.storyId)
+    .map(async ([campId, info]) => {
+      const link = await fetchDarkPostLink(info.storyId!);
+      if (link) {
+        adsByCampaign.set(campId, { ...info, lpUrl: link });
+      }
+    });
+  await Promise.all(darkPostFetches);
 
   return (insightsResp.data ?? []).map((c) => {
     const actions = c.actions as Array<{ action_type: string; value: string }> | undefined;
