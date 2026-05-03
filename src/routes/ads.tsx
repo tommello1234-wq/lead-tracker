@@ -9,6 +9,7 @@ import {
   AlertCircle,
   ExternalLink,
   Image as ImageIcon,
+  Link2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -16,7 +17,11 @@ import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
-import type { MetaInsights, MetaCampaign, CampaignStatus } from "@shared/types";
+import type { MetaInsights, MetaCampaign, CampaignStatus, Produto } from "@shared/types";
+
+// Produtos com conta Meta conectada. Hoje só Gravyx (id=1, act_918344584462338).
+// Quando outros produtos ganharem ad accounts, mover pra coluna no DB.
+const PRODUTOS_COM_META = new Set<number>([1]);
 
 const STATUS_LABELS: Record<CampaignStatus, string> = {
   ACTIVE: "Ativa",
@@ -68,7 +73,7 @@ const num = (n: number) => n.toLocaleString("pt-BR");
 const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export function AdsPage() {
-  const { period, customDate } = useProdutoContext();
+  const { produtoId, period, customDate } = useProdutoContext();
   const { since, until } = useMemo(
     () => periodToRange(period, customDate),
     [period, customDate],
@@ -77,16 +82,29 @@ export function AdsPage() {
   const untilParam = until.toISOString();
   const qs = `since=${sinceParam}&until=${untilParam}`;
 
+  // Só consulta Meta se o produto selecionado tem ad account conectado
+  // (ou se for "Todos" — assume que pelo menos um produto tem)
+  const hasMeta = produtoId == null || PRODUTOS_COM_META.has(produtoId);
+
+  const produtos = useQuery({
+    queryKey: ["produtos"],
+    queryFn: () => api.get<Produto[]>("/api/produtos"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const produtoSel = produtos.data?.find((p) => p.id === produtoId);
+
   const insights = useQuery({
     queryKey: ["meta-ads", "insights", sinceParam],
     queryFn: () => api.get<MetaInsights>(`/api/meta-ads/insights?${qs}`),
     retry: 0,
+    enabled: hasMeta,
   });
 
   const campaigns = useQuery({
     queryKey: ["meta-ads", "campaigns", sinceParam],
     queryFn: () => api.get<MetaCampaign[]>(`/api/meta-ads/campaigns?${qs}`),
     retry: 0,
+    enabled: hasMeta,
   });
 
   const i = insights.data;
@@ -105,7 +123,25 @@ export function AdsPage() {
         </div>
       </header>
 
-      {isError ? (
+      {!hasMeta ? (
+        <div className="card-soft p-12 text-center">
+          <div className="size-16 rounded-2xl bg-lime-soft text-forest grid place-items-center mx-auto mb-4">
+            <Link2 className="size-7" />
+          </div>
+          <h3 className="text-lg font-semibold mb-1">
+            Conta Meta não conectada
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
+            O produto <strong>{produtoSel?.nome ?? "selecionado"}</strong> ainda
+            não tem uma conta de anúncio Meta vinculada. Hoje só o Gravyx tem
+            tracking ativo.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Pra conectar: vincule o produto a uma conta Meta Ads no
+            Business Manager e cadastre o ID no Lead Tracker.
+          </p>
+        </div>
+      ) : isError ? (
         <div className="card-soft p-6 border-destructive/30">
           <div className="flex items-start gap-3">
             <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
@@ -121,9 +157,7 @@ export function AdsPage() {
             </div>
           </div>
         </div>
-      ) : null}
-
-      {insights.isLoading ? (
+      ) : insights.isLoading ? (
         <div className="card-soft p-8 text-center text-sm text-muted-foreground">
           Carregando dados Meta...
         </div>
