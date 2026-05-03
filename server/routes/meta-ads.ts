@@ -48,6 +48,14 @@ metaAdsRoutes.get("/debug-ad", async (c) => {
       `${META_BASE}/${storyId}?access_token=${token}&fields=id,permalink_url,attachments{target,unshimmed_url,url,type,description,subattachments},call_to_action,message`,
     );
     result.post = await postRes.json();
+    // Tenta identificar a página pública (page_id é a parte antes do _)
+    const pageId = storyId.split("_")[0];
+    if (pageId) {
+      const pageRes = await fetch(
+        `${META_BASE}/${pageId}?access_token=${token}&fields=id,name,link,username`,
+      );
+      result.page = await pageRes.json();
+    }
   }
   return c.json(result);
 });
