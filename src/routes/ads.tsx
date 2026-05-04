@@ -183,6 +183,34 @@ export function AdsPage() {
     });
     return arr;
   }, [cs, sort]);
+
+  /**
+   * Totais/médias do que TÁ na tabela (não usa `insights` da API porque essa
+   * pode ter campanhas que não vieram na lista). CPC/CTR/ROAS/CPA são
+   * ponderados pelos volumes — média de médias daria peso igual a campanha
+   * com R$10 e R$1000 de gasto, o que distorce. Impressões derivadas de
+   * `clicks / (ctr/100)` porque MetaCampaign não traz impressões direto.
+   */
+  const totals = useMemo(() => {
+    const acc = cs.reduce(
+      (a, c) => ({
+        spend: a.spend + c.spend,
+        clicks: a.clicks + c.clicks,
+        impressions: a.impressions + (c.ctr > 0 ? (c.clicks * 100) / c.ctr : 0),
+        initiateCheckout: a.initiateCheckout + c.initiateCheckout,
+        purchases: a.purchases + c.purchases,
+        purchaseValue: a.purchaseValue + c.purchaseValue,
+      }),
+      { spend: 0, clicks: 0, impressions: 0, initiateCheckout: 0, purchases: 0, purchaseValue: 0 },
+    );
+    return {
+      ...acc,
+      cpc: acc.clicks > 0 ? acc.spend / acc.clicks : 0,
+      ctr: acc.impressions > 0 ? (acc.clicks / acc.impressions) * 100 : 0,
+      roas: acc.spend > 0 ? acc.purchaseValue / acc.spend : 0,
+      cpa: acc.purchases > 0 ? acc.spend / acc.purchases : null,
+    };
+  }, [cs]);
   const isError = insights.isError || campaigns.isError;
   const errorMsg = insights.error instanceof Error ? insights.error.message : null;
 
@@ -402,6 +430,50 @@ export function AdsPage() {
                       </tr>
                     ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/40 font-semibold">
+                    <td className="px-5 py-3 text-foreground/80 text-xs uppercase tracking-wider">
+                      Total · {cs.length} campanha{cs.length !== 1 ? "s" : ""}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">{brl(totals.spend)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{num(totals.clicks)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums" title="Média ponderada: gasto total / clicks totais">
+                      {totals.cpc > 0 ? brlSmall(totals.cpc) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums" title="Média ponderada: clicks / impressões">
+                      {totals.ctr > 0 ? pct(totals.ctr) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {totals.initiateCheckout > 0 ? num(totals.initiateCheckout) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {totals.purchases > 0 ? num(totals.purchases) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {totals.purchaseValue > 0 ? brl(totals.purchaseValue) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums" title="Receita total / gasto total">
+                      {totals.roas > 0 ? (
+                        <span
+                          className={
+                            totals.roas >= 3
+                              ? "text-forest"
+                              : totals.roas < 1
+                                ? "text-destructive"
+                                : ""
+                          }
+                        >
+                          {totals.roas.toFixed(2)}x
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums" title="Gasto total / compras totais">
+                      {totals.cpa != null ? brl(totals.cpa) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
               </div>
             )}
