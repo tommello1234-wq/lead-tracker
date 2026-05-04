@@ -20,7 +20,7 @@ import {
   type MessageTemplate,
 } from "../../db/schema.js";
 import { renderTemplate } from "./message-templates.js";
-import { eq, and, inArray, asc } from "drizzle-orm";
+import { eq, and, inArray, asc, gte, isNull, sql } from "drizzle-orm";
 
 export type GatewayEvent =
   | "carrinho_abandonado"
@@ -278,6 +278,42 @@ function shouldIgnoreEvent(
 }
 
 /**
+ * Ticto dispara múltiplos `carrinho_abandonado` pra mesma sessão de checkout
+ * conforme o cliente edita o formulário (telefone, CPF...). Cada webhook chega
+ * com o mesmo `checkout_url` (slug único da sessão). Sem dedup, cada um
+ * agendaria uma mensagem nova → spam.
+ *
+ * Filtra por evento prévio do mesmo lead, mesmo `checkout_url`, dentro de 24h,
+ * que tenha sido processado com sucesso E não seja ele próprio uma dedup
+ * (erro IS NULL exclui eventos ignorados/deduplicados que registram motivo
+ * em `erro` mesmo com processedOk=true).
+ */
+async function isDuplicateAbandonedCart(
+  leadId: number,
+  rawPayload: unknown,
+): Promise<boolean> {
+  const checkoutUrl = (rawPayload as { checkout_url?: unknown })?.checkout_url;
+  if (typeof checkoutUrl !== "string" || !checkoutUrl) return false;
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const existing = await db
+    .select({ id: eventos.id })
+    .from(eventos)
+    .where(
+      and(
+        eq(eventos.leadId, leadId),
+        eq(eventos.eventType, "carrinho_abandonado"),
+        eq(eventos.processedOk, true),
+        isNull(eventos.erro),
+        gte(eventos.receivedAt, cutoff),
+        sql`${eventos.payload}->>'checkout_url' = ${checkoutUrl}`,
+      ),
+    )
+    .limit(1);
+  return existing.length > 0;
+}
+
+/**
  * Processa um evento do gateway de ponta a ponta.
  */
 export async function handleGatewayEvent(input: EventInput): Promise<{
@@ -301,6 +337,29 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       payload: input.rawPayload as object,
       processedOk: true,
       erro: `Evento ignorado: lead já está em ${lead.status} (pós-pagamento)`,
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true,
+    };
+  }
+
+  // Dedup: Ticto manda múltiplos carrinho_abandonado pra mesma sessão.
+  // Pula o agendamento se já tem um do mesmo checkout_url nas últimas 24h.
+  if (
+    input.eventType === "carrinho_abandonado" &&
+    (await isDuplicateAbandonedCart(lead.id, input.rawPayload))
+  ) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+      erro: "Duplicado: mesmo checkout_url já visto nas últimas 24h",
     });
     return {
       leadId: lead.id,
