@@ -1,5 +1,5 @@
-import { TrendingUp, TrendingDown, RefreshCcw, UserPlus, UserMinus, AlertOctagon } from "lucide-react";
-import type { MrrMovementsBreakdown } from "@shared/types";
+import { TrendingUp, TrendingDown, RefreshCcw, UserPlus, UserMinus, AlertOctagon, ChevronRight } from "lucide-react";
+import type { MrrMovementsBreakdown, MrrMovementType } from "@shared/types";
 
 const brl = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -13,9 +13,11 @@ const brlSigned = (n: number) => (n >= 0 ? `+${brl(n)}` : `−${brl(Math.abs(n))
 export function MrrBreakdown({
   data,
   isLoading,
+  onSelectType,
 }: {
   data: MrrMovementsBreakdown | undefined;
   isLoading: boolean;
+  onSelectType?: (type: MrrMovementType) => void;
 }) {
   if (isLoading) {
     return (
@@ -31,15 +33,16 @@ export function MrrBreakdown({
   const negatives = byType.churn.total + byType.refund.total + byType.contraction.total;
 
   // Linhas do breakdown — só mostra as que têm movimento
-  const rows: Array<{
-    key: string;
+  type Row = {
+    key: MrrMovementType;
     label: string;
     icon: typeof TrendingUp;
     iconClass: string;
     count: number;
     amount: number;
     positive: boolean;
-  }> = [
+  };
+  const rows: Row[] = ([
     {
       key: "new",
       label: "New MRR",
@@ -94,7 +97,7 @@ export function MrrBreakdown({
       amount: byType.refund.total,
       positive: false,
     },
-  ].filter((r) => r.count > 0);
+  ] as Row[]).filter((r) => r.count > 0);
 
   return (
     <div className="card-soft p-5">
@@ -127,8 +130,9 @@ export function MrrBreakdown({
         <ul className="divide-y divide-border/50">
           {rows.map((r) => {
             const Icon = r.icon;
-            return (
-              <li key={r.key} className="flex items-center gap-3 py-2.5">
+            const clickable = !!onSelectType;
+            const content = (
+              <>
                 <div className={`size-9 rounded-xl grid place-items-center shrink-0 ${r.iconClass}`}>
                   <Icon className="size-4" />
                 </div>
@@ -145,6 +149,24 @@ export function MrrBreakdown({
                 >
                   {brlSigned(r.amount)}
                 </p>
+                {clickable ? (
+                  <ChevronRight className="size-4 text-muted-foreground/40 shrink-0" />
+                ) : null}
+              </>
+            );
+            return clickable ? (
+              <li key={r.key}>
+                <button
+                  type="button"
+                  onClick={() => onSelectType(r.key)}
+                  className="w-full flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer text-left"
+                >
+                  {content}
+                </button>
+              </li>
+            ) : (
+              <li key={r.key} className="flex items-center gap-3 py-2.5">
+                {content}
               </li>
             );
           })}

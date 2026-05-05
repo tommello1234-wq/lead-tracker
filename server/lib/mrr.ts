@@ -5,8 +5,8 @@
  * Net New MRR = soma de todos os movements no período = quanto o MRR mudou.
  */
 import { db } from "../../db/client.js";
-import { mrrMovements } from "../../db/schema.js";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { mrrMovements, leads } from "../../db/schema.js";
+import { and, eq, gte, lte, sql, desc } from "drizzle-orm";
 
 export type MrrMovementType =
   | "new"
@@ -66,4 +66,59 @@ export async function getMrrBreakdown(
   }
 
   return { netNewMrr, byType };
+}
+
+export type MrrMovementLead = {
+  movementId: number;
+  leadId: number;
+  nome: string;
+  email: string | null;
+  contato: string | null;
+  amount: number;
+  fromValue: number | null;
+  toValue: number | null;
+  fromPlano: string | null;
+  toPlano: string | null;
+  ocorridoEm: string;
+};
+
+/**
+ * Lista leads/movements de um tipo específico no período.
+ * Usado pelo drill-down do card de MRR Breakdown.
+ */
+export async function getMrrMovementLeads(
+  type: string,
+  produtoId: number | null,
+  since: Date | null,
+  until: Date | null,
+): Promise<MrrMovementLead[]> {
+  const conds = [eq(mrrMovements.type, type as MrrMovementType)];
+  if (produtoId != null) conds.push(eq(mrrMovements.produtoId, produtoId));
+  if (since) conds.push(gte(mrrMovements.ocorridoEm, since));
+  if (until) conds.push(lte(mrrMovements.ocorridoEm, until));
+
+  const rows = await db
+    .select({
+      movementId: mrrMovements.id,
+      leadId: leads.id,
+      nome: leads.nome,
+      email: leads.email,
+      contato: leads.contato,
+      amount: mrrMovements.amount,
+      fromValue: mrrMovements.fromValue,
+      toValue: mrrMovements.toValue,
+      fromPlano: mrrMovements.fromPlano,
+      toPlano: mrrMovements.toPlano,
+      ocorridoEm: mrrMovements.ocorridoEm,
+    })
+    .from(mrrMovements)
+    .innerJoin(leads, eq(leads.id, mrrMovements.leadId))
+    .where(and(...conds))
+    .orderBy(desc(mrrMovements.ocorridoEm))
+    .limit(500);
+
+  return rows.map((r) => ({
+    ...r,
+    ocorridoEm: r.ocorridoEm.toISOString(),
+  }));
 }

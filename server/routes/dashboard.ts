@@ -14,7 +14,7 @@ import {
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
 import { getDetails, type DetailsKind } from "../lib/details.js";
-import { getMrrBreakdown } from "../lib/mrr.js";
+import { getMrrBreakdown, getMrrMovementLeads } from "../lib/mrr.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -150,6 +150,30 @@ dashboardRoutes.get("/mrr-movements", async (c) => {
   const since = parseSince(c);
   const until = parseUntil(c);
   const data = await getMrrBreakdown(produtoId, since, until);
+  return c.json(data);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/mrr-movements/leads?type=X&produtoId=N&since=ISO&until=ISO
+ * Drill-down: lista leads de um tipo específico de movement no período.
+ * ========================================================================== */
+const MRR_TYPES = new Set([
+  "new",
+  "expansion",
+  "reactivation",
+  "contraction",
+  "churn",
+  "refund",
+]);
+dashboardRoutes.get("/mrr-movements/leads", async (c) => {
+  const type = c.req.query("type");
+  if (!type || !MRR_TYPES.has(type)) {
+    return c.json({ error: "type inválido" }, 400);
+  }
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const data = await getMrrMovementLeads(type, produtoId, since, until);
   return c.json(data);
 });
 

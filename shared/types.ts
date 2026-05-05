@@ -64,6 +64,20 @@ export type MrrMovementsBreakdown = {
   byType: Record<MrrMovementType, MrrMovementBucket>;
 };
 
+export type MrrMovementLead = {
+  movementId: number;
+  leadId: number;
+  nome: string;
+  email: string | null;
+  contato: string | null;
+  amount: number;
+  fromValue: number | null;
+  toValue: number | null;
+  fromPlano: string | null;
+  toPlano: string | null;
+  ocorridoEm: string;
+};
+
 /* SaaS metrics — derivado dos eventos JSONB sem migration */
 export type PaymentMethod = "cartao" | "pix" | "boleto" | "indefinido";
 

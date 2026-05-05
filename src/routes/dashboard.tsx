@@ -27,6 +27,7 @@ import {
 } from "@/components/dashboard-charts";
 import { SaasDashboard } from "@/components/saas-dashboard";
 import { MrrBreakdown } from "@/components/mrr-breakdown";
+import { MrrMovementsModal } from "@/components/mrr-movements-modal";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -35,6 +36,7 @@ import type {
   TipoBreakdown,
   SaasMetricsResponse,
   MrrMovementsBreakdown,
+  MrrMovementType,
   Produto,
   CacMetrics,
 } from "@shared/types";
@@ -64,6 +66,7 @@ const SHORT_LABELS: Record<Period, string> = {
 
 export function DashboardPage() {
   const [details, setDetails] = useState<DetailsKind | null>(null);
+  const [mrrType, setMrrType] = useState<MrrMovementType | null>(null);
   const { produtoId, period, customDate } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
@@ -260,7 +263,11 @@ export function DashboardPage() {
 
       {/* Movimentação MRR — só pra produtos saas ou visão Todos */}
       {isSaasView ? (
-        <MrrBreakdown data={mrr.data} isLoading={mrr.isLoading} />
+        <MrrBreakdown
+          data={mrr.data}
+          isLoading={mrr.isLoading}
+          onSelectType={setMrrType}
+        />
       ) : null}
 
       {/* SaaS metrics — só pra produtos saas ou visão Todos */}
@@ -284,6 +291,9 @@ export function DashboardPage() {
 
       {details ? (
         <DetailsModal kind={details} onClose={() => setDetails(null)} />
+      ) : null}
+      {mrrType ? (
+        <MrrMovementsModal type={mrrType} onClose={() => setMrrType(null)} />
       ) : null}
     </div>
   );
