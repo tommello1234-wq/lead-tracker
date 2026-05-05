@@ -48,6 +48,22 @@ export type Faturamento = { count: number; total: number };
 
 export type SidebarCounts = { emRisco: number; filaMensagens: number };
 
+/* MRR movements — breakdown da movimentação de receita recorrente no período */
+export type MrrMovementType =
+  | "new"
+  | "expansion"
+  | "reactivation"
+  | "contraction"
+  | "churn"
+  | "refund";
+
+export type MrrMovementBucket = { count: number; total: number };
+
+export type MrrMovementsBreakdown = {
+  netNewMrr: number; // soma de tudo no período
+  byType: Record<MrrMovementType, MrrMovementBucket>;
+};
+
 /* SaaS metrics — derivado dos eventos JSONB sem migration */
 export type PaymentMethod = "cartao" | "pix" | "boleto" | "indefinido";
 

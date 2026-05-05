@@ -26,6 +26,7 @@ import {
   TipoBreakdownChart,
 } from "@/components/dashboard-charts";
 import { SaasDashboard } from "@/components/saas-dashboard";
+import { MrrBreakdown } from "@/components/mrr-breakdown";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -33,6 +34,7 @@ import type {
   PlanoBreakdown,
   TipoBreakdown,
   SaasMetricsResponse,
+  MrrMovementsBreakdown,
   Produto,
   CacMetrics,
 } from "@shared/types";
@@ -120,6 +122,14 @@ export function DashboardPage() {
     queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${cacQs}`),
     enabled: isSaasView,
     retry: 0,
+  });
+
+  // Movimentação de MRR no período (New / Expansion / Churn / etc)
+  const mrr = useQuery({
+    queryKey: ["dashboard", "mrr-movements", produtoParam, sinceParam, untilParam],
+    queryFn: () =>
+      api.get<MrrMovementsBreakdown>(`/api/dashboard/mrr-movements?${baseQs}`),
+    enabled: isSaasView,
   });
 
   const m = metrics.data;
@@ -246,6 +256,11 @@ export function DashboardPage() {
             onClick={() => setDetails("reembolsos")}
           />
         </div>
+      ) : null}
+
+      {/* Movimentação MRR — só pra produtos saas ou visão Todos */}
+      {isSaasView ? (
+        <MrrBreakdown data={mrr.data} isLoading={mrr.isLoading} />
       ) : null}
 
       {/* SaaS metrics — só pra produtos saas ou visão Todos */}

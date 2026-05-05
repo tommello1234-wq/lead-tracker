@@ -14,6 +14,7 @@ import {
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
 import { getDetails, type DetailsKind } from "../lib/details.js";
+import { getMrrBreakdown } from "../lib/mrr.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -138,6 +139,18 @@ dashboardRoutes.get("/cac", async (c) => {
       500,
     );
   }
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/mrr-movements?produtoId=N&since=ISO&until=ISO
+ * Breakdown da movimentação de MRR no período: New, Expansion, Churn, etc.
+ * ========================================================================== */
+dashboardRoutes.get("/mrr-movements", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const data = await getMrrBreakdown(produtoId, since, until);
+  return c.json(data);
 });
 
 /* ==========================================================================
