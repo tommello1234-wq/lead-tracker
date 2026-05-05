@@ -447,6 +447,36 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     };
   }
 
+  // Guarda: cancelamento de gateway DIFERENTE do gateway atual do lead.
+  // Cenário: cliente comprou Creator na Ticto, deu upgrade pra Studio na
+  // Stripe, e VOCÊ cancela o Creator antigo no painel Ticto. O cancelamento
+  // chega aqui mas se aplicado sobrescreveria o estado bom da Stripe.
+  // Solução: ignora cancelamento "lateral" — se o lead já está ativo em
+  // outro gateway, esse cancelamento é só do plano antigo, não da assinatura
+  // viva. Registra audit, não muda status.
+  if (
+    input.eventType === "assinatura_cancelada" &&
+    lead.gateway &&
+    input.source !== lead.gateway &&
+    lead.subscriptionStatus === "ativa"
+  ) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+      erro: `Ignorado: cancelamento de '${input.source}' enquanto lead ativo em '${lead.gateway}' (provável cancel de plano antigo após upgrade)`,
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true,
+    };
+  }
+
   // Dedup: Ticto manda múltiplos carrinho_abandonado pra mesma sessão.
   // Pula o agendamento se já tem um do mesmo checkout_url nas últimas 24h.
   if (
@@ -502,9 +532,19 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       updates.pagouEm = now;
       updates.convertidoEm = now;
     }
+    // Atualiza `gateway` pra refletir o gateway da assinatura ATUAL.
+    // Ex: cliente migrou Ticto → Stripe, gateway passa pra "stripe".
+    // Necessário pro guard de cancelamento "lateral" funcionar (acima).
+    if (lead.gateway && input.source !== lead.gateway) {
+      updates.gateway = input.source;
+    }
   }
   if (input.eventType === "assinatura_renovada") {
     updates.ultimaRenovacaoEm = now;
+    // Renovação confirma o gateway atual — atualiza se mudou.
+    if (lead.gateway && input.source !== lead.gateway) {
+      updates.gateway = input.source;
+    }
   }
   if (input.eventType === "assinatura_cancelada") {
     updates.canceladoEm = now;
