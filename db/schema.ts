@@ -228,3 +228,51 @@ export const flowSteps = pgTable("flow_steps", {
 
 export type FlowStepRow = typeof flowSteps.$inferSelect;
 export type NovoFlowStep = typeof flowSteps.$inferInsert;
+
+/**
+ * Movimentações de MRR — cada mudança no faturamento recorrente vira uma linha.
+ *
+ * `amount` é o DELTA em R$ no MRR (positivo pra new/expansion/reactivation,
+ * negativo pra contraction/churn/refund). Soma desses amounts num período =
+ * Net New MRR daquele período.
+ *
+ * Exemplo: cliente Creator R$47 dá upgrade pra Studio R$97 → 1 movimento
+ * `expansion` com amount=+50, fromValue=47, toValue=97.
+ */
+export const MRR_MOVEMENT_TYPES = [
+  "new", // primeira aquisição (lead.pagouEm era null)
+  "expansion", // upgrade (valor aumentou)
+  "contraction", // downgrade (valor diminuiu)
+  "churn", // cancelamento de assinatura
+  "reactivation", // cliente cancelado/reembolsado voltou
+  "refund", // reembolso processado (retira retroativamente)
+] as const;
+export type MrrMovementType = (typeof MRR_MOVEMENT_TYPES)[number];
+
+export const mrrMovements = pgTable("mrr_movements", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id")
+    .notNull()
+    .references(() => leads.id, { onDelete: "cascade" }),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "set null",
+  }),
+  type: text("type").$type<MrrMovementType>().notNull(),
+  // Delta em R$ no MRR (sinal indica direção)
+  amount: real("amount").notNull(),
+  // Snapshot antes/depois pra auditoria
+  fromValue: real("from_value"), // null pra "new"
+  toValue: real("to_value"), // null pra "churn"/"refund"
+  fromPlano: text("from_plano"),
+  toPlano: text("to_plano"),
+  // Referência ao evento que disparou (audit trail completo)
+  eventoId: integer("evento_id").references(() => eventos.id, {
+    onDelete: "set null",
+  }),
+  // Data efetiva da movimentação (= momento do evento, NÃO do registro)
+  ocorridoEm: timestamp("ocorrido_em", { mode: "date" }).notNull().defaultNow(),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type MrrMovement = typeof mrrMovements.$inferSelect;
+export type NovoMrrMovement = typeof mrrMovements.$inferInsert;

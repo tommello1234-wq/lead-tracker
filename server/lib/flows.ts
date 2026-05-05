@@ -14,10 +14,12 @@ import {
   mensagensAgendadas,
   eventos,
   flowSteps,
+  mrrMovements,
   type Lead,
   type LeadStatus,
   type SubscriptionStatus,
   type MessageTemplate,
+  type MrrMovementType,
 } from "../../db/schema.js";
 import { renderTemplate } from "./message-templates.js";
 import { eq, and, inArray, asc, gte, isNull, sql } from "drizzle-orm";
@@ -314,6 +316,105 @@ async function isDuplicateAbandonedCart(
 }
 
 /**
+ * Registra um movimento de MRR a partir de um evento do gateway.
+ * Decide o tipo do movimento (new/expansion/contraction/churn/reactivation/refund)
+ * comparando estado anterior do lead com os valores que vêm no input.
+ *
+ * Eventos sem impacto em MRR (pix_gerado, carrinho_abandonado, assinatura_renovada)
+ * retornam sem inserir nada — renovação não muda MRR (já tava ativo, paga o mesmo).
+ */
+async function recordMrrMovement(args: {
+  eventoId: number | null;
+  leadBefore: Lead;
+  eventType: GatewayEvent;
+  novoValor: number | null;
+  novoPlano: string | null;
+  produtoId: number | null;
+  ocorridoEm: Date;
+}): Promise<void> {
+  const { eventoId, leadBefore, eventType, novoValor, novoPlano, produtoId, ocorridoEm } = args;
+  const valorAntigo = leadBefore.valorAssinatura;
+  const planoAntigo = leadBefore.planoNome;
+
+  let movement: {
+    type: MrrMovementType;
+    amount: number;
+    fromValue: number | null;
+    toValue: number | null;
+  } | null = null;
+
+  if (eventType === "compra_aprovada") {
+    if (!leadBefore.pagouEm) {
+      // Primeira aquisição
+      movement = {
+        type: "new",
+        amount: novoValor ?? 0,
+        fromValue: null,
+        toValue: novoValor,
+      };
+    } else if (
+      leadBefore.subscriptionStatus === "cancelada" ||
+      leadBefore.subscriptionStatus === "reembolsada"
+    ) {
+      // Cliente cancelado/reembolsado voltou
+      movement = {
+        type: "reactivation",
+        amount: novoValor ?? 0,
+        fromValue: null,
+        toValue: novoValor,
+      };
+    } else if (leadBefore.subscriptionStatus === "ativa") {
+      // Cliente já tava ativo — upgrade ou downgrade (ou compra dup, ignora)
+      const v0 = valorAntigo ?? 0;
+      const v1 = novoValor ?? 0;
+      const delta = v1 - v0;
+      if (delta > 0) {
+        movement = { type: "expansion", amount: delta, fromValue: v0, toValue: v1 };
+      } else if (delta < 0) {
+        movement = { type: "contraction", amount: delta, fromValue: v0, toValue: v1 };
+      }
+      // delta === 0: ignora (mesmo plano, evento duplicado ou renovação manual)
+    }
+  } else if (eventType === "assinatura_cancelada") {
+    // Só registra churn se mudou DE ativa pra cancelada (ignora cancel duplicado)
+    if (leadBefore.subscriptionStatus === "ativa") {
+      const v = leadBefore.valorAssinatura ?? 0;
+      movement = {
+        type: "churn",
+        amount: -v,
+        fromValue: v,
+        toValue: null,
+      };
+    }
+  } else if (eventType === "reembolso") {
+    // Refund retira receita retroativamente (CAC já desconta via subscription_status)
+    const v = leadBefore.valorAssinatura ?? 0;
+    movement = {
+      type: "refund",
+      amount: -v,
+      fromValue: v,
+      toValue: null,
+    };
+  }
+  // assinatura_renovada / pix_* / carrinho_abandonado / compra_recusada: sem MRR
+
+  if (!movement) return;
+
+  await db.insert(mrrMovements).values({
+    leadId: leadBefore.id,
+    produtoId,
+    type: movement.type,
+    amount: movement.amount,
+    fromValue: movement.fromValue,
+    toValue: movement.toValue,
+    fromPlano: planoAntigo,
+    toPlano: novoPlano,
+    eventoId,
+    ocorridoEm,
+  });
+}
+
+/**
  * Processa um evento do gateway de ponta a ponta.
  */
 export async function handleGatewayEvent(input: EventInput): Promise<{
@@ -389,8 +490,18 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     if (input.pixExpiraEm) updates.pixExpiraEm = input.pixExpiraEm;
   }
   if (input.eventType === "compra_aprovada") {
-    updates.pagouEm = now;
-    updates.convertidoEm = now;
+    // Só atualiza pagouEm em PRIMEIRA aquisição ou REATIVAÇÃO.
+    // Upgrade de cliente já ativo NÃO atualiza — o CAC contou esse cliente
+    // quando ele entrou pela primeira vez. pagouEm = data da 1ª compra.
+    // valorAssinatura/planoNome continuam atualizando (acima) → MRR fica certo.
+    const isFirstOrReactivation =
+      !lead.pagouEm ||
+      lead.subscriptionStatus === "cancelada" ||
+      lead.subscriptionStatus === "reembolsada";
+    if (isFirstOrReactivation) {
+      updates.pagouEm = now;
+      updates.convertidoEm = now;
+    }
   }
   if (input.eventType === "assinatura_renovada") {
     updates.ultimaRenovacaoEm = now;
@@ -405,14 +516,30 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
 
   await db.update(leads).set(updates).where(eq(leads.id, lead.id));
 
-  // Audit log
-  await db.insert(eventos).values({
-    leadId: lead.id,
-    produtoId: input.produtoId ?? lead.produtoId ?? null,
-    source: input.source,
+  // Audit log — guarda o id pra linkar com mrr_movements
+  const [insertedEvent] = await db
+    .insert(eventos)
+    .values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+    })
+    .returning({ id: eventos.id });
+
+  // Movimento de MRR: registra cada mudança no faturamento recorrente.
+  // Calcula tipo + delta antes do update de lead já ter sido aplicado em
+  // memória — usa `lead` (estado anterior) e `input.valor` (estado novo).
+  await recordMrrMovement({
+    eventoId: insertedEvent?.id ?? null,
+    leadBefore: lead,
     eventType: input.eventType,
-    payload: input.rawPayload as object,
-    processedOk: true,
+    novoValor: input.valor ?? lead.valorAssinatura,
+    novoPlano: input.planoNome ?? lead.planoNome,
+    produtoId: input.produtoId ?? lead.produtoId ?? null,
+    ocorridoEm: now,
   });
 
   // Agenda mensagens conforme o fluxo (lido do DB — editavel via /automacoes)
