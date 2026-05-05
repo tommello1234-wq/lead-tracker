@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { X, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange } from "@/lib/period";
@@ -55,12 +55,19 @@ export function DetailsModal({
 }) {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
-  const { since, until } = periodToRange(period, customDate);
+  // Memoiza o range pra estabilizar queryKey — pra periodos com `until=NOW`
+  // (ex: "hoje"), sem memo o until vira new Date() a cada render → ISO string
+  // diferente a cada vez → React Query cancela e refaz o fetch infinitamente,
+  // travando em "Carregando..." pra sempre. Mesmo bug que o dashboard fixou.
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate),
+    [period, customDate],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const qs = `kind=${kind}&produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["dashboard", "details", kind, produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<DetailLead[]>(`/api/dashboard/details?${qs}`),
   });
@@ -105,6 +112,16 @@ export function DetailsModal({
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground py-12 text-center">Carregando...</p>
+          ) : isError ? (
+            <div className="py-12 px-6 text-center">
+              <AlertCircle className="size-8 text-destructive mx-auto mb-3" />
+              <p className="text-sm font-medium text-destructive mb-1">
+                Erro ao carregar
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {error instanceof Error ? error.message : "Erro desconhecido"}
+              </p>
+            </div>
           ) : !data || data.length === 0 ? (
             <p className="text-sm text-muted-foreground py-12 text-center">
               Sem dados pra esse filtro.
