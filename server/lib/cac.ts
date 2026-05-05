@@ -1,6 +1,6 @@
 import { db } from "../../db/client.js";
 import { leads } from "../../db/schema.js";
-import { and, eq, gte, lte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, lte, ne, isNotNull, sql } from "drizzle-orm";
 import { getInsights } from "./meta-ads.js";
 
 export type CacMetrics = {
@@ -29,7 +29,16 @@ async function _getCacMetrics(
   const effectiveUntil = until ?? new Date();
   const effectiveSince = since;
 
-  const conds = [isNotNull(leads.pagouEm)];
+  // Desconta reembolsos PROCESSADOS (status `refunded` da Ticto → vira
+  // `reembolsada` no nosso modelo). Reclamados (`claimed`) caem em "unknown"
+  // no parser e não mexem em subscriptionStatus, então continuam contando —
+  // só desconta quando o reembolso é de fato concretizado.
+  // O desconto é retroativo: se o reembolso processou 2 dias depois da venda,
+  // ao filtrar o dia da venda original, esse lead já não conta no CAC.
+  const conds = [
+    isNotNull(leads.pagouEm),
+    ne(leads.subscriptionStatus, "reembolsada"),
+  ];
   if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
   if (effectiveSince) conds.push(gte(leads.pagouEm, effectiveSince));
   conds.push(lte(leads.pagouEm, effectiveUntil));
