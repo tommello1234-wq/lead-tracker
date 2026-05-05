@@ -184,6 +184,19 @@ async function processOrder(order: TictoOrder): Promise<"created" | "updated" | 
     }
     if (orderHash) updates.gatewayLastOrderId = orderHash;
     if (valor) updates.valorAssinatura = valor;
+    // Sincroniza dados do cliente (Ticto = source of truth pra contato).
+    // Só atualiza se Ticto tem valor não-vazio E diferente do atual,
+    // pra não zerar dados quando payload vem incompleto.
+    const tictoName = String(customer?.name ?? "").trim();
+    if (tictoName && tictoName !== "Cliente Ticto" && tictoName !== lead.nome) {
+      updates.nome = tictoName;
+    }
+    if (email && email.includes("@") && email !== lead.email) {
+      updates.email = email;
+    }
+    if (phone && phone !== lead.contato) {
+      updates.contato = phone;
+    }
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
     action = "updated";
   }
@@ -270,18 +283,34 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         ),
       });
       if (!lead) continue;
-      if (lead.status === mapped.lead && lead.subscriptionStatus === mapped.sub) continue;
 
       const updates: Record<string, unknown> = {
-        status: mapped.lead,
-        subscriptionStatus: mapped.sub,
         atualizadoEm: new Date(),
       };
-      if (mapped.sub === "cancelada" && !lead.canceladoEm) {
-        updates.canceladoEm = new Date();
+      // Status/subscription só atualiza se mudou
+      if (lead.status !== mapped.lead || lead.subscriptionStatus !== mapped.sub) {
+        updates.status = mapped.lead;
+        updates.subscriptionStatus = mapped.sub;
+        if (mapped.sub === "cancelada" && !lead.canceladoEm) {
+          updates.canceladoEm = new Date();
+        }
       }
-      await db.update(leads).set(updates).where(eq(leads.id, lead.id));
-      subsUpdated++;
+      // Sincroniza dados do cliente (Ticto = source of truth)
+      const tictoName = String(customer?.name ?? "").trim();
+      if (tictoName && tictoName !== "Cliente Ticto" && tictoName !== lead.nome) {
+        updates.nome = tictoName;
+      }
+      if (email && email.includes("@") && email !== lead.email) {
+        updates.email = email;
+      }
+      if (phone && phone !== lead.contato) {
+        updates.contato = phone;
+      }
+      // Só faz update se há mais que atualizadoEm
+      if (Object.keys(updates).length > 1) {
+        await db.update(leads).set(updates).where(eq(leads.id, lead.id));
+        subsUpdated++;
+      }
     }
 
     const lastPage = resp.meta?.last_page ?? subsPage;
