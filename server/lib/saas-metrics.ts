@@ -86,6 +86,10 @@ const valorExpr = sql<number>`coalesce(
   0
 )::numeric(10,2)`;
 
+// Eventos com payload._imported = true (CSV histórico) foram marcados em
+// massa como processed_ok = false. As queries deste arquivo já filtram
+// por processed_ok = true, então automaticamente excluem CSV legado.
+
 /* ============================================================
  * 1. Breakdown por método de pagamento
  * Junta: total de transações + receita + ativos atuais (via lead)

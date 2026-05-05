@@ -395,8 +395,27 @@ async function recordMrrMovement(args: {
       fromValue: v,
       toValue: null,
     };
+  } else if (eventType === "assinatura_renovada") {
+    // Renovação NORMAL não muda MRR (cliente já paga o mesmo). MAS se vier
+    // com valor diferente, é upgrade/downgrade encoberto — gera expansion
+    // ou contraction. Caso real: Neuber/Mariane assinaram Creator R$ 47,
+    // upgrade pra Studio chegou como assinatura_renovada R$ 67 e o sistema
+    // antigo silenciava o movement.
+    if (
+      leadBefore.subscriptionStatus === "ativa" &&
+      novoValor != null &&
+      valorAntigo != null
+    ) {
+      const delta = novoValor - valorAntigo;
+      if (delta > 0) {
+        movement = { type: "expansion", amount: delta, fromValue: valorAntigo, toValue: novoValor };
+      } else if (delta < 0) {
+        movement = { type: "contraction", amount: delta, fromValue: valorAntigo, toValue: novoValor };
+      }
+      // delta === 0: renovação normal de fato, sem movement
+    }
   }
-  // assinatura_renovada / pix_* / carrinho_abandonado / compra_recusada: sem MRR
+  // pix_* / carrinho_abandonado / compra_recusada: sem MRR
 
   if (!movement) return;
 
