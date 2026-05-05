@@ -6,6 +6,7 @@ import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
 import { parseBrevexWebhook, verifyBrevexSignature } from "../lib/brevex.js";
 import { handleGatewayEvent } from "../lib/flows.js";
 import { findOrCreateProdutoByName } from "../lib/produtos.js";
+import { handleEvolutionIncoming } from "../lib/evolution-incoming.js";
 
 export const webhookRoutes = new Hono();
 
@@ -19,9 +20,51 @@ webhookRoutes.get("/", (c) =>
       "POST /api/webhooks/ticto",
       "POST /api/webhooks/stripe",
       "POST /api/webhooks/brevex (capture-only stub)",
+      "POST /api/webhooks/evolution (mensagens recebidas WhatsApp)",
     ],
   }),
 );
+
+/* ==========================================================================
+ * POST /api/webhooks/evolution
+ * Mensagens recebidas do WhatsApp via Evolution API.
+ * Quando o cliente responde, marca lead.respondeuEm e cancela mensagens
+ * pendentes (skipped) pra que o follow-up automático não chegue.
+ *
+ * Auth: header `apikey` deve casar com EVOLUTION_WEBHOOK_SECRET (se setado).
+ * Sem secret = aceita tudo (modo dev).
+ * ========================================================================== */
+webhookRoutes.post("/evolution", async (c) => {
+  const secret = process.env.EVOLUTION_WEBHOOK_SECRET;
+  if (secret) {
+    const received = c.req.header("apikey") ?? c.req.header("Apikey");
+    if (received !== secret) {
+      return c.json({ error: "invalid apikey" }, 401);
+    }
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "invalid json" }, 400);
+  }
+
+  try {
+    const result = await handleEvolutionIncoming(payload);
+    return c.json(result);
+  } catch (e) {
+    const erro = e instanceof Error ? e.message : "Erro desconhecido";
+    await db.insert(eventos).values({
+      source: "evolution",
+      eventType: "incoming_error",
+      payload,
+      processedOk: false,
+      erro,
+    });
+    return c.json({ ok: false, error: erro }, 500);
+  }
+});
 
 /* ==========================================================================
  * POST /api/webhooks/ticto
