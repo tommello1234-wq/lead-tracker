@@ -45,6 +45,16 @@ export const SUBSCRIPTION_STATUS = [
 ] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUS)[number];
 
+/**
+ * Periodicidade da assinatura — usada pra normalizar MRR.
+ * - mensal: cobra todo mês, MRR = valor_assinatura
+ * - anual: cobra 1x/ano, MRR = valor_assinatura / 12
+ * - vitalicio: pagamento único, MRR = 0 (não é recorrente)
+ * - gratis: trial/oferta grátis, MRR = 0
+ */
+export const PERIODICIDADES = ["mensal", "anual", "vitalicio", "gratis"] as const;
+export type Periodicidade = (typeof PERIODICIDADES)[number];
+
 export const LEAD_ORIGINS = [
   "instagram",
   "whatsapp",
@@ -108,6 +118,10 @@ export const leads = pgTable("leads", {
     .default("nenhuma"),
   planoNome: text("plano_nome"),
   valorAssinatura: real("valor_assinatura"),
+  // Periodicidade pra normalizar MRR (anual / mensal / vitalício / grátis).
+  // Default 'mensal' porque a maioria das assinaturas é. Parser preenche
+  // baseado no payload do gateway (Ticto offer.recurrence, Stripe metadata).
+  periodicidade: text("periodicidade").$type<Periodicidade>().notNull().default("mensal"),
   pixGeradoEm: timestamp("pix_gerado_em", { mode: "date" }),
   pixExpiraEm: timestamp("pix_expira_em", { mode: "date" }),
   pagouEm: timestamp("pagou_em", { mode: "date" }),

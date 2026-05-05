@@ -20,6 +20,7 @@ import {
   type SubscriptionStatus,
   type MessageTemplate,
   type MrrMovementType,
+  type Periodicidade,
 } from "../../db/schema.js";
 import { renderTemplate } from "./message-templates.js";
 import { eq, and, inArray, asc, gte, isNull, sql } from "drizzle-orm";
@@ -50,6 +51,9 @@ export type EventInput = {
   planoNome?: string | null;
   produtoId?: number | null;
   pixExpiraEm?: Date | null;
+  // Periodicidade extraída do payload (mensal / anual / vitalicio / gratis).
+  // Se null, mantém o que já está no lead (default 'mensal').
+  periodicidade?: Periodicidade | null;
   extras?: Record<string, string | number | undefined>;
 };
 
@@ -323,18 +327,36 @@ async function isDuplicateAbandonedCart(
  * Eventos sem impacto em MRR (pix_gerado, carrinho_abandonado, assinatura_renovada)
  * retornam sem inserir nada — renovação não muda MRR (já tava ativo, paga o mesmo).
  */
+/**
+ * Normaliza um valor pra impacto mensal de MRR baseado em periodicidade.
+ *  - mensal: valor cheio
+ *  - anual: valor / 12 (cobra 1x mas reflete mensalmente)
+ *  - vitalicio / gratis: 0 (não é receita recorrente)
+ */
+function toMrr(valor: number | null | undefined, periodicidade: Periodicidade): number {
+  const v = valor ?? 0;
+  if (periodicidade === "anual") return v / 12;
+  if (periodicidade === "vitalicio" || periodicidade === "gratis") return 0;
+  return v;
+}
+
 async function recordMrrMovement(args: {
   eventoId: number | null;
   leadBefore: Lead;
   eventType: GatewayEvent;
   novoValor: number | null;
   novoPlano: string | null;
+  novaPeriodicidade: Periodicidade;
   produtoId: number | null;
   ocorridoEm: Date;
 }): Promise<void> {
-  const { eventoId, leadBefore, eventType, novoValor, novoPlano, produtoId, ocorridoEm } = args;
+  const { eventoId, leadBefore, eventType, novoValor, novoPlano, novaPeriodicidade, produtoId, ocorridoEm } = args;
   const valorAntigo = leadBefore.valorAssinatura;
   const planoAntigo = leadBefore.planoNome;
+  const periodAntiga = leadBefore.periodicidade;
+  // Valores normalizados pra impacto MRR
+  const mrrAntigo = toMrr(valorAntigo, periodAntiga);
+  const mrrNovo = toMrr(novoValor, novaPeriodicidade);
 
   let movement: {
     type: MrrMovementType;
@@ -343,12 +365,15 @@ async function recordMrrMovement(args: {
     toValue: number | null;
   } | null = null;
 
+  // amount nos movements é o IMPACTO em MRR (já normalizado pra mensal).
+  // Anual entra como /12, vitalício/grátis entram como 0.
+  // fromValue/toValue mantêm o valor "raw" da assinatura pra audit.
   if (eventType === "compra_aprovada") {
     if (!leadBefore.pagouEm) {
       // Primeira aquisição
       movement = {
         type: "new",
-        amount: novoValor ?? 0,
+        amount: mrrNovo,
         fromValue: null,
         toValue: novoValor,
       };
@@ -356,63 +381,50 @@ async function recordMrrMovement(args: {
       leadBefore.subscriptionStatus === "cancelada" ||
       leadBefore.subscriptionStatus === "reembolsada"
     ) {
-      // Cliente cancelado/reembolsado voltou
       movement = {
         type: "reactivation",
-        amount: novoValor ?? 0,
+        amount: mrrNovo,
         fromValue: null,
         toValue: novoValor,
       };
     } else if (leadBefore.subscriptionStatus === "ativa") {
-      // Cliente já tava ativo — upgrade ou downgrade (ou compra dup, ignora)
-      const v0 = valorAntigo ?? 0;
-      const v1 = novoValor ?? 0;
-      const delta = v1 - v0;
-      if (delta > 0) {
-        movement = { type: "expansion", amount: delta, fromValue: v0, toValue: v1 };
-      } else if (delta < 0) {
-        movement = { type: "contraction", amount: delta, fromValue: v0, toValue: v1 };
-      }
-      // delta === 0: ignora (mesmo plano, evento duplicado ou renovação manual)
-    }
-  } else if (eventType === "assinatura_cancelada") {
-    // Só registra churn se mudou DE ativa pra cancelada (ignora cancel duplicado)
-    if (leadBefore.subscriptionStatus === "ativa") {
-      const v = leadBefore.valorAssinatura ?? 0;
-      movement = {
-        type: "churn",
-        amount: -v,
-        fromValue: v,
-        toValue: null,
-      };
-    }
-  } else if (eventType === "reembolso") {
-    // Refund retira receita retroativamente (CAC já desconta via subscription_status)
-    const v = leadBefore.valorAssinatura ?? 0;
-    movement = {
-      type: "refund",
-      amount: -v,
-      fromValue: v,
-      toValue: null,
-    };
-  } else if (eventType === "assinatura_renovada") {
-    // Renovação NORMAL não muda MRR (cliente já paga o mesmo). MAS se vier
-    // com valor diferente, é upgrade/downgrade encoberto — gera expansion
-    // ou contraction. Caso real: Neuber/Mariane assinaram Creator R$ 47,
-    // upgrade pra Studio chegou como assinatura_renovada R$ 67 e o sistema
-    // antigo silenciava o movement.
-    if (
-      leadBefore.subscriptionStatus === "ativa" &&
-      novoValor != null &&
-      valorAntigo != null
-    ) {
-      const delta = novoValor - valorAntigo;
+      // Upgrade/downgrade — usa delta dos VALORES NORMALIZADOS (MRR).
+      const delta = mrrNovo - mrrAntigo;
       if (delta > 0) {
         movement = { type: "expansion", amount: delta, fromValue: valorAntigo, toValue: novoValor };
       } else if (delta < 0) {
         movement = { type: "contraction", amount: delta, fromValue: valorAntigo, toValue: novoValor };
       }
-      // delta === 0: renovação normal de fato, sem movement
+    }
+  } else if (eventType === "assinatura_cancelada") {
+    if (leadBefore.subscriptionStatus === "ativa") {
+      movement = {
+        type: "churn",
+        amount: -mrrAntigo,
+        fromValue: valorAntigo,
+        toValue: null,
+      };
+    }
+  } else if (eventType === "reembolso") {
+    movement = {
+      type: "refund",
+      amount: -mrrAntigo,
+      fromValue: valorAntigo,
+      toValue: null,
+    };
+  } else if (eventType === "assinatura_renovada") {
+    // Renovação com valor diferente = upgrade/downgrade encoberto
+    if (
+      leadBefore.subscriptionStatus === "ativa" &&
+      novoValor != null &&
+      valorAntigo != null
+    ) {
+      const delta = mrrNovo - mrrAntigo;
+      if (delta > 0) {
+        movement = { type: "expansion", amount: delta, fromValue: valorAntigo, toValue: novoValor };
+      } else if (delta < 0) {
+        movement = { type: "contraction", amount: delta, fromValue: valorAntigo, toValue: novoValor };
+      }
     }
   }
   // pix_* / carrinho_abandonado / compra_recusada: sem MRR
@@ -533,6 +545,11 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     planoNome: input.planoNome || lead.planoNome,
     valorAssinatura: input.valor ?? lead.valorAssinatura,
   };
+  // Atualiza periodicidade só se vier no input (não regride pra default
+  // quando payload não traz)
+  if (input.periodicidade) {
+    updates.periodicidade = input.periodicidade;
+  }
 
   if (input.eventType === "pix_gerado") {
     updates.pixGeradoEm = now;
@@ -597,6 +614,7 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     eventType: input.eventType,
     novoValor: input.valor ?? lead.valorAssinatura,
     novoPlano: input.planoNome ?? lead.planoNome,
+    novaPeriodicidade: input.periodicidade ?? lead.periodicidade,
     produtoId: input.produtoId ?? lead.produtoId ?? null,
     ocorridoEm: now,
   });

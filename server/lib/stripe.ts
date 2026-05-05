@@ -164,6 +164,26 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
       "items.data.0.description",
     ) ?? null;
 
+  // Periodicidade — Stripe oferece vários sinais:
+  //  - mode: 'subscription' (recorrente) vs 'payment' (one-time = vitalicio)
+  //  - metadata.gravyx_slug: 'studio_monthly', 'creator_yearly', etc
+  //  - lines.data[0].price.recurring.interval: 'month' | 'year'
+  const slug = String(pick<string>(obj, "metadata.gravyx_slug", "metadata.slug") ?? "").toLowerCase();
+  const interval = String(
+    pick<string>(
+      obj,
+      "lines.data.0.price.recurring.interval",
+      "items.data.0.price.recurring.interval",
+      "subscription_details.interval",
+    ) ?? "",
+  ).toLowerCase();
+  const mode = String(pick<string>(obj, "mode") ?? "").toLowerCase();
+  let periodicidade: "mensal" | "anual" | "vitalicio" | "gratis" = "mensal";
+  if (/year|annual/.test(slug) || /year/.test(interval)) periodicidade = "anual";
+  else if (/lifetime|vital/.test(slug)) periodicidade = "vitalicio";
+  else if (mode === "payment") periodicidade = "vitalicio"; // one-time
+  else if (/free|gratis|trial/.test(slug)) periodicidade = "gratis";
+
   return {
     source: "stripe",
     eventType,
@@ -175,6 +195,7 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
     gatewayLastOrderId,
     valor,
     planoNome,
+    periodicidade,
     pixExpiraEm: null, // Stripe nao tem PIX expiration nativo no payload
     extras: {
       // Link util pra mensagens (cliente acessa fatura/checkout)

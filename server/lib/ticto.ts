@@ -17,6 +17,7 @@
  */
 
 import type { EventInput, GatewayEvent } from "./flows.js";
+import type { Periodicidade } from "../../db/schema.js";
 
 type AnyObject = Record<string, unknown>;
 
@@ -161,6 +162,37 @@ function parseDate(raw: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Detecta periodicidade da assinatura a partir do payload.
+ * Ticto traz isso em `offer.recurrence` (monthly/yearly/lifetime) ou
+ * `offer.is_subscription`. Heurística por nome como fallback.
+ */
+function detectPeriodicidade(payload: AnyObject): Periodicidade {
+  // 1) Campos explícitos
+  const offerRec = String(
+    pick<string>(payload, "offer.recurrence", "item.recurrence", "subscription.recurrence") ?? "",
+  ).toLowerCase();
+  if (/year|anual|annual/.test(offerRec)) return "anual";
+  if (/month|mensal|monthly/.test(offerRec)) return "mensal";
+  if (/lifetime|vital|para_sempre/.test(offerRec)) return "vitalicio";
+
+  const isSub = pick<boolean>(payload, "offer.is_subscription", "is_subscription");
+  if (isSub === false) {
+    // Compra única que não é assinatura — pode ser vitalício
+    const productProbe = `${pick<string>(payload, "item.product_name", "product.name", "product_name") ?? ""} ${pick<string>(payload, "item.offer_name", "offer.name") ?? ""}`.toLowerCase();
+    if (/vital|para sempre|lifetime/.test(productProbe)) return "vitalicio";
+    if (/grát|gratis|free/.test(productProbe)) return "gratis";
+  }
+
+  // 2) Heurística por nome (offer + product)
+  const probe = `${pick<string>(payload, "item.product_name", "product.name", "product_name") ?? ""} ${pick<string>(payload, "item.offer_name", "offer.name") ?? ""}`.toLowerCase();
+  if (/vital|para sempre|lifetime/.test(probe)) return "vitalicio";
+  if (/anual|annual|yearly/.test(probe)) return "anual";
+  if (/grát|gratis|free/.test(probe)) return "gratis";
+
+  return "mensal";
+}
+
 export function parseTictoWebhook(payload: AnyObject): EventInput | null {
   const eventType = detectEventType(payload);
   if (!eventType) return null;
@@ -258,6 +290,7 @@ export function parseTictoWebhook(payload: AnyObject): EventInput | null {
     gatewayLastOrderId: gatewayLastOrderId?.toString() ?? null,
     valor,
     planoNome,
+    periodicidade: detectPeriodicidade(payload),
     pixExpiraEm,
     extras: {
       // valores que voce queira usar em templates

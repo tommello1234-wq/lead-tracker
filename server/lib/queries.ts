@@ -114,8 +114,15 @@ export async function getDashboardMetrics(
   };
 
   // MRR e clientesAtivos sempre snapshot atual (não dependem de período).
+  // MRR normaliza por periodicidade: anuais entram como /12, vitalícios e
+  // grátis não contam (não são receita recorrente).
   const clientesAtivos = all.filter((l) => l.subscriptionStatus === "ativa");
-  const mrr = clientesAtivos.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
+  const mrr = clientesAtivos.reduce((acc, l) => {
+    const v = l.valorAssinatura ?? 0;
+    if (l.periodicidade === "anual") return acc + v / 12;
+    if (l.periodicidade === "vitalicio" || l.periodicidade === "gratis") return acc;
+    return acc + v;
+  }, 0);
 
   // Receita do PERÍODO selecionado (compras pagas no intervalo).
   // Se since=null e until=null, conta histórico todo.
@@ -142,7 +149,12 @@ export async function getDashboardMetrics(
     mrr +
     all
       .filter((l) => l.subscriptionStatus === "aguardando_pagamento")
-      .reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
+      .reduce((acc, l) => {
+        const v = l.valorAssinatura ?? 0;
+        if (l.periodicidade === "anual") return acc + v / 12;
+        if (l.periodicidade === "vitalicio" || l.periodicidade === "gratis") return acc;
+        return acc + v;
+      }, 0);
 
   const receitaPerdidaPix = pixExpiradosNoPeriodo.reduce(
     (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
