@@ -232,9 +232,30 @@ export async function getDashboardMetrics(
   }
   const ltv = arpu * avgLifetimeMonths;
 
+  // Métricas de ciclo de vida que respeitam período (se filtro aplicado).
+  // - totalAssinantes: leads que pagaram pela 1ª vez no período (pagouEm)
+  // - cancelados: leads que cancelaram no período (canceladoEm)
+  // - reembolsos: leads que reembolsaram no período (atualizadoEm como proxy
+  //   da data de transição pra reembolsada — não temos campo dedicado).
+  // Sem período (since=null && until=null), são lifetime.
+  const hasPeriod = since != null || until != null;
+  const totalAssinantes = hasPeriod
+    ? all.filter((l) => l.pagouEm && inPeriod(l.pagouEm)).length
+    : all.filter((l) => l.pagouEm != null).length;
+  const cancelados = hasPeriod
+    ? all.filter(
+        (l) => l.status === "cliente_cancelado" && inPeriod(l.canceladoEm),
+      ).length
+    : all.filter((l) => l.status === "cliente_cancelado").length;
+  const reembolsos = hasPeriod
+    ? all.filter(
+        (l) => l.subscriptionStatus === "reembolsada" && inPeriod(l.atualizadoEm),
+      ).length
+    : all.filter((l) => l.subscriptionStatus === "reembolsada").length;
+
   return {
     totalLeads: all.length,
-    totalAssinantes: all.filter((l) => l.pagouEm != null).length,
+    totalAssinantes,
     novosLeadsNoPeriodo,
     vendasHoje: vendasHoje.length,
     vendasMes: vendasMes.length,
@@ -255,8 +276,8 @@ export async function getDashboardMetrics(
     filaSuporte: pendingMsgs.length,
     mensagensEnviadasHoje: sentToday.length,
     emRisco: all.filter((l) => l.status === "cliente_em_risco").length,
-    cancelados: all.filter((l) => l.status === "cliente_cancelado").length,
-    reembolsos: all.filter((l) => l.subscriptionStatus === "reembolsada").length,
+    cancelados,
+    reembolsos,
     receitaTotal,
     ticketMedio,
   };
