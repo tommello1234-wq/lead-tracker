@@ -1,14 +1,24 @@
 import { db } from "../../db/client.js";
-import { leads, mensagensAgendadas, eventos, type Lead } from "../../db/schema.js";
+import { leads, mensagensAgendadas, eventos, produtos, type Lead } from "../../db/schema.js";
 import { desc, eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withCache } from "./cache.js";
 
 /**
- * Helper: where clause de produto. Retorna array de condições pra serem
- * combinadas com `and()`. Se produtoId é null, sem filtro.
+ * Helper: where clause de produto.
+ *
+ * - produtoId != null: filtra por aquele produto específico
+ * - produtoId == null ("Todos"): exclui leads de produtos descontinuados
+ *   (ativo=false), ex: "Gravyx Lançamento". Leads sem produto associado
+ *   (produtoId=null) continuam aparecendo.
+ *
+ * Retorna array de condições pra serem combinadas com `and()`.
  */
 function produtoCondition(produtoId: number | null) {
-  return produtoId == null ? [] : [eq(leads.produtoId, produtoId)];
+  if (produtoId != null) return [eq(leads.produtoId, produtoId)];
+  // "Todos" — exclui produtos inativos
+  return [
+    sql`(${leads.produtoId} IS NULL OR ${leads.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+  ];
 }
 
 export async function getAllLeads(
@@ -19,9 +29,6 @@ export async function getAllLeads(
   const cond = produtoCondition(produtoId);
   if (since != null) cond.push(gte(leads.criadoEm, since));
   if (until != null) cond.push(lte(leads.criadoEm, until));
-  if (cond.length === 0) {
-    return db.select().from(leads).orderBy(desc(leads.criadoEm));
-  }
   return db
     .select()
     .from(leads)
@@ -100,9 +107,7 @@ export async function getDashboardMetrics(
   until: Date | null = null,
 ): Promise<DashboardMetrics> {
   const cond = produtoCondition(produtoId);
-  const all = cond.length === 0
-    ? await db.select().from(leads)
-    : await db.select().from(leads).where(and(...cond));
+  const all = await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
   const monthStart = startOfMonth(new Date());
 
@@ -307,9 +312,7 @@ export async function getDailySeries(
   produtoId: number | null = null,
 ): Promise<DailyMetric[]> {
   const cond = produtoCondition(produtoId);
-  const all = cond.length === 0
-    ? await db.select().from(leads)
-    : await db.select().from(leads).where(and(...cond));
+  const all = await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
 
   // Pra cada dia: entradas (criado_em do dia) + convertidos (pagou_em do dia)
@@ -380,9 +383,7 @@ export async function getTipoBreakdown(
   produtoId: number | null = null,
 ): Promise<TipoBreakdown[]> {
   const cond = produtoCondition(produtoId);
-  const all = cond.length === 0
-    ? await db.select().from(leads)
-    : await db.select().from(leads).where(and(...cond));
+  const all = await db.select().from(leads).where(and(...cond));
   const counts = new Map<string, number>();
   for (const l of all) {
     counts.set(l.tipo, (counts.get(l.tipo) ?? 0) + 1);
@@ -451,9 +452,7 @@ export async function getPlanoBreakdown(
   produtoId: number | null = null,
 ): Promise<PlanoBreakdown[]> {
   const cond = produtoCondition(produtoId);
-  const all = cond.length === 0
-    ? await db.select().from(leads)
-    : await db.select().from(leads).where(and(...cond));
+  const all = await db.select().from(leads).where(and(...cond));
 
   const map = new Map<string, { total: number; receita: number; ativos: number }>();
   for (const l of all) {

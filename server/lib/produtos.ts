@@ -20,7 +20,9 @@ export async function findOrCreateProdutoByName(
   });
   if (exact) return exact;
 
-  // Match em gateway_match (qualquer string da lista)
+  // Match em gateway_match (qualquer string da lista). Ordena por match
+  // MAIS ESPECÍFICO primeiro (length desc) — pra "Gravyx Lançamento"
+  // bater no produto correto antes do "Gravyx" genérico.
   const byMatch = await db
     .select()
     .from(produtos)
@@ -29,6 +31,13 @@ export async function findOrCreateProdutoByName(
         SELECT 1 FROM jsonb_array_elements_text(${produtos.gatewayMatch}) AS m
         WHERE lower(m) = lower(${nome}) OR lower(${nome}) LIKE '%' || lower(m) || '%'
       )`,
+    )
+    .orderBy(
+      sql`(
+        SELECT max(length(m))
+        FROM jsonb_array_elements_text(${produtos.gatewayMatch}) AS m
+        WHERE lower(${nome}) LIKE '%' || lower(m) || '%' OR lower(m) = lower(${nome})
+      ) DESC`,
     )
     .limit(1);
   if (byMatch[0]) return byMatch[0];
