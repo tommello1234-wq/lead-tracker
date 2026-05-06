@@ -4,14 +4,10 @@ import {
   Banknote,
   DollarSign,
   TrendingUp,
-  PiggyBank,
-  Users,
-  Inbox,
   AlertTriangle,
   RotateCcw,
   Calendar,
   ChevronDown,
-  Target,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -38,7 +34,6 @@ import type {
   MrrMovementsBreakdown,
   MrrMovementType,
   Produto,
-  CacMetrics,
 } from "@shared/types";
 
 const brl = (n: number) =>
@@ -81,7 +76,6 @@ export function DashboardPage() {
   // "Personalizado" (que precisam de upper bound) pegavam até NOW e o
   // filtro virava ineficaz.
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
-  const cacQs = baseQs;
 
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
@@ -117,14 +111,6 @@ export function DashboardPage() {
     queryFn: () =>
       api.get<SaasMetricsResponse>(`/api/dashboard/saas?${baseQs}`),
     enabled: isSaasView,
-  });
-
-  // CAC: só faz sentido pra "all" ou produtos saas (que têm Meta tracking)
-  const cac = useQuery({
-    queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${cacQs}`),
-    enabled: isSaasView,
-    retry: 0,
   });
 
   // Movimentação de MRR no período (New / Expansion / Churn / etc)
@@ -187,73 +173,7 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* PIX */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <StatCard
-          label="Tx Conversão PIX"
-          value={m ? pct(m.taxaConversaoPix) : "—"}
-          hint={m ? `${m.pixPagos}/${m.pixGerados} pagos` : undefined}
-          icon={TrendingUp}
-          iconTone="lime"
-          onClick={() => setDetails("pix_gerados")}
-        />
-        <StatCard
-          label="Receita perdida em PIX"
-          value={m ? brl(m.receitaPerdidaPix) : "—"}
-          hint={m ? `${m.pixExpirados} PIX expiraram` : undefined}
-          icon={PiggyBank}
-          iconTone="rose"
-          onClick={() => setDetails("pix_expirados")}
-        />
-      </div>
-
-      {/* Linha de aquisição: CAC blended (gasto Meta + clientes Lead Tracker) */}
-      {isSaasView ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard
-            label="CAC (real, blended)"
-            value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
-            hint={
-              cac.isError
-                ? "Erro ao buscar Meta"
-                : cac.data
-                  ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
-                  : "Carregando..."
-            }
-            icon={Target}
-            iconTone="forest"
-          />
-          <StatCard
-            label="Novos clientes"
-            value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}
-            hint={
-              cac.isError
-                ? "—"
-                : cac.data
-                  ? `${cac.data.organicCount} via orgânico/outros`
-                  : "Carregando..."
-            }
-            icon={Users}
-            iconTone="lime"
-            onClick={() => setDetails("compras")}
-          />
-          <StatCard
-            label="% Orgânico"
-            value={cac.data ? `${cac.data.organicPct.toFixed(1)}%` : "—"}
-            hint={
-              cac.isError
-                ? "Meta API falhou (timeout/limite)"
-                : cac.data && cac.data.adSpend === 0
-                  ? "Sem gasto Meta no período"
-                  : "Sem atribuição Meta"
-            }
-            icon={TrendingUp}
-            iconTone={cac.data && cac.data.organicPct > 30 ? "forest" : "lime"}
-          />
-        </div>
-      ) : null}
-
-      {/* Reembolsos isolado (Total leads/Fila/Em risco moveram pra /leads) */}
+{/* Reembolsos isolado (Total leads/Fila/Em risco moveram pra /leads) */}
       {m && m.reembolsos > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard

@@ -13,6 +13,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Target,
+  Users,
+  PiggyBank,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -20,7 +23,14 @@ import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
-import type { MetaInsights, MetaCampaign, CampaignStatus, Produto } from "@shared/types";
+import type {
+  MetaInsights,
+  MetaCampaign,
+  CampaignStatus,
+  Produto,
+  CacMetrics,
+  DashboardMetrics,
+} from "@shared/types";
 
 // Produtos com conta Meta conectada. Hoje só Gravyx (id=1, act_918344584462338).
 // Quando outros produtos ganharem ad accounts, mover pra coluna no DB.
@@ -156,6 +166,23 @@ export function AdsPage() {
     retry: 0,
     enabled: hasMeta,
   });
+
+  // CAC blended + métricas do dashboard pra cards de aquisição/PIX
+  // (movidos do dashboard pra cá, são informações de tráfego)
+  const produtoParam = produtoId ?? "all";
+  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  const cac = useQuery({
+    queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${baseQs}`),
+    enabled: hasMeta,
+    retry: 0,
+  });
+  const metrics = useQuery({
+    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
+    enabled: hasMeta,
+  });
+  const m = metrics.data;
 
   const i = insights.data;
   const cs = campaigns.data ?? [];
@@ -294,6 +321,74 @@ export function AdsPage() {
               hint={`${num(i.clicks)} clicks · CTR ${pct(i.ctr)}`}
               icon={MousePointerClick}
               iconTone="lime"
+            />
+          </div>
+
+          {/* Aquisição: CAC blended + Novos clientes + % Orgânico */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard
+              label="CAC (real, blended)"
+              value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
+              hint={
+                cac.isError
+                  ? "Erro ao buscar Meta"
+                  : cac.data
+                    ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
+                    : "Carregando..."
+              }
+              icon={Target}
+              iconTone="forest"
+            />
+            <StatCard
+              label="Novos clientes"
+              value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}
+              hint={
+                cac.isError
+                  ? "—"
+                  : cac.data
+                    ? `${cac.data.organicCount} via orgânico/outros`
+                    : "Carregando..."
+              }
+              icon={Users}
+              iconTone="lime"
+            />
+            <StatCard
+              label="% Orgânico"
+              value={cac.data ? `${cac.data.organicPct.toFixed(1)}%` : "—"}
+              hint={
+                cac.isError
+                  ? "Meta API falhou (timeout/limite)"
+                  : cac.data && cac.data.adSpend === 0
+                    ? "Sem gasto Meta no período"
+                    : "Sem atribuição Meta"
+              }
+              icon={TrendingUp}
+              iconTone={cac.data && cac.data.organicPct > 30 ? "forest" : "lime"}
+            />
+          </div>
+
+          {/* PIX: conversão e receita perdida */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StatCard
+              label="Tx Conversão PIX"
+              value={
+                m
+                  ? `${(m.taxaConversaoPix * 100).toLocaleString("pt-BR", {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1,
+                    })}%`
+                  : "—"
+              }
+              hint={m ? `${m.pixPagos}/${m.pixGerados} pagos` : undefined}
+              icon={TrendingUp}
+              iconTone="lime"
+            />
+            <StatCard
+              label="Receita perdida em PIX"
+              value={m ? brl(m.receitaPerdidaPix) : "—"}
+              hint={m ? `${m.pixExpirados} PIX expiraram` : undefined}
+              icon={PiggyBank}
+              iconTone="rose"
             />
           </div>
 
