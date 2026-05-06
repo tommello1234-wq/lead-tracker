@@ -28,6 +28,123 @@ webhookRoutes.get("/", (c) =>
 );
 
 
+/* GET /api/webhooks/asaas/dry-run-import — mostra o que aconteceria se
+ * importar todas subscriptions ativas Asaas, sem mexer no banco.
+ * Faz match por email/contato/cpfCnpj com leads existentes.
+ */
+webhookRoutes.get("/asaas/dry-run-import", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  const { db } = await import("../../db/client.js");
+  const { leads } = await import("../../db/schema.js");
+  const { eq, or } = await import("drizzle-orm");
+
+  type SubItem = {
+    id: string; status: string; value: number; cycle: string;
+    description?: string; customer: string;
+    nextDueDate?: string; dateCreated?: string;
+  };
+  type CustomerInfo = {
+    id: string; name?: string; email?: string;
+    phone?: string; mobilePhone?: string; cpfCnpj?: string;
+  };
+
+  // 1) Lista todas subscriptions ativas
+  const subs: SubItem[] = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${url}/subscriptions?status=ACTIVE&limit=100&offset=${offset}`, {
+      headers: { access_token: key, Accept: "application/json" },
+    });
+    if (!res.ok) return c.json({ ok: false, error: await res.text() }, 500);
+    const body = (await res.json()) as { data: SubItem[]; hasMore: boolean };
+    subs.push(...body.data);
+    if (!body.hasMore || body.data.length === 0) break;
+    offset += 100;
+    if (offset > 2000) break;
+  }
+
+  // 2) Pra cada sub, busca customer e checa match
+  const results: Array<{
+    subId: string; description?: string; value: number;
+    customer: CustomerInfo;
+    matchType: "new" | "match-phone" | "match-email" | "match-cpf";
+    matchLeadId?: number; matchGateway?: string;
+  }> = [];
+  function normalizePhone(raw?: string): string | null {
+    if (!raw) return null;
+    const d = raw.replace(/\D/g, "");
+    if (!d) return null;
+    if (d.length === 10 || d.length === 11) return `55${d}`;
+    return d;
+  }
+
+  let cNew = 0, cPhone = 0, cEmail = 0, cCpf = 0;
+  let mrrNew = 0, mrrMatch = 0;
+  // Por gateway que já tem o cliente
+  const existingByGateway: Record<string, number> = {};
+
+  for (const s of subs) {
+    const cRes = await fetch(`${url}/customers/${s.customer}`, {
+      headers: { access_token: key, Accept: "application/json" },
+    });
+    const customer = (await cRes.json()) as CustomerInfo;
+    const phone = normalizePhone(customer.mobilePhone ?? customer.phone);
+    const cpf = customer.cpfCnpj ?? null;
+
+    let matchType: "new" | "match-phone" | "match-email" | "match-cpf" = "new";
+    let existing: typeof leads.$inferSelect | undefined;
+    if (phone) {
+      existing = await db.query.leads.findFirst({ where: eq(leads.contato, phone) });
+      if (existing) matchType = "match-phone";
+    }
+    if (!existing && customer.email) {
+      existing = await db.query.leads.findFirst({ where: eq(leads.email, customer.email.toLowerCase()) });
+      if (existing) matchType = "match-email";
+    }
+    if (!existing && cpf) {
+      existing = await db.query.leads.findFirst({ where: eq(leads.gatewayCustomerId, cpf) });
+      if (existing) matchType = "match-cpf";
+    }
+
+    if (matchType === "new") { cNew++; mrrNew += s.value; }
+    else if (matchType === "match-phone") cPhone++;
+    else if (matchType === "match-email") cEmail++;
+    else if (matchType === "match-cpf") cCpf++;
+
+    if (existing) {
+      mrrMatch += s.value;
+      const gw = existing.gateway ?? "(sem gateway)";
+      existingByGateway[gw] = (existingByGateway[gw] ?? 0) + 1;
+    }
+
+    results.push({
+      subId: s.id,
+      description: s.description,
+      value: s.value,
+      customer: { id: customer.id, name: customer.name, email: customer.email, phone: phone ?? undefined, cpfCnpj: cpf ?? undefined },
+      matchType,
+      matchLeadId: existing?.id,
+      matchGateway: existing?.gateway ?? undefined,
+    });
+  }
+
+  return c.json({
+    ok: true,
+    total: subs.length,
+    summary: {
+      new: cNew, mrrIfNew: mrrNew,
+      matchByPhone: cPhone, matchByEmail: cEmail, matchByCpf: cCpf,
+      existingByGateway,
+      mrrTotalAsaas: subs.reduce((a, s) => a + s.value, 0),
+      mrrMatch,
+    },
+    sample: results.slice(0, 10),
+  });
+});
+
 /* GET /api/webhooks/asaas/list-subscriptions — admin temporário pra
  * inventário de assinantes ativos por descrição. Remove depois. */
 webhookRoutes.get("/asaas/list-subscriptions", async (c) => {
