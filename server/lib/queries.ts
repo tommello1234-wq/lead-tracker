@@ -392,27 +392,33 @@ export async function getTipoBreakdown(
 }
 
 /**
- * Faturamento real no período: soma de TODAS as transações de compra_aprovada
- * e assinatura_renovada, filtradas por produto/período.
+ * Faturamento LÍQUIDO no período: entradas (compra_aprovada + assinatura_renovada)
+ * MENOS saídas (reembolso processado), filtrados por produto/período.
  *
  * Fonte: tabela `eventos` (cada evento = 1 transação). Suporta payload de:
- *  - importação CSV (`payload.valor` em reais)
  *  - Ticto v2 webhook (`payload.item.amount` em centavos)
  *  - Stripe webhook (`payload.data.object.amount_total` em centavos)
  *  - fallback: `valor_assinatura` do lead vinculado
+ *
+ * `count` é só as transações positivas (compras + renovações).
+ * `refundCount` e `refundTotal` mostram quanto foi descontado.
+ * `total` = bruto − reembolsos = dinheiro real entrado no período.
  */
 export async function getFaturamento(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
-): Promise<{ count: number; total: number }> {
-  const conditions = [
-    inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
-    eq(eventos.processedOk, true),
-  ];
-  if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
-  if (since != null) conditions.push(gte(eventos.receivedAt, since));
-  if (until != null) conditions.push(lte(eventos.receivedAt, until));
+): Promise<{
+  count: number;
+  total: number;
+  grossTotal: number;
+  refundCount: number;
+  refundTotal: number;
+}> {
+  const baseConditions = [eq(eventos.processedOk, true)];
+  if (produtoId != null) baseConditions.push(eq(eventos.produtoId, produtoId));
+  if (since != null) baseConditions.push(gte(eventos.receivedAt, since));
+  if (until != null) baseConditions.push(lte(eventos.receivedAt, until));
 
   // Extrai valor com fallbacks pros vários formatos de payload
   const valorExpr = sql<number>`coalesce(
@@ -423,17 +429,38 @@ export async function getFaturamento(
     0
   )::numeric(10,2)`;
 
-  const [r] = await db
+  // Entradas: compra_aprovada + assinatura_renovada
+  const [entries] = await db
     .select({
       n: sql<number>`count(*)::int`,
       total: sql<number>`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`,
     })
     .from(eventos)
-    .where(and(...conditions));
+    .where(
+      and(
+        ...baseConditions,
+        inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+      ),
+    );
+
+  // Saídas: reembolso processado
+  const [refunds] = await db
+    .select({
+      n: sql<number>`count(*)::int`,
+      total: sql<number>`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`,
+    })
+    .from(eventos)
+    .where(and(...baseConditions, eq(eventos.eventType, "reembolso")));
+
+  const grossTotal = Number(entries?.total ?? 0);
+  const refundTotal = Number(refunds?.total ?? 0);
 
   return {
-    count: r?.n ?? 0,
-    total: Number(r?.total ?? 0),
+    count: entries?.n ?? 0,
+    total: grossTotal - refundTotal, // líquido
+    grossTotal,
+    refundCount: refunds?.n ?? 0,
+    refundTotal,
   };
 }
 

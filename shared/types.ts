@@ -45,7 +45,13 @@ export type PlanoBreakdown = {
   ativos: number;
 };
 
-export type Faturamento = { count: number; total: number };
+export type Faturamento = {
+  count: number; // qtd transações positivas (compras + renovações)
+  total: number; // líquido (bruto - reembolsos)
+  grossTotal: number;
+  refundCount: number;
+  refundTotal: number;
+};
 
 export type SidebarCounts = { emRisco: number; filaMensagens: number };
 

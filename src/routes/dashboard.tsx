@@ -172,7 +172,13 @@ export function DashboardPage() {
           value={faturamento.data ? brl(faturamento.data.total) : "—"}
           hint={
             faturamento.data
-              ? `${faturamento.data.count} transações${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
+              ? `${faturamento.data.count} transações${
+                  faturamento.data.refundCount > 0
+                    ? ` · −${brl(faturamento.data.refundTotal)} reembolso${
+                        faturamento.data.refundCount > 1 ? "s" : ""
+                      }`
+                    : ""
+                }${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
               : undefined
           }
           icon={Banknote}
