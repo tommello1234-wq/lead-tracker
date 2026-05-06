@@ -28,6 +28,60 @@ webhookRoutes.get("/", (c) =>
 );
 
 
+/* GET /api/webhooks/asaas/subs-health — pra cada sub ativa, checa se a
+ * última fatura foi paga ou se está overdue. */
+webhookRoutes.get("/asaas/subs-health", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  type SubItem = { id: string; value: number; cycle: string; description?: string };
+  type Payment = { id: string; status: string; dueDate: string; subscription?: string; value: number };
+
+  // Pega todas subscriptions ativas
+  const subs: SubItem[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await fetch(`${url}/subscriptions?status=ACTIVE&limit=100&offset=${offset}`, {
+      headers: { access_token: key },
+    });
+    const b = (await r.json()) as { data: SubItem[]; hasMore: boolean };
+    subs.push(...b.data);
+    if (!b.hasMore) break;
+    offset += 100;
+    if (offset > 2000) break;
+  }
+
+  // Pra cada sub, busca último pagamento
+  const buckets = { confirmed: 0, pending: 0, overdue: 0, refunded: 0, other: 0, noPayment: 0 };
+  let mrrConfirmed = 0;
+  let mrrOverdue = 0;
+  for (const s of subs) {
+    const r = await fetch(
+      `${url}/payments?subscription=${s.id}&limit=1&order=desc`,
+      { headers: { access_token: key } },
+    );
+    const b = (await r.json()) as { data: Payment[] };
+    const last = b.data?.[0];
+    if (!last) { buckets.noPayment++; continue; }
+    const status = (last.status || "").toUpperCase();
+    if (status === "CONFIRMED" || status === "RECEIVED") {
+      buckets.confirmed++; mrrConfirmed += s.value;
+    } else if (status === "OVERDUE") {
+      buckets.overdue++; mrrOverdue += s.value;
+    } else if (status === "PENDING") buckets.pending++;
+    else if (status === "REFUNDED") buckets.refunded++;
+    else buckets.other++;
+  }
+
+  return c.json({
+    ok: true,
+    total: subs.length,
+    buckets,
+    mrr: { confirmed: mrrConfirmed, overdue: mrrOverdue, total: subs.reduce((a, s) => a + s.value, 0) },
+  });
+});
+
 /* GET /api/webhooks/asaas/dry-run-import — mostra o que aconteceria se
  * importar todas subscriptions ativas Asaas, sem mexer no banco.
  * Faz match por email/contato/cpfCnpj com leads existentes.
