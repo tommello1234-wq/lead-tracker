@@ -4,6 +4,7 @@ import { eventos } from "../../db/schema.js";
 import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
 import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
 import { parseBrevexWebhook, verifyBrevexSignature } from "../lib/brevex.js";
+import { parseAsaasWebhook, verifyAsaasSignature } from "../lib/asaas.js";
 import { handleGatewayEvent } from "../lib/flows.js";
 import { findOrCreateProdutoByName } from "../lib/produtos.js";
 import { handleEvolutionIncoming } from "../lib/evolution-incoming.js";
@@ -20,10 +21,79 @@ webhookRoutes.get("/", (c) =>
       "POST /api/webhooks/ticto",
       "POST /api/webhooks/stripe",
       "POST /api/webhooks/brevex (capture-only stub)",
+      "POST /api/webhooks/asaas",
       "POST /api/webhooks/evolution (mensagens recebidas WhatsApp)",
     ],
   }),
 );
+
+/* ==========================================================================
+ * POST /api/webhooks/asaas
+ * Eventos do Asaas (PAYMENT_*, SUBSCRIPTION_*).
+ * Auth: header `asaas-access-token` casa com ASAAS_WEBHOOK_TOKEN (opcional).
+ * ========================================================================== */
+webhookRoutes.post("/asaas", async (c) => {
+  const rawBody = await c.req.text();
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    await db.insert(eventos).values({
+      source: "asaas",
+      eventType: "invalid_json",
+      payload: { rawBody },
+      processedOk: false,
+      erro: "JSON invalido",
+    });
+    return c.json({ error: "invalid json" }, 400);
+  }
+
+  const sig = verifyAsaasSignature(c.req.raw.headers);
+  if (!sig.valid) {
+    await db.insert(eventos).values({
+      source: "asaas",
+      eventType: "signature_invalid",
+      payload: { rawBody, reason: sig.reason },
+      processedOk: false,
+      erro: sig.reason,
+    });
+    return c.json({ error: "invalid signature" }, 401);
+  }
+
+  const event = parseAsaasWebhook(payload);
+  if (!event) {
+    const asaasEvent = String(payload.event ?? "unknown");
+    await db.insert(eventos).values({
+      source: "asaas",
+      eventType: asaasEvent,
+      payload,
+      processedOk: false,
+      erro: "Evento Asaas nao mapeado",
+    });
+    return c.json({ ok: false, reason: "unmapped-event", asaasEvent });
+  }
+
+  if (event.planoNome) {
+    const produto = await findOrCreateProdutoByName(event.planoNome);
+    if (produto) event.produtoId = produto.id;
+  }
+
+  try {
+    const result = await handleGatewayEvent(event);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    const erro = e instanceof Error ? e.message : "Erro desconhecido";
+    await db.insert(eventos).values({
+      source: "asaas",
+      eventType: event.eventType,
+      payload,
+      processedOk: false,
+      erro,
+    });
+    return c.json({ ok: false, error: erro }, 500);
+  }
+});
 
 /* ==========================================================================
  * POST /api/webhooks/evolution
