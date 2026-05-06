@@ -28,6 +28,58 @@ webhookRoutes.get("/", (c) =>
 );
 
 
+/* GET /api/webhooks/asaas/list-subscriptions — admin temporário pra
+ * inventário de assinantes ativos por descrição. Remove depois. */
+webhookRoutes.get("/asaas/list-subscriptions", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  type SubItem = {
+    id: string; status: string; value: number; cycle: string;
+    description?: string; externalReference?: string; customer: string;
+    nextDueDate?: string; dateCreated?: string;
+  };
+  const all: SubItem[] = [];
+  let offset = 0;
+  const LIMIT = 100;
+  while (true) {
+    const res = await fetch(
+      `${url}/subscriptions?status=ACTIVE&limit=${LIMIT}&offset=${offset}`,
+      { headers: { access_token: key, Accept: "application/json" } },
+    );
+    if (!res.ok) {
+      return c.json({ ok: false, status: res.status, error: await res.text() }, 500);
+    }
+    const body = (await res.json()) as { data: SubItem[]; hasMore: boolean; totalCount: number };
+    all.push(...body.data);
+    if (!body.hasMore || body.data.length === 0) break;
+    offset += LIMIT;
+    if (offset > 5000) break; // safety
+  }
+
+  // Agrupa por descrição pra ver qual filtro usar pra Gravyx
+  const byDesc = new Map<string, { count: number; totalValue: number; cycle: string; sample: SubItem[] }>();
+  for (const s of all) {
+    const k = s.description?.trim() || "(sem descrição)";
+    const cur = byDesc.get(k) ?? { count: 0, totalValue: 0, cycle: s.cycle, sample: [] };
+    cur.count++;
+    cur.totalValue += s.value;
+    if (cur.sample.length < 3) cur.sample.push(s);
+    byDesc.set(k, cur);
+  }
+
+  const groups = Array.from(byDesc.entries())
+    .map(([description, info]) => ({ description, ...info }))
+    .sort((a, b) => b.count - a.count);
+
+  return c.json({
+    ok: true,
+    total: all.length,
+    groups,
+  });
+});
+
 /* ==========================================================================
  * POST /api/webhooks/asaas
  * Eventos do Asaas (PAYMENT_*, SUBSCRIPTION_*).
