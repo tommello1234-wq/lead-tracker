@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Calendar,
   ChevronDown,
+  Target,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -34,6 +35,7 @@ import type {
   MrrMovementsBreakdown,
   MrrMovementType,
   Produto,
+  CacMetrics,
 } from "@shared/types";
 
 const brl = (n: number) =>
@@ -113,6 +115,14 @@ export function DashboardPage() {
     enabled: isSaasView,
   });
 
+  // CAC: só faz sentido pra "all" ou produtos saas (que têm Meta tracking)
+  const cac = useQuery({
+    queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${baseQs}`),
+    enabled: isSaasView,
+    retry: 0,
+  });
+
   // Movimentação de MRR no período (New / Expansion / Churn / etc)
   const mrr = useQuery({
     queryKey: ["dashboard", "mrr-movements", produtoParam, sinceParam, untilParam],
@@ -172,6 +182,25 @@ export function DashboardPage() {
           onClick={() => setDetails("compras")}
         />
       </div>
+
+{/* CAC blended (gasto Meta / clientes Lead Tracker) — pra SaaS */}
+      {isSaasView ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="CAC (real, blended)"
+            value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
+            hint={
+              cac.isError
+                ? "Erro ao buscar Meta"
+                : cac.data
+                  ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
+                  : "Carregando..."
+            }
+            icon={Target}
+            iconTone="forest"
+          />
+        </div>
+      ) : null}
 
 {/* Reembolsos isolado (Total leads/Fila/Em risco moveram pra /leads) */}
       {m && m.reembolsos > 0 ? (
