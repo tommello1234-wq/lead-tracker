@@ -1,5 +1,5 @@
 import { db } from "../../db/client.js";
-import { leads } from "../../db/schema.js";
+import { leads, produtos } from "../../db/schema.js";
 import { and, eq, gte, lte, ne, isNotNull, sql } from "drizzle-orm";
 import { getInsights } from "./meta-ads.js";
 
@@ -39,7 +39,15 @@ async function _getCacMetrics(
     isNotNull(leads.pagouEm),
     ne(leads.subscriptionStatus, "reembolsada"),
   ];
-  if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
+  if (produtoId != null) {
+    conds.push(eq(leads.produtoId, produtoId));
+  } else {
+    // "Todos os produtos" — exclui leads de produtos descontinuados
+    // (ativo=false). Mesmo critério do queries.ts produtoCondition.
+    conds.push(
+      sql`(${leads.produtoId} IS NULL OR ${leads.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+    );
+  }
   if (effectiveSince) conds.push(gte(leads.pagouEm, effectiveSince));
   conds.push(lte(leads.pagouEm, effectiveUntil));
 
