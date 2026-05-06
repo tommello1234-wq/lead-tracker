@@ -9,6 +9,9 @@ import {
   Inbox,
   AlertTriangle,
   UserPlus,
+  UserCheck,
+  UserX,
+  RotateCcw,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
@@ -117,8 +120,52 @@ export function LeadsPage() {
         </div>
       </div>
 
-      {/* KPIs de leads */}
+      {/* KPIs de leads — linha 1: ciclo de vida do assinante */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Total de assinantes"
+          value={m ? m.totalAssinantes.toLocaleString("pt-BR") : "—"}
+          hint="Lifetime — quem já pagou ao menos 1x"
+          icon={UserCheck}
+          iconTone="forest"
+        />
+        <StatCard
+          label="Clientes ativos"
+          value={m ? m.clientesAtivos.toLocaleString("pt-BR") : "—"}
+          hint={
+            m && m.totalAssinantes > 0
+              ? `${((m.clientesAtivos / m.totalAssinantes) * 100).toFixed(1)}% do total · pagando agora`
+              : "Pagando agora"
+          }
+          icon={Users}
+          iconTone="lime"
+        />
+        <StatCard
+          label="Cancelados"
+          value={m ? m.cancelados.toLocaleString("pt-BR") : "—"}
+          hint={
+            m && m.totalAssinantes > 0
+              ? `${((m.cancelados / m.totalAssinantes) * 100).toFixed(1)}% do total — churn lifetime`
+              : "Churn lifetime"
+          }
+          icon={UserX}
+          iconTone="rose"
+        />
+        <StatCard
+          label="Reembolsos"
+          value={m ? m.reembolsos.toLocaleString("pt-BR") : "—"}
+          hint={
+            m && m.totalAssinantes > 0
+              ? `${((m.reembolsos / m.totalAssinantes) * 100).toFixed(1)}% do total — devolvidos`
+              : "Devolvidos"
+          }
+          icon={RotateCcw}
+          iconTone="rose"
+        />
+      </div>
+
+      {/* KPIs operacionais — linha 2 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           label="Novos no período"
           value={m ? m.novosLeadsNoPeriodo.toLocaleString("pt-BR") : "—"}
@@ -138,13 +185,6 @@ export function LeadsPage() {
           value={m ? m.filaSuporte.toLocaleString("pt-BR") : "—"}
           hint={m ? `${m.mensagensEnviadasHoje} enviadas hoje` : undefined}
           icon={Inbox}
-          iconTone="lime"
-        />
-        <StatCard
-          label="Clientes ativos"
-          value={m ? m.clientesAtivos.toLocaleString("pt-BR") : "—"}
-          hint="Pagando agora"
-          icon={Users}
           iconTone="lime"
         />
       </div>

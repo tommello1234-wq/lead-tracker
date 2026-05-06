@@ -5,6 +5,7 @@
 
 export type DashboardMetrics = {
   totalLeads: number;
+  totalAssinantes: number; // lifetime: leads que já pagaram pelo menos 1x
   novosLeadsNoPeriodo: number;
   vendasHoje: number;
   vendasMes: number;
