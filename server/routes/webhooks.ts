@@ -28,6 +28,71 @@ webhookRoutes.get("/", (c) =>
 );
 
 
+/* GET /api/webhooks/asaas/subs-health-v2 — pra cada sub ativa, busca
+ * o ÚLTIMO pagamento CONFIRMED/RECEIVED (não o próximo pendente). */
+webhookRoutes.get("/asaas/subs-health-v2", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  type Sub = { id: string; value: number };
+  type Payment = { status: string; dueDate: string; confirmedDate?: string; paymentDate?: string; value: number };
+
+  const subs: Sub[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await fetch(`${url}/subscriptions?status=ACTIVE&limit=100&offset=${offset}`, { headers: { access_token: key } });
+    const b = (await r.json()) as { data: Sub[]; hasMore: boolean };
+    subs.push(...b.data);
+    if (!b.hasMore) break;
+    offset += 100;
+    if (offset > 2000) break;
+  }
+
+  const cutoff = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000); // 35 dias atrás
+  let pagaramRecente = 0, nuncaPagaram = 0, atrasadas = 0;
+  let mrrPagandoEmDia = 0;
+  for (const s of subs) {
+    // Tenta pegar pagamento CONFIRMED ou RECEIVED — paginar tudo, filtrar
+    const r = await fetch(`${url}/payments?subscription=${s.id}&limit=10`, {
+      headers: { access_token: key },
+    });
+    const b = (await r.json()) as { data: Payment[] };
+    const recebidos = (b.data ?? []).filter((p) => {
+      const st = (p.status ?? "").toUpperCase();
+      return st === "CONFIRMED" || st === "RECEIVED" || st === "RECEIVED_IN_CASH";
+    });
+    const overdue = (b.data ?? []).some((p) => (p.status ?? "").toUpperCase() === "OVERDUE");
+    if (recebidos.length === 0) {
+      nuncaPagaram++;
+      if (overdue) atrasadas++;
+    } else {
+      // Olha o mais recente
+      const lastDate = recebidos
+        .map((p) => new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      if (lastDate && lastDate > cutoff) {
+        pagaramRecente++;
+        mrrPagandoEmDia += s.value;
+      } else if (overdue) {
+        atrasadas++;
+      } else {
+        nuncaPagaram++;
+      }
+    }
+  }
+
+  return c.json({
+    ok: true,
+    total: subs.length,
+    pagaramUlt35d: pagaramRecente,
+    atrasadas,
+    nuncaPagaramOuMuitoTempo: nuncaPagaram,
+    mrrPagandoEmDia,
+    mrrTotalActive: subs.reduce((a, s) => a + s.value, 0),
+  });
+});
+
 /* GET /api/webhooks/asaas/subs-health — pra cada sub ativa, checa se a
  * última fatura foi paga ou se está overdue. */
 webhookRoutes.get("/asaas/subs-health", async (c) => {
