@@ -74,6 +74,7 @@ export type MrrMovementLead = {
   nome: string;
   email: string | null;
   contato: string | null;
+  gateway: string | null;
   amount: number;
   fromValue: number | null;
   toValue: number | null;
@@ -104,6 +105,7 @@ export async function getMrrMovementLeads(
       nome: leads.nome,
       email: leads.email,
       contato: leads.contato,
+      gateway: leads.gateway,
       amount: mrrMovements.amount,
       fromValue: mrrMovements.fromValue,
       toValue: mrrMovements.toValue,

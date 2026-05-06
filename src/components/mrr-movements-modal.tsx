@@ -66,6 +66,19 @@ export function MrrMovementsModal({
   const total = data?.length ?? 0;
   const totalAmount = data?.reduce((acc, m) => acc + m.amount, 0) ?? 0;
 
+  // Quebra por gateway
+  const byGateway = (data ?? []).reduce<Record<string, { count: number; total: number }>>(
+    (acc, m) => {
+      const g = m.gateway ?? "(sem gateway)";
+      if (!acc[g]) acc[g] = { count: 0, total: 0 };
+      acc[g].count++;
+      acc[g].total += m.amount;
+      return acc;
+    },
+    {},
+  );
+  const gatewayEntries = Object.entries(byGateway).sort((a, b) => Math.abs(b[1].total) - Math.abs(a[1].total));
+
   // Pra expansion/contraction, mostra "de → pra". Pros outros, mostra plano.
   const showFromTo = type === "expansion" || type === "contraction";
 
@@ -109,63 +122,103 @@ export function MrrMovementsModal({
               Sem movimentos nesse tipo no período.
             </p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-card/95 backdrop-blur">
-                <tr className="border-b border-border">
-                  <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Lead
-                  </th>
-                  <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Contato
-                  </th>
-                  <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    {showFromTo ? "De → Pra" : "Plano"}
-                  </th>
-                  <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Valor
-                  </th>
-                  <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Quando
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((m) => (
-                  <tr
-                    key={m.movementId}
-                    className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
-                  >
-                    <td className="px-5 py-2.5 font-medium truncate max-w-[200px]">{m.nome}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
-                      {m.contato ?? m.email ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[220px]">
-                      {showFromTo ? (
-                        <span>
-                          {m.fromPlano ?? "—"}{" "}
-                          <span className="text-foreground/40">→</span>{" "}
-                          <span className="font-medium text-foreground">
-                            {m.toPlano ?? "—"}
-                          </span>
-                        </span>
-                      ) : (
-                        (m.toPlano ?? m.fromPlano ?? "—")
-                      )}
-                    </td>
-                    <td
-                      className={`px-3 py-2.5 text-right tabular-nums font-semibold ${
-                        m.amount >= 0 ? "text-forest" : "text-destructive"
-                      }`}
-                    >
-                      {brlSigned(m.amount)}
-                    </td>
-                    <td className="px-5 py-2.5 text-muted-foreground tabular-nums">
-                      {formatDate(m.ocorridoEm)}
-                    </td>
+            <>
+              {/* Quebra por gateway */}
+              {gatewayEntries.length > 1 ? (
+                <div className="px-5 py-3 border-b border-border bg-muted/20 flex gap-4 flex-wrap text-xs">
+                  {gatewayEntries.map(([gw, info]) => (
+                    <div key={gw} className="flex items-center gap-1.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          gw === "ticto" ? "bg-blue-500" : gw === "asaas" ? "bg-violet-500" : gw === "stripe" ? "bg-amber-500" : "bg-foreground/30"
+                        }`}
+                      />
+                      <span className="font-medium uppercase tracking-wider text-foreground/70">
+                        {gw}
+                      </span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {info.count} · {brlSigned(info.total)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card/95 backdrop-blur">
+                  <tr className="border-b border-border">
+                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Lead
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Gateway
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      {showFromTo ? "De → Pra" : "Plano"}
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Valor
+                    </th>
+                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Quando
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.map((m) => (
+                    <tr
+                      key={m.movementId}
+                      className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
+                    >
+                      <td className="px-5 py-2.5 font-medium truncate max-w-[220px]">
+                        <div>{m.nome}</div>
+                        <div className="text-xs text-muted-foreground tabular-nums">
+                          {m.contato ?? m.email ?? "—"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={`text-xs uppercase font-semibold tracking-wider px-2 py-0.5 rounded-md ${
+                            m.gateway === "ticto"
+                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                              : m.gateway === "asaas"
+                                ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                : m.gateway === "stripe"
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                  : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {m.gateway ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[220px]">
+                        {showFromTo ? (
+                          <span>
+                            {m.fromPlano ?? "—"}{" "}
+                            <span className="text-foreground/40">→</span>{" "}
+                            <span className="font-medium text-foreground">
+                              {m.toPlano ?? "—"}
+                            </span>
+                          </span>
+                        ) : (
+                          (m.toPlano ?? m.fromPlano ?? "—")
+                        )}
+                      </td>
+                      <td
+                        className={`px-3 py-2.5 text-right tabular-nums font-semibold ${
+                          m.amount >= 0 ? "text-forest" : "text-destructive"
+                        }`}
+                      >
+                        {brlSigned(m.amount)}
+                      </td>
+                      <td className="px-5 py-2.5 text-muted-foreground tabular-nums">
+                        {formatDate(m.ocorridoEm)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       </div>

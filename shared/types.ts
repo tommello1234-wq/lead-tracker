@@ -91,6 +91,7 @@ export type MrrMovementLead = {
   nome: string;
   email: string | null;
   contato: string | null;
+  gateway: string | null;
   amount: number;
   fromValue: number | null;
   toValue: number | null;
