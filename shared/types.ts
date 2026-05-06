@@ -55,6 +55,20 @@ export type Faturamento = {
 
 export type SidebarCounts = { emRisco: number; filaMensagens: number };
 
+/* Calendário de renovação — 31 dias com count + receita esperada */
+export type RenewalDayLead = {
+  id: number;
+  nome: string;
+  valor: number;
+  plano: string | null;
+};
+export type RenewalDay = {
+  dia: number;
+  count: number;
+  valorEsperado: number;
+  leads: RenewalDayLead[];
+};
+
 /* MRR movements — breakdown da movimentação de receita recorrente no período */
 export type MrrMovementType =
   | "new"

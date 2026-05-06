@@ -392,6 +392,64 @@ export async function getTipoBreakdown(
 }
 
 /**
+ * Calendário de renovação: agrupa leads ATIVOS mensais pelo dia do mês
+ * que vão renovar (= dia de pagouEm). Útil pra visualizar previsão de
+ * caixa por dia.
+ *
+ * - Considera só periodicidade = 'mensal'
+ * - Considera só subscription_status = 'ativa'
+ * - Anuais ignorados (renovam 1x/ano, não cabem em calendário mensal)
+ * - Vitalícios/grátis não geram receita recorrente
+ */
+export async function getRenewalCalendar(
+  produtoId: number | null = null,
+): Promise<Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }>> {
+  const cond = produtoCondition(produtoId);
+  const all = await db
+    .select()
+    .from(leads)
+    .where(
+      and(
+        ...cond,
+        eq(leads.subscriptionStatus, "ativa"),
+        eq(leads.periodicidade, "mensal"),
+      ),
+    );
+
+  // Agrupa por dia do mês (1-31). Pra leads sem pagouEm (não deveriam ser
+  // ativos sem isso, mas defesa em profundidade), pula.
+  const byDay = new Map<
+    number,
+    Array<{ id: number; nome: string; valor: number; plano: string | null }>
+  >();
+  for (const l of all) {
+    if (!l.pagouEm) continue;
+    const dia = l.pagouEm.getUTCDate(); // dia do mês UTC; SP fuso fica próximo
+    const list = byDay.get(dia) ?? [];
+    list.push({
+      id: l.id,
+      nome: l.nome,
+      valor: l.valorAssinatura ?? 0,
+      plano: l.planoNome,
+    });
+    byDay.set(dia, list);
+  }
+
+  // Retorna 31 dias (mesmo que vazios) — frontend cuida do calendário visual
+  const out: Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }> = [];
+  for (let d = 1; d <= 31; d++) {
+    const list = byDay.get(d) ?? [];
+    out.push({
+      dia: d,
+      count: list.length,
+      valorEsperado: list.reduce((acc, x) => acc + x.valor, 0),
+      leads: list,
+    });
+  }
+  return out;
+}
+
+/**
  * Faturamento LÍQUIDO no período: entradas (compra_aprovada + assinatura_renovada)
  * MENOS saídas (reembolso processado), filtrados por produto/período.
  *

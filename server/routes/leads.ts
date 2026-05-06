@@ -9,7 +9,7 @@ import {
   type LeadStatus,
 } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
-import { getAllLeads } from "../lib/queries.js";
+import { getAllLeads, getRenewalCalendar } from "../lib/queries.js";
 import { invalidateCache } from "../lib/cache.js";
 
 export const leadsRoutes = new Hono();
@@ -42,6 +42,19 @@ function timestampsForStatus(status: LeadStatus, now: Date) {
       status === "convertido" || status === "reembolso_revertido" ? now : null,
   };
 }
+
+/* ==========================================================================
+ * GET /api/leads/renewal-calendar?produtoId=N
+ * Retorna 31 dias com count + valor esperado de renovação por dia.
+ * ========================================================================== */
+leadsRoutes.get("/renewal-calendar", async (c) => {
+  const produtoIdParam = c.req.query("produtoId");
+  const produtoId = produtoIdParam && produtoIdParam !== "all"
+    ? Number(produtoIdParam) || null
+    : null;
+  const calendar = await getRenewalCalendar(produtoId);
+  return c.json(calendar);
+});
 
 /* ==========================================================================
  * GET /api/leads?produtoId=N
