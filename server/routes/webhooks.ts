@@ -27,6 +27,27 @@ webhookRoutes.get("/", (c) =>
   }),
 );
 
+/* GET /api/webhooks/asaas/ping-customer/:id — testa enriquecimento. */
+webhookRoutes.get("/asaas/ping-customer/:id", async (c) => {
+  const id = c.req.param("id");
+  const { getAsaasCustomer } = await import("../lib/asaas-api.js");
+  try {
+    const cust = await getAsaasCustomer(id);
+    return c.json({ ok: true, customer: cust });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : "fetch falhou" });
+  }
+});
+
+/* GET /api/webhooks/asaas/token-debug — confirma se token tá ativo (sem expor) */
+webhookRoutes.get("/asaas/token-debug", (c) => {
+  return c.json({
+    has_webhook_token: !!process.env.ASAAS_WEBHOOK_TOKEN,
+    has_api_key: !!process.env.ASAAS_API_KEY,
+    webhook_token_length: (process.env.ASAAS_WEBHOOK_TOKEN ?? "").length,
+  });
+});
+
 /* GET /api/webhooks/asaas/ping — health-check da API key Asaas. */
 webhookRoutes.get("/asaas/ping", async (c) => {
   const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
