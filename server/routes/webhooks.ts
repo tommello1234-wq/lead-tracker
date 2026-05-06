@@ -28,6 +28,79 @@ webhookRoutes.get("/", (c) =>
 );
 
 
+/* POST /api/webhooks/asaas/fix-multi-subs?confirm=YES — corrige leads
+ * com múltiplas subscriptions Asaas: soma os valores e atualiza
+ * valor_assinatura. Cria movement expansion pra cobrir diferença. */
+webhookRoutes.post("/asaas/fix-multi-subs", async (c) => {
+  if (c.req.query("confirm") !== "YES") return c.json({ ok: false, error: "?confirm=YES" }, 400);
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  const { db } = await import("../../db/client.js");
+  const { leads, mrrMovements } = await import("../../db/schema.js");
+  const { eq } = await import("drizzle-orm");
+
+  type Sub = { id: string; value: number; customer: string; description?: string };
+  const subs: Sub[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await fetch(`${url}/subscriptions?status=ACTIVE&limit=100&offset=${offset}`, { headers: { access_token: key } });
+    const b = (await r.json()) as { data: Sub[]; hasMore: boolean };
+    subs.push(...b.data);
+    if (!b.hasMore) break;
+    offset += 100;
+    if (offset > 2000) break;
+  }
+
+  // Agrupa por customer
+  const byCustomer = new Map<string, Sub[]>();
+  for (const s of subs) {
+    const list = byCustomer.get(s.customer) ?? [];
+    list.push(s);
+    byCustomer.set(s.customer, list);
+  }
+  const multi = Array.from(byCustomer.entries()).filter(([, subs]) => subs.length > 1);
+
+  type FixResult = { customerId: string; subs: number; novoValor: number; leadId?: number; delta?: number };
+  const results: FixResult[] = [];
+  await db.transaction(async (tx) => {
+    for (const [customerId, customerSubs] of multi) {
+      const total = customerSubs.reduce((acc, s) => acc + s.value, 0);
+      // Acha lead pelo gatewayCustomerId (é o cpfCnpj) ou via gatewayLastOrderId em uma das subs
+      // Mais simples: busca pelo gatewayLastOrderId = qualquer uma das subs
+      let lead;
+      for (const s of customerSubs) {
+        lead = await tx.query.leads.findFirst({ where: eq(leads.gatewayLastOrderId, s.id) });
+        if (lead) break;
+      }
+      if (!lead) {
+        results.push({ customerId, subs: customerSubs.length, novoValor: total });
+        continue;
+      }
+      const valorAntigo = lead.valorAssinatura ?? 0;
+      const delta = total - valorAntigo;
+      await tx.update(leads).set({ valorAssinatura: total, atualizadoEm: new Date() }).where(eq(leads.id, lead.id));
+      if (delta > 0 && lead.subscriptionStatus === "ativa") {
+        await tx.insert(mrrMovements).values({
+          leadId: lead.id,
+          produtoId: lead.produtoId,
+          type: "expansion",
+          amount: delta,
+          fromValue: valorAntigo,
+          toValue: total,
+          fromPlano: lead.planoNome,
+          toPlano: `${lead.planoNome} + ${customerSubs.length - 1} sub(s)`,
+          ocorridoEm: new Date(),
+        });
+      }
+      results.push({ customerId, subs: customerSubs.length, novoValor: total, leadId: lead.id, delta });
+    }
+  });
+
+  return c.json({ ok: true, customersComMultiSubs: multi.length, results });
+});
+
 /* POST /api/webhooks/asaas/run-import?confirm=YES — importa todas
  * subscriptions ativas Asaas. Cria leads novos OU atualiza existentes
  * (match por telefone/email/cpfCnpj). Marca sub_status como 'ativa'
