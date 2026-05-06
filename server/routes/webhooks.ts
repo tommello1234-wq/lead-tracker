@@ -61,7 +61,7 @@ webhookRoutes.post("/asaas", async (c) => {
     return c.json({ error: "invalid signature" }, 401);
   }
 
-  const event = parseAsaasWebhook(payload);
+  const event = await parseAsaasWebhook(payload);
   if (!event) {
     const asaasEvent = String(payload.event ?? "unknown");
     await db.insert(eventos).values({

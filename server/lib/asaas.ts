@@ -21,6 +21,7 @@
 
 import type { EventInput, GatewayEvent } from "./flows.js";
 import type { Periodicidade } from "../../db/schema.js";
+import { getAsaasCustomer } from "./asaas-api.js";
 
 type AnyObject = Record<string, unknown>;
 
@@ -96,7 +97,7 @@ function detectPeriodicidade(payload: AnyObject): Periodicidade {
   return "mensal";
 }
 
-export function parseAsaasWebhook(payload: AnyObject): EventInput | null {
+export async function parseAsaasWebhook(payload: AnyObject): Promise<EventInput | null> {
   const eventType = detectEventType(payload);
   if (!eventType) return null;
 
@@ -104,13 +105,20 @@ export function parseAsaasWebhook(payload: AnyObject): EventInput | null {
   const payment = (pick(payload, "payment") ?? {}) as AnyObject;
   const subscription = (pick(payload, "subscription") ?? {}) as AnyObject;
 
-  // Customer pode vir como objeto (raro) ou string (ID — caso comum,
-  // requer pull via API pra enriquecer). Se só tem ID, usamos placeholder.
+  // Customer pode vir como objeto (raro) ou string (ID — caso comum).
   const customerRaw = pick(payment, "customer") ?? pick(subscription, "customer");
-  const customer = (typeof customerRaw === "object" ? customerRaw : {}) as AnyObject;
+  let customer = (typeof customerRaw === "object" ? customerRaw : {}) as AnyObject;
   const customerId = typeof customerRaw === "string"
     ? customerRaw
     : (pick<string>(customer, "id") ?? null);
+
+  // Se customer veio só como ID, faz pull na API pra enriquecer (cache 10min).
+  // Se ASAAS_API_KEY não estiver configurada, getAsaasCustomer retorna null
+  // e seguimos com placeholders.
+  if (typeof customerRaw === "string" && customerId) {
+    const fetched = await getAsaasCustomer(customerId);
+    if (fetched) customer = fetched as unknown as AnyObject;
+  }
 
   const nome = String(pick<string>(customer, "name") ?? "Cliente Asaas");
   const email = sanitizeEmail(pick<string>(customer, "email"));
