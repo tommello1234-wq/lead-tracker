@@ -240,6 +240,8 @@ export type DetailLead = {
   subscriptionStatus: string;
   planoNome: string | null;
   valorAssinatura: number | null;
+  gateway: string | null;
+  periodicidade: string;
   pagouEm: string | null;
   canceladoEm: string | null;
   criadoEm: string;

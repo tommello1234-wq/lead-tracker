@@ -27,6 +27,8 @@ export type DetailLead = {
   subscriptionStatus: string;
   planoNome: string | null;
   valorAssinatura: number | null;
+  gateway: string | null;
+  periodicidade: string;
   pagouEm: string | null;
   canceladoEm: string | null;
   criadoEm: string;
@@ -43,6 +45,8 @@ function toDetail(l: Lead): DetailLead {
     subscriptionStatus: l.subscriptionStatus,
     planoNome: l.planoNome,
     valorAssinatura: l.valorAssinatura,
+    gateway: l.gateway,
+    periodicidade: l.periodicidade,
     pagouEm: l.pagouEm?.toISOString() ?? null,
     canceladoEm: l.canceladoEm?.toISOString() ?? null,
     criadoEm: l.criadoEm.toISOString(),

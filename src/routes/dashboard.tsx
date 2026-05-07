@@ -25,6 +25,8 @@ import {
 import { SaasDashboard } from "@/components/saas-dashboard";
 import { MrrBreakdown } from "@/components/mrr-breakdown";
 import { MrrMovementsModal } from "@/components/mrr-movements-modal";
+import { MrrAtualModal } from "@/components/mrr-atual-modal";
+import { LeadDetailsModal } from "@/components/lead-details-modal";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -64,6 +66,8 @@ const SHORT_LABELS: Record<Period, string> = {
 export function DashboardPage() {
   const [details, setDetails] = useState<DetailsKind | null>(null);
   const [mrrType, setMrrType] = useState<MrrMovementType | null>(null);
+  const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
@@ -149,7 +153,7 @@ export function DashboardPage() {
           hint={m ? `${m.clientesAtivos} ativos · ARPU ${brl(m.arpu)}` : undefined}
           icon={DollarSign}
           iconTone="lime"
-          onClick={() => setDetails("ativos")}
+          onClick={() => setMrrAtualOpen(true)}
         />
         <StatCard
           label="LTV (lifetime value)"
@@ -249,6 +253,18 @@ export function DashboardPage() {
       ) : null}
       {mrrType ? (
         <MrrMovementsModal type={mrrType} onClose={() => setMrrType(null)} />
+      ) : null}
+      {mrrAtualOpen ? (
+        <MrrAtualModal
+          onClose={() => setMrrAtualOpen(false)}
+          onLeadClick={(id) => setSelectedLeadId(id)}
+        />
+      ) : null}
+      {selectedLeadId !== null ? (
+        <LeadDetailsModal
+          leadId={selectedLeadId}
+          onClose={() => setSelectedLeadId(null)}
+        />
       ) : null}
     </div>
   );
