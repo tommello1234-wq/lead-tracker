@@ -29,6 +29,38 @@ webhookRoutes.get("/", (c) =>
 
 
 
+/* GET /api/webhooks/stripe/find-customer?email=X — admin temp */
+webhookRoutes.get("/stripe/find-customer", async (c) => {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ ok: false, error: "STRIPE_SECRET_KEY ausente" }, 500);
+  const email = c.req.query("email");
+  if (!email) return c.json({ ok: false, error: "email obrigatório" }, 400);
+
+  const cRes = await fetch(`https://api.stripe.com/v1/customers/search?query=${encodeURIComponent(`email:'${email}'`)}`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  const cBody = (await cRes.json()) as { data?: Array<{ id: string; email: string; name?: string }> };
+  if (!cBody.data?.length) return c.json({ ok: false, error: "Customer Stripe não encontrado", searched: email });
+
+  const cust = cBody.data[0];
+  const sRes = await fetch(`https://api.stripe.com/v1/subscriptions?customer=${cust.id}&status=all&limit=20`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  const sBody = (await sRes.json()) as { data?: Array<{ id: string; status: string; current_period_end: number; items: { data: Array<{ price: { unit_amount: number; recurring?: { interval: string } } }> } }> };
+
+  return c.json({
+    ok: true,
+    customer: cust,
+    subscriptions: (sBody.data ?? []).map((s) => ({
+      id: s.id,
+      status: s.status,
+      next_charge: new Date(s.current_period_end * 1000).toISOString(),
+      value: s.items.data[0]?.price.unit_amount / 100,
+      interval: s.items.data[0]?.price.recurring?.interval,
+    })),
+  });
+});
+
 /* ==========================================================================
  * POST /api/webhooks/asaas
  * Eventos do Asaas (PAYMENT_*, SUBSCRIPTION_*).
