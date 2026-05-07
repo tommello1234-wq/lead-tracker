@@ -352,20 +352,43 @@ auditRoutes.get("/asaas", async (c) => {
   };
   const buckets: Bucket[] = [];
 
-  // Concurrency limit: 5 customers em paralelo
-  const concurrency = 5;
+  // Helper: fetch com retry pra absorver rate-limit Asaas
+  async function fetchJsonRetry(u: string, retries = 3): Promise<{ data: Array<Record<string, unknown>> } | null> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const r = await fetch(u, { headers: { access_token: key } });
+        if (r.ok) return (await r.json()) as { data: Array<Record<string, unknown>> };
+        if (r.status === 429 || r.status >= 500) {
+          await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
+          continue;
+        }
+        return null;
+      } catch {
+        await new Promise((res) => setTimeout(res, 500));
+      }
+    }
+    return null;
+  }
+
+  // Concurrency baixa pra não tomar 429
+  const concurrency = 3;
   let cursor = 0;
+  let fetchErrors = 0;
   while (cursor < customers.length) {
     const slice = customers.slice(cursor, cursor + concurrency);
     await Promise.all(
       slice.map(async (cust) => {
         const cid = String(cust.id);
-        const [sRes, pRes] = await Promise.all([
-          fetch(`${url}/subscriptions?customer=${cid}&limit=20`, { headers: { access_token: key } }),
-          fetch(`${url}/payments?customer=${cid}&limit=50`, { headers: { access_token: key } }),
+        const [subBody, payBody] = await Promise.all([
+          fetchJsonRetry(`${url}/subscriptions?customer=${cid}&limit=20`),
+          fetchJsonRetry(`${url}/payments?customer=${cid}&limit=50`),
         ]);
-        const sub = ((await sRes.json()) as { data: Array<Record<string, unknown>> }).data ?? [];
-        const pays = ((await pRes.json()) as { data: Array<Record<string, unknown>> }).data ?? [];
+        if (!subBody || !payBody) {
+          fetchErrors++;
+          return;
+        }
+        const sub = subBody.data ?? [];
+        const pays = payBody.data ?? [];
 
         // Pega sub mais recente
         const lastSub = [...sub].sort((a, b) =>
@@ -450,6 +473,7 @@ auditRoutes.get("/asaas", async (c) => {
       totalCustomers: customers.length,
       ...byClass,
       mrrAtivas: Math.round(mrrAtivas * 100) / 100,
+      fetchErrors,
     },
     planos: Object.entries(planos)
       .map(([plano, info]) => ({ plano, ...info }))
