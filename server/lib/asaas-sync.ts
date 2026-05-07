@@ -106,6 +106,17 @@ export async function runAsaasSync(): Promise<{
     const hasPaid = pays.some((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH|REFUNDED)$/i.test(p.status ?? ""));
     if (allSubs.length === 0 && !hasPaid) { notFound++; continue; }
 
+    // Detecta plano anual parcelado (12x via Asaas, sem subscription recurring).
+    // Description tipo "Parcela X de 12. GravyX Starter - Anual".
+    // Se >= 1 payment desse tipo está confirmed, considera assinatura ANUAL ativa.
+    const annualPays = pays.filter((p) =>
+      /parcela\s+\d+\s+de\s+12.*anual/i.test(p.description ?? ""),
+    );
+    const annualConfirmed = annualPays.filter((p) =>
+      /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""),
+    );
+    const isAnnualParcelado = annualConfirmed.length > 0;
+
     // Última sub
     const lastSub = allSubs.sort((a, b) => (b.dateCreated ?? "").localeCompare(a.dateCreated ?? ""))[0];
     const recentPaid = pays.some((p) => {
@@ -116,9 +127,29 @@ export async function runAsaasSync(): Promise<{
     });
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
-    const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
-    const valor = lastSub?.value ?? pays[0]?.value ?? 0;
-    const planoNome = mapPlano(lastSub?.description ?? pays[0]?.description);
+    let mapped: { lead: LeadStatus; sub: SubscriptionStatus };
+    let valor: number;
+    let planoNome: string | null;
+    let periodicidadeOverride: "anual" | undefined;
+
+    if (isAnnualParcelado) {
+      // Plano anual: 12x R$ X = total anual. Valor mensal equivalente = parcela.
+      // Mantém status ATIVA enquanto pelo menos 1 parcela foi paga e nenhuma reembolsada.
+      const allRefunded = annualPays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
+      mapped = allRefunded
+        ? { lead: "cliente_em_risco", sub: "reembolsada" }
+        : { lead: "cliente_ativo", sub: "ativa" };
+      const parcela = annualConfirmed[0]?.value ?? annualPays[0]?.value ?? 0;
+      valor = parcela * 12; // valor anual total
+      // Mapeia plano: tira "Parcela X de 12." prefix, mantém o resto
+      const desc = annualConfirmed[0]?.description ?? annualPays[0]?.description ?? "";
+      planoNome = desc.replace(/^Parcela\s+\d+\s+de\s+12\.\s*/i, "").trim() || mapPlano(desc);
+      periodicidadeOverride = "anual";
+    } else {
+      mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
+      valor = lastSub?.value ?? pays[0]?.value ?? 0;
+      planoNome = mapPlano(lastSub?.description ?? pays[0]?.description);
+    }
 
     const phone = normalizePhone(cust.mobilePhone ?? cust.phone);
     const email = normEmail(cust.email);
@@ -151,6 +182,7 @@ export async function runAsaasSync(): Promise<{
     };
     if (valor > 0) updates.valorAssinatura = valor;
     if (planoNome) updates.planoNome = planoNome;
+    if (periodicidadeOverride) updates.periodicidade = periodicidadeOverride;
     if (mapped.sub === "cancelada" && !lead.canceladoEm) updates.canceladoEm = new Date();
 
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
@@ -161,7 +193,7 @@ export async function runAsaasSync(): Promise<{
       status: mapped.sub,
       valor: valor > 0 ? valor : (lead.valorAssinatura ?? null),
       planoNome: planoNome ?? lead.planoNome ?? null,
-      periodicidade: lead.periodicidade,
+      periodicidade: periodicidadeOverride ?? lead.periodicidade,
       produtoId: lead.produtoId ?? null,
       gatewaySubscriptionId: lastSub?.id ?? null,
       gatewayCustomerId: cpf ?? null,
