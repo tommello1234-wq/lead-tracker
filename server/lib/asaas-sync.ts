@@ -12,7 +12,7 @@ import { eq, or } from "drizzle-orm";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
 type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string };
-type AsaasPayment = { id: string; status: string; value: number; subscription?: string; dueDate: string; confirmedDate?: string; paymentDate?: string; dateCreated?: string };
+type AsaasPayment = { id: string; status: string; value: number; subscription?: string; description?: string; dueDate: string; confirmedDate?: string; paymentDate?: string; dateCreated?: string };
 
 function normalizePhone(raw?: string): string | null {
   if (!raw) return null;
