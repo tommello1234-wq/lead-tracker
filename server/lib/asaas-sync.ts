@@ -30,14 +30,33 @@ function normEmail(raw?: string): string | null {
   return t;
 }
 
-function mapPlano(desc?: string): string | null {
+function mapPlano(desc?: string, valor?: number): string | null {
   if (!desc) return null;
   if (/custom/i.test(desc)) return "Gravyx Creator";
   if (/starter/i.test(desc)) return "Gravyx Starter";
   if (/premium/i.test(desc)) return "Gravyx Premium";
   if (/enterprise/i.test(desc)) return "Gravyx Enterprise";
   if (/gravyx/i.test(desc)) return desc;
+  // Asaas usa "Acesso à oferta Oferta Principal" como label genérico.
+  // Quando valor é R$ 47 = Gravyx Creator (Pix), é o checkout PIX padrão.
+  if (/oferta principal/i.test(desc) && valor === 47) return "Gravyx Creator (Pix)";
   return null;
+}
+
+/**
+ * Mapeia descrição Asaas → produto_id do banco.
+ * Default: 1 (Gravyx). Outros produtos detectados por keywords no plano.
+ */
+function detectProdutoIdByPlano(desc?: string, valor?: number): number {
+  if (!desc) return 1;
+  if (/web designer/i.test(desc)) return 13; // WDF
+  if (/lucrando com foto/i.test(desc)) return 14; // LCFI
+  if (/designer de prompt/i.test(desc)) return 15; // DP
+  if (/pacote avulso/i.test(desc)) return 16; // Pacote Avulso
+  // Oferta Principal R$47 = Gravyx Creator Pix; outros = Outros
+  if (/oferta principal/i.test(desc) && valor !== 47) return 17; // Outros
+  if (/parcela.*de/i.test(desc) && !/gravyx/i.test(desc)) return 17; // Outros parcelados
+  return 1; // Gravyx (default)
 }
 
 function mapStatus(
@@ -118,7 +137,9 @@ export async function runAsaasSync(): Promise<{
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
     const valor = lastSub?.value ?? pays[0]?.value ?? 0;
-    const planoNome = mapPlano(lastSub?.description ?? pays[0]?.description);
+    const planoDesc = lastSub?.description ?? pays[0]?.description;
+    const planoNome = mapPlano(planoDesc, valor);
+    const detectedProdutoId = detectProdutoIdByPlano(planoDesc, valor);
 
     const phone = normalizePhone(cust.mobilePhone ?? cust.phone);
     const email = normEmail(cust.email);
@@ -151,6 +172,11 @@ export async function runAsaasSync(): Promise<{
     };
     if (valor > 0) updates.valorAssinatura = valor;
     if (planoNome) updates.planoNome = planoNome;
+    // Atualiza produto_id se o plano detectado é diferente do produto atual
+    // (ex: cliente comprou WDF mas tava em Gravyx por bug do sync antigo).
+    if (detectedProdutoId !== lead.produtoId) {
+      updates.produtoId = detectedProdutoId;
+    }
     if (mapped.sub === "cancelada" && !lead.canceladoEm) updates.canceladoEm = new Date();
 
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
@@ -162,7 +188,7 @@ export async function runAsaasSync(): Promise<{
       valor: valor > 0 ? valor : (lead.valorAssinatura ?? null),
       planoNome: planoNome ?? lead.planoNome ?? null,
       periodicidade: lead.periodicidade,
-      produtoId: lead.produtoId ?? null,
+      produtoId: detectedProdutoId,
       gatewaySubscriptionId: lastSub?.id ?? null,
       gatewayCustomerId: cpf ?? null,
     });
