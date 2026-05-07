@@ -20,7 +20,8 @@ export function VendasPorPlanoCard({
 }) {
   const sorted = useMemo(() => {
     if (!data) return [];
-    return [...data].sort((a, b) => b.ativos - a.ativos);
+    // Esconde planos sem assinantes ativos (parcelas antigas, planos descontinuados etc)
+    return [...data].filter((p) => p.ativos > 0).sort((a, b) => b.ativos - a.ativos);
   }, [data]);
 
   const totalAtivos = total ?? sorted.reduce((acc, x) => acc + x.ativos, 0);

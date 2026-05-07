@@ -199,7 +199,9 @@ export function AdsPage() {
 
   // Métricas financeiras do produto/período pra montar os 4 KPIs principais
   // (Faturamento, Gastos, ROAS, Lucro) e os cards secundários.
-  const produtoParam = produtoId ?? "all";
+  // /ads é só Gravyx (única conta Meta) — força id=1 mesmo quando user
+  // selecionou "Todos" no contexto, pra cards não trazerem dados de WDF/etc.
+  const produtoParam = produtoId ?? 1;
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
   const faturamento = useQuery({
     queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
