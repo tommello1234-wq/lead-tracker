@@ -52,19 +52,31 @@ export function RenewalCalendar({
   const cells = useMemo(() => buildMonthGrid(viewYear, viewMonth), [viewYear, viewMonth]);
 
   const totalMes = useMemo(() => {
-    if (!data) return { count: 0, valor: 0 };
+    if (!data) return { count: 0, valor: 0, maxValor: 0 };
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     let count = 0;
     let valor = 0;
+    let maxValor = 0;
     for (let d = 1; d <= daysInMonth; d++) {
       const r = byDay.get(d);
       if (r) {
         count += r.count;
         valor += r.valorEsperado;
+        if (r.valorEsperado > maxValor) maxValor = r.valorEsperado;
       }
     }
-    return { count, valor };
+    return { count, valor, maxValor };
   }, [byDay, viewYear, viewMonth, data]);
+
+  // Intensidade de cor baseada em valor relativo ao máximo do mês
+  function intensityClass(valor: number): string {
+    if (!totalMes.maxValor || valor === 0) return "bg-card border-border/40";
+    const ratio = valor / totalMes.maxValor;
+    if (ratio >= 0.75) return "bg-forest text-[oklch(0.86_0.18_130)] border-forest";
+    if (ratio >= 0.5) return "bg-[oklch(0.55_0.18_140)] text-white border-transparent";
+    if (ratio >= 0.25) return "bg-[oklch(0.7_0.16_140)] text-white border-transparent";
+    return "bg-lime-soft text-forest border-transparent";
+  }
 
   const isToday = (d: number) =>
     d === today.getDate() &&
@@ -151,47 +163,56 @@ export function RenewalCalendar({
             ))}
           </div>
 
-          {/* Grid de dias */}
-          <div className="grid grid-cols-7 gap-1">
+          {/* Grid de dias — heatmap compacto */}
+          <div className="grid grid-cols-7 gap-1.5">
             {cells.map((c, i) => {
               if (c.dia === null) {
-                return <div key={`empty-${i}`} className="aspect-square" />;
+                return <div key={`empty-${i}`} className="h-12" />;
               }
               const r = byDay.get(c.dia);
               const has = r && r.count > 0;
               const todayCell = isToday(c.dia);
+              const colors = has ? intensityClass(r!.valorEsperado) : "bg-muted/20 border-border/30 text-muted-foreground/60";
               return (
                 <button
                   key={c.dia}
                   type="button"
                   onClick={() => has && setSelectedDay(r)}
                   disabled={!has}
+                  title={has ? `${r!.count} renovaç${r!.count === 1 ? "ão" : "ões"} · ${brl(r!.valorEsperado)}` : undefined}
                   className={[
-                    "aspect-square rounded-xl border p-1.5 text-left flex flex-col justify-between transition-colors",
-                    todayCell
-                      ? "border-forest border-2 bg-lime-soft/30"
-                      : "border-border/50",
-                    has ? "hover:bg-muted/40 cursor-pointer" : "opacity-40",
+                    "h-12 rounded-lg border px-2 py-1 text-left flex flex-col justify-between transition-all",
+                    colors,
+                    todayCell ? "ring-2 ring-forest ring-offset-1 ring-offset-card" : "",
+                    has ? "hover:scale-[1.05] cursor-pointer" : "",
                   ].join(" ")}
                 >
                   <span
-                    className={`text-xs tabular-nums ${todayCell ? "font-bold text-forest" : "text-foreground/70"}`}
+                    className={`text-[11px] tabular-nums leading-none ${
+                      todayCell ? "font-bold" : "font-medium opacity-80"
+                    }`}
                   >
                     {c.dia}
                   </span>
                   {has && r ? (
-                    <div className="text-right">
-                      <p className="text-sm font-bold tabular-nums leading-none">
-                        {r.count}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground tabular-nums leading-tight">
-                        {brl(r.valorEsperado)}
-                      </p>
-                    </div>
+                    <span className="text-[11px] font-bold tabular-nums leading-none text-right">
+                      {r.count}
+                    </span>
                   ) : null}
                 </button>
               );
             })}
+          </div>
+
+          {/* Legenda heatmap */}
+          <div className="flex items-center gap-2 mt-3 text-[10px] text-muted-foreground">
+            <span>Receita por dia:</span>
+            <div className="size-3 rounded bg-muted/20 border border-border/30" />
+            <div className="size-3 rounded bg-lime-soft" />
+            <div className="size-3 rounded bg-[oklch(0.7_0.16_140)]" />
+            <div className="size-3 rounded bg-[oklch(0.55_0.18_140)]" />
+            <div className="size-3 rounded bg-forest" />
+            <span>menos → mais</span>
           </div>
         </>
       )}
