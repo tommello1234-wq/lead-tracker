@@ -253,7 +253,13 @@ export async function runAsaasSync(): Promise<{
       lead.subscriptionStatus !== mapped.sub ||
       lead.status !== mapped.lead ||
       (valor > 0 && lead.valorAssinatura !== valor);
-    if (!needsUpdate) { unchanged++; continue; }
+    // Mesmo se lead não mudou, sincroniza eventos de payments (pode ter
+    // novos payments desde o último sync — ou faltou criar pra leads antigos)
+    if (!needsUpdate) {
+      await syncPaymentsAsEvents(lead.id, lead.produtoId ?? detectedProdutoId, pays);
+      unchanged++;
+      continue;
+    }
 
     const updates: Record<string, unknown> = {
       gateway: "asaas",
