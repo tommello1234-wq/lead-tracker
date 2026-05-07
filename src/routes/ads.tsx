@@ -16,7 +16,6 @@ import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
 import { VendasPorPlanoCard } from "@/components/vendas-por-plano-card";
-import { TaxaAprovacaoCard } from "@/components/taxa-aprovacao-card";
 import type {
   MetaInsights,
   MetaCampaign,
@@ -24,7 +23,6 @@ import type {
   Produto,
   Faturamento,
   VendasPorPlano,
-  TaxaAprovacao,
   DashboardMetrics,
 } from "@shared/types";
 
@@ -213,11 +211,6 @@ export function AdsPage() {
     queryFn: () => api.get<VendasPorPlano[]>(`/api/dashboard/vendas-por-plano?${baseQs}`),
     enabled: hasMeta,
   });
-  const taxaAprov = useQuery({
-    queryKey: ["dashboard", "taxa-aprovacao", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<TaxaAprovacao[]>(`/api/dashboard/taxa-aprovacao?${baseQs}`),
-    enabled: hasMeta,
-  });
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
@@ -372,19 +365,14 @@ export function AdsPage() {
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-4 items-stretch">
                 {/* esq: Vendas por Plano (alta) */}
                 <VendasPorPlanoCard data={planos.data} isLoading={planos.isLoading} />
-                {/* dir: grid 3 cols com cards menores + Taxa de Aprovação tall */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 auto-rows-min">
+                {/* dir: grid 2x2 de cards menores */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 auto-rows-min">
                   <KpiCard label="Vendas Pendentes" value={brl(vendasPendentes)} hint={m ? `${m.pixGerados} PIX em aberto` : undefined} />
                   <KpiCard
                     label="Vendas Reembolsadas"
                     value={brl(fat?.refundTotal ?? 0)}
                     hint={fat ? `${fat.refundCount} reembolso${fat.refundCount === 1 ? "" : "s"}` : undefined}
                   />
-                  {/* Taxa Aprovação: ocupa 2 linhas na col 3 */}
-                  <div className="row-span-2">
-                    <TaxaAprovacaoCard data={taxaAprov.data} isLoading={taxaAprov.isLoading} />
-                  </div>
-
                   <KpiCard
                     label="Margem"
                     value={`${margem.toFixed(1)}%`}

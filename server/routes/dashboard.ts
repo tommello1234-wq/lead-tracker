@@ -12,7 +12,6 @@ import {
   getMetodoBreakdown,
   getFunilPix,
   getRetencaoPorMetodo,
-  getTaxaAprovacao,
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
 import { getDetails, type DetailsKind } from "../lib/details.js";
@@ -207,12 +206,3 @@ dashboardRoutes.get("/vendas-por-plano", async (c) => {
   return c.json(data);
 });
 
-/* GET /api/dashboard/taxa-aprovacao
- * Aprovação por método de pagamento (cartão / pix / boleto) — usado no /ads. */
-dashboardRoutes.get("/taxa-aprovacao", async (c) => {
-  const produtoId = parseProdutoId(c);
-  const since = parseSince(c);
-  const until = parseUntil(c);
-  const data = await getTaxaAprovacao(produtoId, since, until);
-  return c.json(data);
-});

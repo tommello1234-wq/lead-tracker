@@ -33,14 +33,6 @@ export type FunilPix = {
   taxaConversao: number; // pagos / gerados
 };
 
-export type TaxaAprovacao = {
-  metodo: PaymentMethod;
-  aprovadas: number;
-  recusadas: number;
-  total: number;
-  taxa: number; // 0..1 (aprovadas / total)
-};
-
 export type RetencaoPorMetodo = {
   metodo: PaymentMethod;
   clientesUnicos: number;
@@ -359,63 +351,3 @@ export async function getRetencaoPorMetodo(
   }));
 }
 
-/* ============================================================
- * 4. Taxa de aprovação por método
- * Aprovadas (compra_aprovada + assinatura_renovada) / total tentativas
- * (aprovadas + recusadas + pix_expirado).
- *
- * Cartão típico = ~80% aprovação. PIX raramente "recusado" (expira).
- * Boleto NA quando produto não aceita boleto (caso Gravyx).
- * ============================================================ */
-export async function getTaxaAprovacao(
-  produtoId: number | null = null,
-  since: Date | null = null,
-  until: Date | null = null,
-): Promise<TaxaAprovacao[]> {
-  const cond = [eq(eventos.processedOk, true)];
-  if (produtoId != null) cond.push(eq(eventos.produtoId, produtoId));
-  if (since != null) cond.push(gte(eventos.receivedAt, since));
-  if (until != null) cond.push(lte(eventos.receivedAt, until));
-
-  // Pra cada método, conta quantos eventos de cada tipo
-  const rows = await db
-    .select({
-      metodo: metodoExpr,
-      eventType: eventos.eventType,
-      n: sql<number>`count(*)::int`,
-    })
-    .from(eventos)
-    .where(and(...cond, inArray(eventos.eventType, [
-      "compra_aprovada",
-      "assinatura_renovada",
-      "compra_recusada",
-      "pix_expirado",
-    ])))
-    .groupBy(metodoExpr, eventos.eventType);
-
-  type Buckets = { aprovadas: number; recusadas: number };
-  const map = new Map<string, Buckets>();
-  for (const r of rows) {
-    const m = String(r.metodo);
-    const cur = map.get(m) ?? { aprovadas: 0, recusadas: 0 };
-    if (r.eventType === "compra_aprovada" || r.eventType === "assinatura_renovada") {
-      cur.aprovadas += Number(r.n);
-    } else {
-      cur.recusadas += Number(r.n);
-    }
-    map.set(m, cur);
-  }
-
-  const out: TaxaAprovacao[] = [];
-  for (const [metodo, b] of map.entries()) {
-    const total = b.aprovadas + b.recusadas;
-    out.push({
-      metodo: metodo as PaymentMethod,
-      aprovadas: b.aprovadas,
-      recusadas: b.recusadas,
-      total,
-      taxa: total > 0 ? b.aprovadas / total : 0,
-    });
-  }
-  return out.sort((a, b) => b.total - a.total);
-}
