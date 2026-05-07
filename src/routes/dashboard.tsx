@@ -9,6 +9,9 @@ import {
   Calendar,
   ChevronDown,
   Target,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Wallet,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -184,6 +187,65 @@ export function DashboardPage() {
           icon={Banknote}
           iconTone="forest"
           onClick={() => setDetails("compras")}
+        />
+      </div>
+
+      {/* Entradas / Saídas / Lucro — visão de fluxo de caixa do período */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard
+          label="Entradas"
+          value={faturamento.data ? brl(faturamento.data.grossTotal) : "—"}
+          hint={
+            faturamento.data
+              ? `${faturamento.data.count} compras + renovações`
+              : undefined
+          }
+          icon={ArrowUpCircle}
+          iconTone="forest"
+          onClick={() => setDetails("compras")}
+        />
+        <StatCard
+          label="Saídas"
+          value={
+            faturamento.data
+              ? `−${brl(faturamento.data.refundTotal)}`
+              : "—"
+          }
+          hint={
+            faturamento.data
+              ? `${faturamento.data.refundCount} reembolso${
+                  faturamento.data.refundCount === 1 ? "" : "s"
+                }`
+              : undefined
+          }
+          icon={ArrowDownCircle}
+          iconTone="rose"
+          onClick={() => setDetails("reembolsos")}
+        />
+        <StatCard
+          label="Lucro"
+          value={
+            faturamento.data && cac.data
+              ? brl(faturamento.data.total - (cac.data.adSpend ?? 0))
+              : faturamento.data
+                ? brl(faturamento.data.total)
+                : "—"
+          }
+          hint={
+            faturamento.data && cac.data && cac.data.adSpend > 0
+              ? `Líquido − ${brl(cac.data.adSpend)} ads`
+              : faturamento.data
+                ? "Entradas − Saídas"
+                : undefined
+          }
+          icon={Wallet}
+          iconTone={
+            faturamento.data
+              ? (faturamento.data.total - (cac.data?.adSpend ?? 0)) >= 0
+                ? "lime"
+                : "rose"
+              : "lime"
+          }
         />
       </div>
 
