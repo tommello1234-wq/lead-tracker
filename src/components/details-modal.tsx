@@ -1,10 +1,24 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange } from "@/lib/period";
 import type { DetailLead } from "@shared/types";
+
+function gatewayDot(gw: string): string {
+  if (gw === "ticto") return "bg-blue-500";
+  if (gw === "asaas") return "bg-violet-500";
+  if (gw === "stripe") return "bg-amber-500";
+  return "bg-foreground/30";
+}
+
+function gatewayClass(gw: string | null): string {
+  if (gw === "ticto") return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+  if (gw === "asaas") return "bg-violet-500/10 text-violet-600 dark:text-violet-400";
+  if (gw === "stripe") return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+  return "bg-muted text-muted-foreground";
+}
 
 const brl = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -81,21 +95,44 @@ export function DetailsModal({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  const isCompras = kind === "compras";
+  const [gatewayFilter, setGatewayFilter] = useState<string | null>(null);
+
+  // Filtro de gateway aplicado localmente
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    if (!gatewayFilter) return data;
+    return data.filter((l) => (l.gateway ?? "(sem)") === gatewayFilter);
+  }, [data, gatewayFilter]);
+
   // total + receita acumulada (já considera reembolsos como valor negativo
   // pra "compras" — daí soma bate com card "Faturamento" do dashboard)
-  const total = data?.length ?? 0;
-  const receita = data?.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) ?? 0;
-  const isCompras = kind === "compras";
+  const total = filtered.length;
+  const receita = filtered.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0);
 
-  // Pra modal de "compras", calcular breakdown por tipo
+  // Breakdown por gateway (todos dados, antes do filtro — pros chips)
+  const byGateway = useMemo(() => {
+    const m: Record<string, { count: number; total: number }> = {};
+    if (data) {
+      for (const l of data) {
+        const g = l.gateway ?? "(sem)";
+        if (!m[g]) m[g] = { count: 0, total: 0 };
+        m[g].count++;
+        m[g].total += l.valorAssinatura ?? 0;
+      }
+    }
+    return m;
+  }, [data]);
+
+  // Pra modal de "compras", calcular breakdown por tipo (respeita gateway filter)
   const breakdown = useMemo(() => {
-    if (!isCompras || !data) return null;
+    if (!isCompras) return null;
     const acc = {
       compras: { count: 0, total: 0 },
       renovacoes: { count: 0, total: 0 },
       reembolsos: { count: 0, total: 0 },
     };
-    for (const l of data) {
+    for (const l of filtered) {
       const v = l.valorAssinatura ?? 0;
       if (l.eventType === "reembolso") {
         acc.reembolsos.count++;
@@ -109,7 +146,7 @@ export function DetailsModal({
       }
     }
     return acc;
-  }, [isCompras, data]);
+  }, [isCompras, filtered]);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/30 backdrop-blur-sm animate-in fade-in-0">
@@ -180,6 +217,45 @@ export function DetailsModal({
               {`${total} ${total === 1 ? "lead" : "leads"}${receita > 0 ? ` · ${brl(receita)} acumulado` : ""}`}
             </p>
           )}
+
+          {/* Filtros de gateway (chips) */}
+          {!isLoading && data && data.length > 0 && Object.keys(byGateway).length > 1 ? (
+            <div className="flex gap-2 flex-wrap text-xs mt-3">
+              <button
+                type="button"
+                onClick={() => setGatewayFilter(null)}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  gatewayFilter === null
+                    ? "bg-foreground text-background font-medium"
+                    : "hover:bg-muted/40 text-muted-foreground"
+                }`}
+              >
+                <span className="font-medium uppercase tracking-wider">Todos</span>
+                <span className="tabular-nums opacity-80">{data.length}</span>
+              </button>
+              {Object.entries(byGateway)
+                .sort((a, b) => b[1].count - a[1].count)
+                .map(([gw, info]) => {
+                  const active = gatewayFilter === gw;
+                  return (
+                    <button
+                      key={gw}
+                      type="button"
+                      onClick={() => setGatewayFilter(active ? null : gw)}
+                      className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                        active
+                          ? "bg-foreground text-background font-medium"
+                          : "hover:bg-muted/40 text-foreground/70"
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${gatewayDot(gw)}`} />
+                      <span className="font-medium uppercase tracking-wider">{gw}</span>
+                      <span className="tabular-nums opacity-80">{info.count}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -210,9 +286,14 @@ export function DetailsModal({
                     Contato
                   </th>
                   {isCompras ? (
-                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                      Tipo
-                    </th>
+                    <>
+                      <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                        Gateway
+                      </th>
+                      <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                        Tipo
+                      </th>
+                    </>
                   ) : null}
                   <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                     Plano
@@ -231,7 +312,7 @@ export function DetailsModal({
                 </tr>
               </thead>
               <tbody>
-                {data.map((l) => {
+                {filtered.map((l) => {
                   const isRefund = l.eventType === "reembolso";
                   const isRenewal = l.eventType === "assinatura_renovada";
                   return (
@@ -244,19 +325,26 @@ export function DetailsModal({
                         {l.contato ?? "—"}
                       </td>
                       {isCompras ? (
-                        <td className="px-3 py-2.5">
-                          <span
-                            className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
-                              isRefund
-                                ? "bg-destructive/10 text-destructive"
-                                : isRenewal
-                                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                                  : "bg-lime-soft text-forest"
-                            }`}
-                          >
-                            {isRefund ? "Reembolso" : isRenewal ? "Renovação" : "Compra"}
-                          </span>
-                        </td>
+                        <>
+                          <td className="px-3 py-2.5">
+                            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${gatewayClass(l.gateway)}`}>
+                              {l.gateway ?? "—"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span
+                              className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
+                                isRefund
+                                  ? "bg-destructive/10 text-destructive"
+                                  : isRenewal
+                                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                    : "bg-lime-soft text-forest"
+                              }`}
+                            >
+                              {isRefund ? "Reembolso" : isRenewal ? "Renovação" : "Compra"}
+                            </span>
+                          </td>
+                        </>
                       ) : null}
                       <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[180px]">
                         {l.planoNome ?? "—"}
