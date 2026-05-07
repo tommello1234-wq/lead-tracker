@@ -80,6 +80,7 @@ function mapStatus(
 export async function runAsaasSync(): Promise<{
   totalCustomers: number;
   updated: number;
+  created: number;
   notFound: number;
   unchanged: number;
 }> {
@@ -87,41 +88,52 @@ export async function runAsaasSync(): Promise<{
   const key = process.env.ASAAS_API_KEY;
   if (!key) throw new Error("ASAAS_API_KEY não configurada");
 
-  // 1) Lista todos customers
-  const customers: AsaasCust[] = [];
-  let offset = 0;
-  while (true) {
-    const r = await fetch(`${url}/customers?limit=100&offset=${offset}`, { headers: { access_token: key } });
-    if (!r.ok) throw new Error(`Asaas ${r.status}: ${await r.text()}`);
-    const b = (await r.json()) as { data: AsaasCust[]; hasMore: boolean };
-    customers.push(...b.data);
-    if (!b.hasMore) break;
-    offset += 100;
-    if (offset > 5000) break;
+  // Helper paginado
+  async function listAll<T>(path: string): Promise<T[]> {
+    const out: T[] = [];
+    let offset = 0;
+    while (true) {
+      const r = await fetch(`${url}${path}${path.includes("?") ? "&" : "?"}limit=100&offset=${offset}`, {
+        headers: { access_token: key },
+      });
+      if (!r.ok) {
+        if (r.status === 429) { await new Promise(res => setTimeout(res, 2000)); continue; }
+        break;
+      }
+      const b = (await r.json()) as { data: T[]; hasMore: boolean };
+      out.push(...(b.data ?? []));
+      if (!b.hasMore) break;
+      offset += 100;
+      if (offset > 10000) break;
+      await new Promise(res => setTimeout(res, 200));
+    }
+    return out;
+  }
+
+  // 1) Pega TUDO globalmente (3-10 calls em vez de 1 por customer)
+  const customers = await listAll<AsaasCust>("/customers");
+  const allSubsGlobal = await listAll<AsaasSub & { customer: string }>("/subscriptions");
+  const allPaysGlobal = await listAll<AsaasPayment & { customer: string }>("/payments");
+
+  // Indexa por customer pra lookup O(1)
+  const subsByCust = new Map<string, AsaasSub[]>();
+  for (const s of allSubsGlobal) {
+    if (!subsByCust.has(s.customer)) subsByCust.set(s.customer, []);
+    subsByCust.get(s.customer)!.push(s);
+  }
+  const paysByCust = new Map<string, AsaasPayment[]>();
+  for (const p of allPaysGlobal) {
+    if (!paysByCust.has(p.customer)) paysByCust.set(p.customer, []);
+    paysByCust.get(p.customer)!.push(p);
   }
 
   const cutoff = Date.now() - 35 * 24 * 60 * 60 * 1000;
-  let updated = 0, notFound = 0, unchanged = 0;
+  let updated = 0, created = 0, notFound = 0, unchanged = 0;
 
   for (const cust of customers) {
-    // Subs do customer + payments
-    const [sRes, pRes] = await Promise.all([
-      fetch(`${url}/subscriptions?customer=${cust.id}&limit=20`, { headers: { access_token: key } }),
-      fetch(`${url}/payments?customer=${cust.id}&limit=20`, { headers: { access_token: key } }),
-    ]);
-    const subsActive = ((await sRes.json()) as { data: AsaasSub[] }).data ?? [];
-    const pays = ((await pRes.json()) as { data: AsaasPayment[] }).data ?? [];
+    const allSubs = subsByCust.get(cust.id) ?? [];
+    const pays = paysByCust.get(cust.id) ?? [];
 
-    // Pega subs referenciadas em payments também
-    const allSubs: AsaasSub[] = [...subsActive];
-    for (const p of pays) {
-      if (!p.subscription) continue;
-      if (allSubs.some((s) => s.id === p.subscription)) continue;
-      try {
-        const r = await fetch(`${url}/subscriptions/${p.subscription}`, { headers: { access_token: key } });
-        if (r.ok) allSubs.push((await r.json()) as AsaasSub);
-      } catch { /* skip */ }
-    }
     const hasPaid = pays.some((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH|REFUNDED)$/i.test(p.status ?? ""));
     if (allSubs.length === 0 && !hasPaid) { notFound++; continue; }
 
@@ -146,14 +158,52 @@ export async function runAsaasSync(): Promise<{
     const cpf = cust.cpfCnpj ?? null;
 
     // Match lead
-    const lead = await db.query.leads.findFirst({
+    let lead = await db.query.leads.findFirst({
       where: or(
         phone ? eq(leads.contato, phone) : undefined,
         email ? eq(leads.email, email) : undefined,
         cpf ? eq(leads.gatewayCustomerId, cpf) : undefined,
       ),
     });
-    if (!lead) { notFound++; continue; }
+
+    // Cria lead se não existe (assinatura Asaas sem registro local)
+    if (!lead) {
+      if (!email && !phone && !cpf) { notFound++; continue; }
+      const [createdLead] = await db
+        .insert(leads)
+        .values({
+          nome: cust.name ?? "Cliente Asaas",
+          email,
+          contato: phone,
+          tipo: "compra_aprovada",
+          status: mapped.lead,
+          subscriptionStatus: mapped.sub,
+          gateway: "asaas",
+          gatewayCustomerId: cpf,
+          gatewayLastOrderId: lastSub?.id ?? null,
+          produtoId: detectedProdutoId,
+          planoNome,
+          valorAssinatura: valor > 0 ? valor : null,
+          pagouEm: recentPaid ? new Date() : null,
+          canceladoEm: mapped.sub === "cancelada" ? new Date() : null,
+          atualizadoEm: new Date(),
+        })
+        .returning();
+      lead = createdLead;
+      await upsertSubscription({
+        leadId: lead.id,
+        gateway: "asaas",
+        status: mapped.sub,
+        valor: valor > 0 ? valor : null,
+        planoNome,
+        periodicidade: "mensal",
+        produtoId: detectedProdutoId,
+        gatewaySubscriptionId: lastSub?.id ?? null,
+        gatewayCustomerId: cpf,
+      });
+      created++;
+      continue;
+    }
 
     const needsUpdate =
       lead.gateway !== "asaas" ||
@@ -195,5 +245,5 @@ export async function runAsaasSync(): Promise<{
     updated++;
   }
 
-  return { totalCustomers: customers.length, updated, notFound, unchanged };
+  return { totalCustomers: customers.length, updated, created, notFound, unchanged };
 }
