@@ -309,6 +309,93 @@ auditRoutes.post("/ticto-sync-prices", async (c) => {
 });
 
 /**
+ * GET /api/audit/asaas-revenue
+ * Soma todos payments Asaas por produto (extraído da description).
+ * Read-only — calcula bruto, reembolsado e líquido.
+ */
+auditRoutes.get("/asaas-revenue", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
+
+  // Lista paginada
+  async function listAll<T>(path: string): Promise<T[]> {
+    const out: T[] = [];
+    let offset = 0;
+    while (true) {
+      const r = await fetch(`${url}${path}${path.includes("?") ? "&" : "?"}limit=100&offset=${offset}`, {
+        headers: { access_token: key },
+      });
+      if (!r.ok) {
+        if (r.status === 429) { await new Promise(res => setTimeout(res, 2000)); continue; }
+        break;
+      }
+      const b = (await r.json()) as { data: T[]; hasMore: boolean };
+      out.push(...(b.data ?? []));
+      if (!b.hasMore) break;
+      offset += 100;
+      if (offset > 10000) break;
+      await new Promise(res => setTimeout(res, 200));
+    }
+    return out;
+  }
+
+  type Pay = { status: string; value: number; description?: string; confirmedDate?: string; paymentDate?: string };
+  const pays = await listAll<Pay>("/payments");
+
+  // Classifica por produto via description
+  function detectProduto(desc: string | undefined): string {
+    const d = (desc ?? "").toLowerCase();
+    if (/web designer/.test(d)) return "Web Designer do Futuro";
+    if (/lucrando com foto/.test(d)) return "Lucrando com Foto de IA";
+    if (/designer de prompt|designer master/.test(d)) return "Designer de Prompt";
+    if (/gravyx|oferta principal/.test(d)) return "Gravyx";
+    if (/arsenal|proposta/.test(d)) return "Outros (legado)";
+    return "Outros";
+  }
+
+  type Bucket = {
+    bruto: number;
+    refundado: number;
+    liquido: number;
+    countConfirmed: number;
+    countRefunded: number;
+  };
+  const byProduto: Record<string, Bucket> = {};
+  let totalBruto = 0, totalRefund = 0;
+
+  for (const p of pays) {
+    const status = (p.status ?? "").toUpperCase();
+    const produto = detectProduto(p.description);
+    if (!byProduto[produto]) byProduto[produto] = { bruto: 0, refundado: 0, liquido: 0, countConfirmed: 0, countRefunded: 0 };
+
+    if (status === "CONFIRMED" || status === "RECEIVED" || status === "RECEIVED_IN_CASH") {
+      byProduto[produto].bruto += p.value;
+      byProduto[produto].countConfirmed++;
+      totalBruto += p.value;
+    } else if (status === "REFUNDED") {
+      byProduto[produto].refundado += p.value;
+      byProduto[produto].countRefunded++;
+      totalRefund += p.value;
+    }
+  }
+  for (const k of Object.keys(byProduto)) {
+    byProduto[k].liquido = byProduto[k].bruto - byProduto[k].refundado;
+  }
+
+  return c.json({
+    summary: {
+      totalPayments: pays.length,
+      totalBruto: Math.round(totalBruto * 100) / 100,
+      totalRefund: Math.round(totalRefund * 100) / 100,
+      totalLiquido: Math.round((totalBruto - totalRefund) * 100) / 100,
+    },
+    byProduto,
+  });
+});
+
+/**
  * GET /api/audit/asaas
  * Read-only — pull todos customers + subs + payments do Asaas e retorna
  * resumo agregado (sem mexer no banco). Pra ver o que vai entrar antes
