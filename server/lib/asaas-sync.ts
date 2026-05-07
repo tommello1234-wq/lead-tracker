@@ -7,8 +7,8 @@
  * + presença de pagamento recente.
  */
 import { db } from "../../db/client.js";
-import { leads, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
-import { eq, or } from "drizzle-orm";
+import { leads, eventos, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
+import { eq, or, sql } from "drizzle-orm";
 import { upsertSubscription } from "./subscriptions.js";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
@@ -83,6 +83,7 @@ export async function runAsaasSync(): Promise<{
   created: number;
   notFound: number;
   unchanged: number;
+  evCreated: number;
 }> {
   const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
   const key = process.env.ASAAS_API_KEY;
@@ -129,6 +130,47 @@ export async function runAsaasSync(): Promise<{
 
   const cutoff = Date.now() - 35 * 24 * 60 * 60 * 1000;
   let updated = 0, created = 0, notFound = 0, unchanged = 0;
+  let evCreated = 0;
+
+  // Cria evento pra cada payment confirmado/refunded — necessário pro
+  // Faturamento aparecer no dashboard. Idempotente via order_hash = payment.id.
+  async function syncPaymentsAsEvents(leadId: number, produtoId: number, ps: AsaasPayment[]) {
+    for (const p of ps) {
+      const status = (p.status ?? "").toUpperCase();
+      let eventType: string | null = null;
+      if (status === "CONFIRMED" || status === "RECEIVED" || status === "RECEIVED_IN_CASH") {
+        eventType = "compra_aprovada";
+      } else if (status === "REFUNDED") {
+        eventType = "reembolso";
+      }
+      if (!eventType) continue;
+
+      // Dedup: se já existe evento com mesmo payment.id (em payload.order.hash), pula
+      const existing = await db
+        .select({ id: eventos.id })
+        .from(eventos)
+        .where(sql`${eventos.payload}->'order'->>'hash' = ${p.id}`)
+        .limit(1);
+      if (existing.length > 0) continue;
+
+      const dateStr = p.confirmedDate ?? p.paymentDate ?? p.dueDate;
+      const receivedAt = dateStr ? new Date(dateStr) : new Date();
+
+      await db.insert(eventos).values({
+        leadId,
+        produtoId,
+        source: "asaas-sync",
+        eventType,
+        payload: {
+          payment: { value: p.value, description: p.description, status },
+          order: { hash: p.id },
+        },
+        processedOk: true,
+        receivedAt,
+      });
+      evCreated++;
+    }
+  }
 
   for (const cust of customers) {
     const allSubs = subsByCust.get(cust.id) ?? [];
@@ -201,6 +243,7 @@ export async function runAsaasSync(): Promise<{
         gatewaySubscriptionId: lastSub?.id ?? null,
         gatewayCustomerId: cpf,
       });
+      await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
       created++;
       continue;
     }
@@ -242,8 +285,9 @@ export async function runAsaasSync(): Promise<{
       gatewaySubscriptionId: lastSub?.id ?? null,
       gatewayCustomerId: cpf ?? null,
     });
+    await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
     updated++;
   }
 
-  return { totalCustomers: customers.length, updated, created, notFound, unchanged };
+  return { totalCustomers: customers.length, updated, created, notFound, unchanged, evCreated };
 }
