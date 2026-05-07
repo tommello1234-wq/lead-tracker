@@ -188,16 +188,21 @@ export function RenewalCalendar({
                   ].join(" ")}
                 >
                   <span
-                    className={`text-[11px] tabular-nums leading-none ${
-                      todayCell ? "font-bold" : "font-medium opacity-80"
+                    className={`text-[10px] tabular-nums leading-none uppercase tracking-wide opacity-60 ${
+                      todayCell ? "font-bold opacity-100" : "font-medium"
                     }`}
                   >
                     {c.dia}
                   </span>
                   {has && r ? (
-                    <span className="text-[11px] font-bold tabular-nums leading-none text-right">
-                      {r.count}
-                    </span>
+                    <div className="flex items-baseline gap-1 justify-end">
+                      <span className="text-[14px] font-bold tabular-nums leading-none">
+                        {r.count}
+                      </span>
+                      <span className="text-[8px] uppercase tracking-wider opacity-60 leading-none">
+                        {r.count === 1 ? "renov" : "renovs"}
+                      </span>
+                    </div>
                   ) : null}
                 </button>
               );
