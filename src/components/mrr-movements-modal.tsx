@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
@@ -63,10 +63,10 @@ export function MrrMovementsModal({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const total = data?.length ?? 0;
-  const totalAmount = data?.reduce((acc, m) => acc + m.amount, 0) ?? 0;
+  // Filtro de gateway (null = todos)
+  const [gatewayFilter, setGatewayFilter] = useState<string | null>(null);
 
-  // Quebra por gateway
+  // Quebra por gateway (sempre considera TODOS os dados — base pra filtro)
   const byGateway = (data ?? []).reduce<Record<string, { count: number; total: number }>>(
     (acc, m) => {
       const g = m.gateway ?? "(sem gateway)";
@@ -78,6 +78,13 @@ export function MrrMovementsModal({
     {},
   );
   const gatewayEntries = Object.entries(byGateway).sort((a, b) => Math.abs(b[1].total) - Math.abs(a[1].total));
+
+  // Lista filtrada (se gatewayFilter não for null)
+  const filteredData = gatewayFilter
+    ? (data ?? []).filter((m) => (m.gateway ?? "(sem gateway)") === gatewayFilter)
+    : (data ?? []);
+  const total = filteredData.length;
+  const totalAmount = filteredData.reduce((acc, m) => acc + m.amount, 0);
 
   // Pra expansion/contraction, mostra "de → pra". Pros outros, mostra plano.
   const showFromTo = type === "expansion" || type === "contraction";
@@ -94,7 +101,7 @@ export function MrrMovementsModal({
             <p className="text-xs text-muted-foreground">
               {isLoading
                 ? "Carregando..."
-                : `${total} ${total === 1 ? "movimento" : "movimentos"} · ${brlSigned(totalAmount)}`}
+                : `${total} ${total === 1 ? "movimento" : "movimentos"} · ${brlSigned(totalAmount)}${gatewayFilter ? ` · filtrado: ${gatewayFilter}` : ""}`}
             </p>
           </div>
           <button
@@ -123,24 +130,52 @@ export function MrrMovementsModal({
             </p>
           ) : (
             <>
-              {/* Quebra por gateway */}
+              {/* Filtros por gateway — clicáveis pra filtrar */}
               {gatewayEntries.length > 1 ? (
-                <div className="px-5 py-3 border-b border-border bg-muted/20 flex gap-4 flex-wrap text-xs">
-                  {gatewayEntries.map(([gw, info]) => (
-                    <div key={gw} className="flex items-center gap-1.5">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          gw === "ticto" ? "bg-blue-500" : gw === "asaas" ? "bg-violet-500" : gw === "stripe" ? "bg-amber-500" : "bg-foreground/30"
+                <div className="px-5 py-3 border-b border-border bg-muted/20 flex gap-2 flex-wrap text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setGatewayFilter(null)}
+                    className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                      gatewayFilter === null
+                        ? "bg-foreground text-background font-medium"
+                        : "hover:bg-muted/40 text-muted-foreground"
+                    }`}
+                  >
+                    <span className="font-medium uppercase tracking-wider">Todos</span>
+                    <span className="tabular-nums opacity-80">
+                      {(data ?? []).length}
+                    </span>
+                  </button>
+                  {gatewayEntries.map(([gw, info]) => {
+                    const active = gatewayFilter === gw;
+                    const dotColor =
+                      gw === "ticto"
+                        ? "bg-blue-500"
+                        : gw === "asaas"
+                          ? "bg-violet-500"
+                          : gw === "stripe"
+                            ? "bg-amber-500"
+                            : "bg-foreground/30";
+                    return (
+                      <button
+                        key={gw}
+                        type="button"
+                        onClick={() => setGatewayFilter(active ? null : gw)}
+                        className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                          active
+                            ? "bg-foreground text-background font-medium"
+                            : "hover:bg-muted/40 text-foreground/70"
                         }`}
-                      />
-                      <span className="font-medium uppercase tracking-wider text-foreground/70">
-                        {gw}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {info.count} · {brlSigned(info.total)}
-                      </span>
-                    </div>
-                  ))}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                        <span className="font-medium uppercase tracking-wider">{gw}</span>
+                        <span className="tabular-nums opacity-80">
+                          {info.count} · {brlSigned(info.total)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
 
@@ -165,7 +200,7 @@ export function MrrMovementsModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((m) => (
+                  {filteredData.map((m) => (
                     <tr
                       key={m.movementId}
                       className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
