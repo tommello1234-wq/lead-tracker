@@ -29,6 +29,29 @@ webhookRoutes.get("/", (c) =>
 
 
 
+/* GET /api/webhooks/asaas/find-customer?email=X — admin temp */
+webhookRoutes.get("/asaas/find-customer", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+  const email = c.req.query("email");
+  if (!email) return c.json({ ok: false, error: "email obrigatório" }, 400);
+
+  const r = await fetch(`${url}/customers?email=${encodeURIComponent(email)}`, {
+    headers: { access_token: key, Accept: "application/json" },
+  });
+  const customers = (await r.json()) as { data: Array<Record<string, unknown>> };
+  if (!customers.data?.length) return c.json({ ok: false, error: "Customer não encontrado", searched: email });
+
+  const cust = customers.data[0];
+  const subsRes = await fetch(`${url}/subscriptions?customer=${cust.id}&limit=50`, { headers: { access_token: key } });
+  const subs = (await subsRes.json()) as { data: Array<unknown> };
+  const paysRes = await fetch(`${url}/payments?customer=${cust.id}&limit=30`, { headers: { access_token: key } });
+  const pays = (await paysRes.json()) as { data: Array<unknown> };
+
+  return c.json({ ok: true, customer: cust, subscriptions: subs.data, payments: pays.data });
+});
+
 /* ==========================================================================
  * POST /api/webhooks/asaas
  * Eventos do Asaas (PAYMENT_*, SUBSCRIPTION_*).
