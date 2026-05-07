@@ -281,11 +281,23 @@ export async function getDashboardMetrics(
         (l) => l.status === "cliente_cancelado" && inPeriod(l.canceladoEm),
       ).length
     : all.filter((l) => l.status === "cliente_cancelado").length;
-  const reembolsos = hasPeriod
-    ? all.filter(
-        (l) => l.subscriptionStatus === "reembolsada" && inPeriod(l.atualizadoEm),
-      ).length
-    : all.filter((l) => l.subscriptionStatus === "reembolsada").length;
+  // Reembolsos: conta eventos de tipo 'reembolso' no período (data real do
+  // refund). Não usa lead.atualizadoEm porque qualquer UPDATE no lead muda
+  // esse campo (ex: sync de preço, atualização de contato), inflando o número.
+  let reembolsos: number;
+  if (hasPeriod) {
+    const refundConds = [eq(eventos.eventType, "reembolso"), eq(eventos.processedOk, true)];
+    if (produtoId != null) refundConds.push(eq(eventos.produtoId, produtoId));
+    if (since) refundConds.push(gte(eventos.receivedAt, since));
+    if (until) refundConds.push(lte(eventos.receivedAt, until));
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(eventos)
+      .where(and(...refundConds));
+    reembolsos = r?.n ?? 0;
+  } else {
+    reembolsos = all.filter((l) => l.subscriptionStatus === "reembolsada").length;
+  }
 
   return {
     totalLeads: all.length,
