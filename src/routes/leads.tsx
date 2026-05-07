@@ -19,7 +19,7 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange } from "@/lib/period";
 import { STATUS_LABEL, STATUS_COLOR } from "@shared/labels";
 import type { LeadStatus } from "@shared/labels";
-import type { DashboardMetrics, RenewalDay } from "@shared/types";
+import type { DashboardMetrics } from "@shared/types";
 import { StatCard } from "@/components/stat-card";
 import { FunilBoard } from "@/components/funil-board";
 import { LiveActivityFeed, LiveActivityFeedCollapsed } from "@/components/live-activity";
@@ -85,14 +85,6 @@ export function LeadsPage() {
     queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${metricsQs}`),
   });
   const m = metrics.data;
-
-  // Calendário de renovação — só depende do produto, não do período
-  const renewalCalendar = useQuery({
-    queryKey: ["leads", "renewal-calendar", produtoParam],
-    queryFn: () =>
-      api.get<RenewalDay[]>(`/api/leads/renewal-calendar?produtoId=${produtoParam}`),
-    staleTime: 5 * 60 * 1000,
-  });
 
   const filtered = (data ?? []).filter((l) =>
     search ? l.nome.toLowerCase().includes(search.toLowerCase()) : true,
@@ -201,10 +193,7 @@ export function LeadsPage() {
       </div>
 
       {/* Calendário de renovação — quantos leads pagam em cada dia do mês */}
-      <RenewalCalendar
-        data={renewalCalendar.data}
-        isLoading={renewalCalendar.isLoading}
-      />
+      <RenewalCalendar produtoParam={produtoParam} />
 
       {/* Activity feed (esquerda) + Kanban (direita). Activity recolhe pra
           slim 56px liberando espaço pro kanban quando user quer focar nele. */}

@@ -13,7 +13,6 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Target,
   Users,
   PiggyBank,
 } from "lucide-react";
@@ -324,21 +323,8 @@ export function AdsPage() {
             />
           </div>
 
-          {/* Aquisição: CAC blended + Novos clientes + % Orgânico */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              label="CAC (real, blended)"
-              value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
-              hint={
-                cac.isError
-                  ? "Erro ao buscar Meta"
-                  : cac.data
-                    ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
-                    : "Carregando..."
-              }
-              icon={Target}
-              iconTone="forest"
-            />
+          {/* Aquisição: Novos clientes + % Orgânico (CAC fica só no painel principal) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <StatCard
               label="Novos clientes"
               value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}

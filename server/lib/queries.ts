@@ -403,18 +403,18 @@ export async function getTipoBreakdown(
  */
 export async function getRenewalCalendar(
   produtoId: number | null = null,
+  referenceDate: Date | null = null,
 ): Promise<Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }>> {
   const cond = produtoCondition(produtoId);
-  const all = await db
-    .select()
-    .from(leads)
-    .where(
-      and(
-        ...cond,
-        eq(leads.subscriptionStatus, "ativa"),
-        eq(leads.periodicidade, "mensal"),
-      ),
-    );
+  cond.push(eq(leads.subscriptionStatus, "ativa"));
+  cond.push(eq(leads.periodicidade, "mensal"));
+  // Se referenceDate passada, filtra leads que JÁ PAGARAM até aquela data.
+  // Útil pra ver "quem renovou em março/2026" — só conta clientes que
+  // entraram até 31/03/2026, não os que vieram depois.
+  if (referenceDate) {
+    cond.push(lte(leads.pagouEm, referenceDate));
+  }
+  const all = await db.select().from(leads).where(and(...cond));
 
   // Agrupa por dia do mês (1-31). Pra leads sem pagouEm (não deveriam ser
   // ativos sem isso, mas defesa em profundidade), pula.

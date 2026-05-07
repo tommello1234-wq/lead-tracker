@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Calendar as CalendarIcon, X } from "lucide-react";
+import { api } from "@/lib/api";
 import type { RenewalDay } from "@shared/types";
 
 const brl = (n: number) =>
@@ -31,16 +33,34 @@ function buildMonthGrid(year: number, month: number): Array<{ dia: number | null
 }
 
 export function RenewalCalendar({
-  data,
-  isLoading,
+  produtoParam,
 }: {
-  data: RenewalDay[] | undefined;
-  isLoading: boolean;
+  produtoParam: string | number;
 }) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDay, setSelectedDay] = useState<RenewalDay | null>(null);
+
+  // Pra meses passados, passa referenceDate = último dia do mês visualizado
+  // (backend filtra leads que JÁ existiam até lá). Pra atual/futuro, sem ref
+  // = snapshot atual.
+  const isPast =
+    viewYear < today.getFullYear() ||
+    (viewYear === today.getFullYear() && viewMonth < today.getMonth());
+  const referenceDate = isPast
+    ? new Date(viewYear, viewMonth + 1, 0, 23, 59, 59).toISOString()
+    : "";
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["leads", "renewal-calendar", produtoParam, referenceDate],
+    queryFn: () => {
+      const qs = new URLSearchParams({ produtoId: String(produtoParam) });
+      if (referenceDate) qs.set("referenceDate", referenceDate);
+      return api.get<RenewalDay[]>(`/api/leads/renewal-calendar?${qs}`);
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Mapa dia → RenewalDay pra acesso rápido
   const byDay = useMemo(() => {
@@ -84,11 +104,10 @@ export function RenewalCalendar({
     viewMonth === today.getMonth() &&
     viewYear === today.getFullYear();
 
-  // Limites: mês atual mínimo, +12 meses no futuro máximo.
-  // Voltar pro passado não faz sentido — calendário mostra DIA do mês
-  // (renovação recorrente), não datas históricas. Cliente que paga dia 4
-  // aparece no dia 4 de qualquer mês visualizado.
-  const minDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  // Range: até 24 meses pra trás e 12 pra frente. Pra meses passados,
+  // o backend filtra leads que JÁ existiam até aquela data (passa
+  // referenceDate = último dia do mês). Pra atual/futuro, snapshot atual.
+  const minDate = new Date(today.getFullYear(), today.getMonth() - 24, 1);
   const maxDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
   const viewDate = new Date(viewYear, viewMonth, 1);
   const canPrev = viewDate > minDate;

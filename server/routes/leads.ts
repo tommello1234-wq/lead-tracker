@@ -52,7 +52,15 @@ leadsRoutes.get("/renewal-calendar", async (c) => {
   const produtoId = produtoIdParam && produtoIdParam !== "all"
     ? Number(produtoIdParam) || null
     : null;
-  const calendar = await getRenewalCalendar(produtoId);
+  // referenceDate: ISO do último dia do mês visualizado. Se passado:
+  // só conta clientes ativos que JÁ pagaram até essa data.
+  // Sem referenceDate: usa agora (snapshot atual).
+  const refParam = c.req.query("referenceDate");
+  const ref = refParam ? new Date(refParam) : null;
+  const calendar = await getRenewalCalendar(
+    produtoId,
+    ref && !Number.isNaN(ref.getTime()) ? ref : null,
+  );
   return c.json(calendar);
 });
 
