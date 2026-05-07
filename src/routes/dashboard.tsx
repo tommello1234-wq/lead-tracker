@@ -170,16 +170,18 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Fluxo de caixa do período: Faturamento (entradas) − Reembolsos (saídas) − Ads = Lucro */}
+      {/* Fluxo de caixa do período: Faturamento (líquido) − Saídas (ads) = Lucro */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Faturamento"
-          value={faturamento.data ? brl(faturamento.data.grossTotal) : "—"}
+          value={faturamento.data ? brl(faturamento.data.total) : "—"}
           hint={
             faturamento.data
-              ? `${faturamento.data.count} compra${faturamento.data.count === 1 ? "" : "s"} + renovações${
-                  m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""
-                }`
+              ? `${faturamento.data.count} venda${faturamento.data.count === 1 ? "" : "s"}${
+                  faturamento.data.refundCount > 0
+                    ? ` · −${brl(faturamento.data.refundTotal)} em ${faturamento.data.refundCount} reembolso${faturamento.data.refundCount === 1 ? "" : "s"}`
+                    : ""
+                }${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
               : undefined
           }
           icon={Banknote}
@@ -187,22 +189,17 @@ export function DashboardPage() {
           onClick={() => setDetails("compras")}
         />
         <StatCard
-          label="Reembolsos"
-          value={
-            faturamento.data
-              ? `−${brl(faturamento.data.refundTotal)}`
-              : "—"
-          }
+          label="Saídas"
+          value={cac.data ? `−${brl(cac.data.adSpend ?? 0)}` : "—"}
           hint={
-            faturamento.data
-              ? `${faturamento.data.refundCount} reembolso${
-                  faturamento.data.refundCount === 1 ? "" : "s"
-                }`
-              : undefined
+            cac.isError
+              ? "Erro Meta API"
+              : cac.data
+                ? "Tráfego pago (Meta Ads)"
+                : "Carregando..."
           }
           icon={ArrowDownCircle}
           iconTone="rose"
-          onClick={() => setDetails("reembolsos")}
         />
         <StatCard
           label="Lucro"
@@ -213,13 +210,7 @@ export function DashboardPage() {
                 ? brl(faturamento.data.total)
                 : "—"
           }
-          hint={
-            faturamento.data && cac.data && cac.data.adSpend > 0
-              ? `Faturamento − Reembolsos − ${brl(cac.data.adSpend)} ads`
-              : faturamento.data
-                ? "Faturamento − Reembolsos"
-                : undefined
-          }
+          hint="Faturamento − Saídas"
           icon={Wallet}
           iconTone={
             faturamento.data
