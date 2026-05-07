@@ -21,6 +21,57 @@ function isAuthed(c: { req: { query: (k: string) => string | undefined; header: 
 }
 
 /**
+ * GET /api/audit/lead-info?email=X
+ * Cruza banco × Asaas API × Ticto API pra um único lead. Útil pra debug
+ * "porquê a Leticia tá cancelada se ela é assinante?".
+ */
+auditRoutes.get("/lead-info", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const email = (c.req.query("email") ?? "").toLowerCase().trim();
+  if (!email) return c.json({ error: "email required" }, 400);
+
+  // Banco
+  const dbLead = await db.query.leads.findFirst({ where: eq(leads.email, email) });
+  const dbSubs = dbLead
+    ? await db.select().from(subscriptions).where(eq(subscriptions.leadId, dbLead.id))
+    : [];
+
+  // Asaas
+  const asaasUrl = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const asaasKey = process.env.ASAAS_API_KEY;
+  let asaasInfo: unknown = null;
+  if (asaasKey) {
+    try {
+      const r = await fetch(`${asaasUrl}/customers?email=${encodeURIComponent(email)}`, {
+        headers: { access_token: asaasKey },
+      });
+      const body = (await r.json()) as { data?: Array<{ id: string }> };
+      const cust = body.data?.[0];
+      if (cust) {
+        const [s, p] = await Promise.all([
+          fetch(`${asaasUrl}/subscriptions?customer=${cust.id}&limit=20`, { headers: { access_token: asaasKey } }).then((x) => x.json()),
+          fetch(`${asaasUrl}/payments?customer=${cust.id}&limit=20`, { headers: { access_token: asaasKey } }).then((x) => x.json()),
+        ]);
+        asaasInfo = {
+          customer: cust,
+          subscriptions: (s as { data?: unknown[] }).data ?? [],
+          payments: (p as { data?: unknown[] }).data ?? [],
+        };
+      } else {
+        asaasInfo = { customer: null };
+      }
+    } catch (e) {
+      asaasInfo = { error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  return c.json({
+    db: dbLead ? { lead: dbLead, subs: dbSubs } : null,
+    asaas: asaasInfo,
+  });
+});
+
+/**
  * GET /api/audit/consistency
  * Cruza as 4 fontes (leads / subscriptions / eventos / mrr_movements) e
  * reporta divergências. Read-only. Roda toda semana ou após cada deploy.
