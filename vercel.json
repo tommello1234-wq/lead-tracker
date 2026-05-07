@@ -16,6 +16,14 @@
     {
       "path": "/api/cron/ticto-sync",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/stripe-sync",
+      "schedule": "15 5 * * *"
+    },
+    {
+      "path": "/api/cron/asaas-sync",
+      "schedule": "30 5 * * *"
     }
   ]
 }
