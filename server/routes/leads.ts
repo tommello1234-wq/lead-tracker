@@ -57,6 +57,64 @@ leadsRoutes.get("/renewal-calendar", async (c) => {
 });
 
 /* ==========================================================================
+ * GET /api/leads/:id/details — perfil + histórico completo
+ * ========================================================================== */
+leadsRoutes.get("/:id/details", async (c) => {
+  const idStr = c.req.param("id");
+  const id = Number(idStr);
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "id inválido" }, 400);
+  }
+  const { eventos, mensagensAgendadas, mrrMovements, produtos } = await import("../../db/schema.js");
+  const { eq: eqOp, desc, asc } = await import("drizzle-orm");
+
+  const lead = await db.query.leads.findFirst({ where: eqOp(leads.id, id) });
+  if (!lead) return c.json({ error: "lead não encontrado" }, 404);
+
+  const produto = lead.produtoId
+    ? await db.query.produtos.findFirst({ where: eqOp(produtos.id, lead.produtoId) })
+    : null;
+
+  const evs = await db
+    .select({
+      id: eventos.id,
+      source: eventos.source,
+      eventType: eventos.eventType,
+      processedOk: eventos.processedOk,
+      erro: eventos.erro,
+      receivedAt: eventos.receivedAt,
+      payload: eventos.payload,
+    })
+    .from(eventos)
+    .where(eqOp(eventos.leadId, id))
+    .orderBy(desc(eventos.receivedAt))
+    .limit(200);
+
+  const msgs = await db
+    .select({
+      id: mensagensAgendadas.id,
+      template: mensagensAgendadas.template,
+      conteudo: mensagensAgendadas.conteudo,
+      status: mensagensAgendadas.status,
+      erro: mensagensAgendadas.erro,
+      agendadoPara: mensagensAgendadas.agendadoPara,
+      enviadoEm: mensagensAgendadas.enviadoEm,
+      criadoEm: mensagensAgendadas.criadoEm,
+    })
+    .from(mensagensAgendadas)
+    .where(eqOp(mensagensAgendadas.leadId, id))
+    .orderBy(desc(mensagensAgendadas.criadoEm));
+
+  const movs = await db
+    .select()
+    .from(mrrMovements)
+    .where(eqOp(mrrMovements.leadId, id))
+    .orderBy(asc(mrrMovements.ocorridoEm));
+
+  return c.json({ lead, produto, eventos: evs, mensagens: msgs, movements: movs });
+});
+
+/* ==========================================================================
  * GET /api/leads?produtoId=N
  * ========================================================================== */
 leadsRoutes.get("/", async (c) => {

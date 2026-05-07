@@ -24,6 +24,7 @@ import { StatCard } from "@/components/stat-card";
 import { FunilBoard } from "@/components/funil-board";
 import { LiveActivityFeed, LiveActivityFeedCollapsed } from "@/components/live-activity";
 import { RenewalCalendar } from "@/components/renewal-calendar";
+import { LeadDetailsModal } from "@/components/lead-details-modal";
 
 type View = "table" | "funil";
 
@@ -62,6 +63,7 @@ export function LeadsPage() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<View>("funil");
   const [activityCollapsed, setActivityCollapsed] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
 
   // Filtra leads por criadoEm dentro do período selecionado
   const { since, until } = useMemo(
@@ -226,7 +228,7 @@ export function LeadsPage() {
             )}
           </div>
           <div className="min-w-0">
-            <FunilBoard />
+            <FunilBoard onLeadClick={setSelectedLeadId} />
           </div>
         </div>
       ) : null}
@@ -286,7 +288,8 @@ export function LeadsPage() {
                 return (
                   <tr
                     key={l.id}
-                    className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
+                    onClick={() => setSelectedLeadId(l.id)}
+                    className="border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -331,6 +334,13 @@ export function LeadsPage() {
         </div>
       )}
         </>
+      ) : null}
+
+      {selectedLeadId !== null ? (
+        <LeadDetailsModal
+          leadId={selectedLeadId}
+          onClose={() => setSelectedLeadId(null)}
+        />
       ) : null}
     </div>
   );

@@ -26,7 +26,7 @@ function timeAgo(horas: number): string {
   return `${Math.floor(horas / 24)}d`;
 }
 
-export function FunilBoard() {
+export function FunilBoard({ onLeadClick }: { onLeadClick?: (id: number) => void }) {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
   const { since, until } = useMemo(
@@ -69,7 +69,7 @@ export function FunilBoard() {
         <div className="overflow-x-auto -mx-5 px-5 pb-2">
           <div className="flex gap-3 min-w-max">
             {data.map((col) => (
-              <FunilColumn key={col.status} column={col} />
+              <FunilColumn key={col.status} column={col} onLeadClick={onLeadClick} />
             ))}
           </div>
         </div>
@@ -78,7 +78,13 @@ export function FunilBoard() {
   );
 }
 
-function FunilColumn({ column }: { column: FunilSnapshotColumn }) {
+function FunilColumn({
+  column,
+  onLeadClick,
+}: {
+  column: FunilSnapshotColumn;
+  onLeadClick?: (id: number) => void;
+}) {
   const tone = STATUS_TONE[column.status] ?? "bg-muted/40";
   const label = STATUS_LABEL[column.status as keyof typeof STATUS_LABEL] ?? column.status;
 
@@ -97,6 +103,7 @@ function FunilColumn({ column }: { column: FunilSnapshotColumn }) {
         {column.leads.map((l) => (
           <div
             key={l.id}
+            onClick={() => onLeadClick?.(l.id)}
             className="bg-card border border-border rounded-2xl p-3 hover:border-foreground/20 transition-colors cursor-pointer"
           >
             <div className="flex items-center gap-2 mb-1">
