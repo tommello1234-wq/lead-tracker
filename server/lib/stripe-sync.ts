@@ -123,6 +123,8 @@ export async function runStripeSync(): Promise<{
     // Ignora subs sem email/phone/customer válido (evita lead lixo).
     if (!lead) {
       if (!email && !phone && !sub.customer) { notFound++; continue; }
+      // Stripe = só Gravyx (id=1) atualmente — única conta com Stripe conectado.
+      const PRODUTO_GRAVYX = 1;
       const [createdLead] = await db
         .insert(leads)
         .values({
@@ -135,6 +137,7 @@ export async function runStripeSync(): Promise<{
           gateway: "stripe",
           gatewayCustomerId: sub.customer,
           gatewayLastOrderId: sub.id,
+          produtoId: PRODUTO_GRAVYX,
           planoNome: planoNew,
           valorAssinatura: valorNew > 0 ? valorNew : null,
           pagouEm: sub.canceled_at ? null : new Date(sub.current_period_end * 1000 - 30 * 24 * 60 * 60 * 1000),
@@ -150,7 +153,7 @@ export async function runStripeSync(): Promise<{
         valor: valorNew > 0 ? valorNew : null,
         planoNome: planoNew,
         periodicidade: "mensal",
-        produtoId: null,
+        produtoId: PRODUTO_GRAVYX,
         gatewaySubscriptionId: sub.id,
         gatewayCustomerId: sub.customer,
         canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
