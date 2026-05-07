@@ -321,6 +321,7 @@ auditRoutes.get("/asaas", async (c) => {
   if (!key) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
 
   // Helper: lista paginada de qualquer endpoint Asaas (limit 100/page)
+  const fetchLog: Array<{ path: string; status: number; got: number; offset: number }> = [];
   async function listAll<T = Record<string, unknown>>(path: string): Promise<T[]> {
     const out: T[] = [];
     let offset = 0;
@@ -329,6 +330,7 @@ auditRoutes.get("/asaas", async (c) => {
         headers: { access_token: key },
       });
       if (!r.ok) {
+        fetchLog.push({ path, status: r.status, got: 0, offset });
         if (r.status === 429) {
           await new Promise((res) => setTimeout(res, 2000));
           continue;
@@ -336,7 +338,8 @@ auditRoutes.get("/asaas", async (c) => {
         break;
       }
       const b = (await r.json()) as { data: T[]; hasMore: boolean };
-      out.push(...b.data);
+      fetchLog.push({ path, status: r.status, got: b.data?.length ?? 0, offset });
+      out.push(...(b.data ?? []));
       if (!b.hasMore) break;
       offset += 100;
       if (offset > 10000) break;
@@ -464,6 +467,7 @@ auditRoutes.get("/asaas", async (c) => {
       ...byClass,
       mrrAtivas: Math.round(mrrAtivas * 100) / 100,
     },
+    fetchLog,
     planos: Object.entries(planos)
       .map(([plano, info]) => ({ plano, ...info }))
       .sort((a, b) => b.ativas - a.ativas)
