@@ -120,6 +120,14 @@ export type FunilPix = {
   taxaConversao: number;
 };
 
+export type TaxaAprovacao = {
+  metodo: PaymentMethod;
+  aprovadas: number;
+  recusadas: number;
+  total: number;
+  taxa: number;
+};
+
 export type RetencaoPorMetodo = {
   metodo: PaymentMethod;
   clientesUnicos: number;

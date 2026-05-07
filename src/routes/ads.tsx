@@ -2,10 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   Megaphone,
-  MousePointerClick,
-  ShoppingCart,
-  DollarSign,
-  TrendingUp,
   AlertCircle,
   ExternalLink,
   Image as ImageIcon,
@@ -13,21 +9,22 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Users,
-  PiggyBank,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange, PERIOD_LABELS } from "@/lib/period";
-import { StatCard } from "@/components/stat-card";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
+import { VendasPorPlanoCard } from "@/components/vendas-por-plano-card";
+import { TaxaAprovacaoCard } from "@/components/taxa-aprovacao-card";
 import type {
   MetaInsights,
   MetaCampaign,
   CampaignStatus,
   Produto,
-  CacMetrics,
+  Faturamento,
+  PlanoBreakdown,
+  TaxaAprovacao,
   DashboardMetrics,
 } from "@shared/types";
 
@@ -127,6 +124,40 @@ const brlSmall = (n: number) =>
 const num = (n: number) => n.toLocaleString("pt-BR");
 const pct = (n: number) => `${n.toFixed(2)}%`;
 
+/**
+ * Card minimal estilo dashboard de tráfego: label em cima, valor em destaque,
+ * hint opcional embaixo. `tone` colore o valor (good/bad/neutral).
+ */
+function KpiCard({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "good" | "bad" | "neutral";
+}) {
+  const valueClass =
+    tone === "good"
+      ? "text-forest"
+      : tone === "bad"
+        ? "text-destructive"
+        : "text-foreground";
+  return (
+    <div className="card-soft p-5">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <p className="text-sm text-muted-foreground">{label}</p>
+      </div>
+      <p className={`text-2xl font-bold tabular-nums tracking-tight leading-tight ${valueClass}`}>
+        {value}
+      </p>
+      {hint ? <p className="text-xs text-muted-foreground/80 mt-1">{hint}</p> : null}
+    </div>
+  );
+}
+
 export function AdsPage() {
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "spend",
@@ -166,15 +197,27 @@ export function AdsPage() {
     enabled: hasMeta,
   });
 
-  // CAC blended + métricas do dashboard pra cards de aquisição/PIX
-  // (movidos do dashboard pra cá, são informações de tráfego)
+  // Métricas financeiras do produto/período pra montar os 4 KPIs principais
+  // (Faturamento, Gastos, ROAS, Lucro) e os cards secundários.
   const produtoParam = produtoId ?? "all";
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
-  const cac = useQuery({
-    queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${baseQs}`),
+  const faturamento = useQuery({
+    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<Faturamento>(`/api/dashboard/faturamento?${baseQs}`),
     enabled: hasMeta,
-    retry: 0,
+  });
+  const planos = useQuery({
+    queryKey: ["dashboard", "breakdowns", produtoParam],
+    queryFn: () =>
+      api
+        .get<{ planos: PlanoBreakdown[] }>(`/api/dashboard/breakdowns?produtoId=${produtoParam}`)
+        .then((r) => r.planos),
+    enabled: hasMeta,
+  });
+  const taxaAprov = useQuery({
+    queryKey: ["dashboard", "taxa-aprovacao", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<TaxaAprovacao[]>(`/api/dashboard/taxa-aprovacao?${baseQs}`),
+    enabled: hasMeta,
   });
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
@@ -291,92 +334,78 @@ export function AdsPage() {
         </div>
       ) : i ? (
         <>
-          {/* KPIs principais */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              label="Gasto"
-              value={brl(i.spend)}
-              hint={`CPM ${brlSmall(i.cpm)}`}
-              icon={DollarSign}
-              iconTone="forest"
-            />
-            <StatCard
-              label="ROAS"
-              value={i.roas > 0 ? `${i.roas.toFixed(2)}x` : "—"}
-              hint={i.purchaseValue > 0 ? `R$ ${num(Math.round(i.purchaseValue))} receita` : "Sem receita atribuída"}
-              icon={TrendingUp}
-              iconTone={i.roas >= 3 ? "forest" : i.roas >= 1 ? "lime" : "rose"}
-            />
-            <StatCard
-              label="CPA (custo por compra)"
-              value={i.purchases > 0 ? brl(i.cpa) : "—"}
-              hint={`${num(i.purchases)} compras (Pixel)`}
-              icon={ShoppingCart}
-              iconTone="lime"
-            />
-            <StatCard
-              label="CPC (link)"
-              value={brlSmall(i.cpc)}
-              hint={`${num(i.clicks)} clicks · CTR ${pct(i.ctr)}`}
-              icon={MousePointerClick}
-              iconTone="lime"
-            />
-          </div>
+          {/* === Linha 1: 4 KPIs principais (faturamento / gastos / ROAS / lucro) === */}
+          {(() => {
+            const fatLiq = faturamento.data?.total ?? 0;
+            const gastos = i.spend ?? 0;
+            const roasReal = gastos > 0 ? fatLiq / gastos : 0;
+            const lucro = fatLiq - gastos;
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <KpiCard label="Faturamento Líquido Total" value={brl(fatLiq)} />
+                <KpiCard label="Gastos com anúncios" value={brl(gastos)} />
+                <KpiCard
+                  label="ROAS"
+                  value={roasReal > 0 ? roasReal.toFixed(2) : "—"}
+                  tone={roasReal >= 3 ? "good" : roasReal >= 1 ? "neutral" : "bad"}
+                />
+                <KpiCard
+                  label="Lucro"
+                  value={brl(lucro)}
+                  tone={lucro >= 0 ? "good" : "bad"}
+                />
+              </div>
+            );
+          })()}
 
-          {/* Aquisição: Novos clientes + % Orgânico (CAC fica só no painel principal) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StatCard
-              label="Novos clientes"
-              value={cac.data ? cac.data.newCustomers.toLocaleString("pt-BR") : "—"}
-              hint={
-                cac.isError
-                  ? "—"
-                  : cac.data
-                    ? `${cac.data.organicCount} via orgânico/outros`
-                    : "Carregando..."
-              }
-              icon={Users}
-              iconTone="lime"
-            />
-            <StatCard
-              label="% Orgânico"
-              value={cac.data ? `${cac.data.organicPct.toFixed(1)}%` : "—"}
-              hint={
-                cac.isError
-                  ? "Meta API falhou (timeout/limite)"
-                  : cac.data && cac.data.adSpend === 0
-                    ? "Sem gasto Meta no período"
-                    : "Sem atribuição Meta"
-              }
-              icon={TrendingUp}
-              iconTone={cac.data && cac.data.organicPct > 30 ? "forest" : "lime"}
-            />
-          </div>
+          {/* === Linha 2: Vendas por Plano (tall esq) + 3-col grid de cards === */}
+          {(() => {
+            const fat = faturamento.data;
+            const fatLiq = fat?.total ?? 0;
+            const gastos = i.spend ?? 0;
+            const lucro = fatLiq - gastos;
+            const roi = gastos > 0 ? lucro / gastos : 0;
+            const margem = fatLiq > 0 ? (lucro / fatLiq) * 100 : 0;
+            const refundPct = fat && fat.count + fat.refundCount > 0
+              ? (fat.refundCount / (fat.count + fat.refundCount)) * 100
+              : 0;
+            const vendasPendentes = m ? m.receitaPerdidaPix : 0;
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-4 items-stretch">
+                {/* esq: Vendas por Plano (alta) */}
+                <VendasPorPlanoCard data={planos.data} isLoading={planos.isLoading} />
+                {/* dir: grid 3 cols × 3 rows com cards menores */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 grid-rows-[auto_auto_auto] gap-4 auto-rows-min">
+                  <KpiCard label="Vendas Pendentes" value={brl(vendasPendentes)} hint={m ? `${m.pixGerados} PIX em aberto` : undefined} />
+                  <KpiCard label="ROI" value={roi !== 0 ? roi.toFixed(2) : "—"} tone={roi >= 0 ? "good" : "bad"} />
+                  <KpiCard label="Imposto Meta Ads" value={brl(0)} hint="placeholder" />
 
-          {/* PIX: conversão e receita perdida */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StatCard
-              label="Tx Conversão PIX"
-              value={
-                m
-                  ? `${(m.taxaConversaoPix * 100).toLocaleString("pt-BR", {
-                      minimumFractionDigits: 1,
-                      maximumFractionDigits: 1,
-                    })}%`
-                  : "—"
-              }
-              hint={m ? `${m.pixPagos}/${m.pixGerados} pagos` : undefined}
-              icon={TrendingUp}
-              iconTone="lime"
-            />
-            <StatCard
-              label="Receita perdida em PIX"
-              value={m ? brl(m.receitaPerdidaPix) : "—"}
-              hint={m ? `${m.pixExpirados} PIX expiraram` : undefined}
-              icon={PiggyBank}
-              iconTone="rose"
-            />
-          </div>
+                  <KpiCard
+                    label="Vendas Reembolsadas"
+                    value={brl(fat?.refundTotal ?? 0)}
+                    hint={fat ? `${fat.refundCount} reembolso${fat.refundCount === 1 ? "" : "s"}` : undefined}
+                  />
+                  <KpiCard
+                    label="Margem"
+                    value={`${margem.toFixed(1)}%`}
+                    tone={margem >= 0 ? "good" : "bad"}
+                  />
+                  {/* Taxa Aprovação: ocupa 2 linhas na col 3 */}
+                  <div className="row-span-2">
+                    <TaxaAprovacaoCard data={taxaAprov.data} isLoading={taxaAprov.isLoading} />
+                  </div>
+
+                  <KpiCard
+                    label="Reembolso"
+                    value={`${refundPct.toFixed(1)}%`}
+                    hint={fat ? `${fat.refundCount} de ${fat.count + fat.refundCount} transações` : undefined}
+                    tone={refundPct < 5 ? "good" : refundPct < 15 ? "neutral" : "bad"}
+                  />
+                  <div />
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Funil de conversão: cards detalhados (60%) + visual (40%) */}
           <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4 items-stretch">
