@@ -20,6 +20,32 @@ function isAuthed(c: { req: { query: (k: string) => string | undefined; header: 
   return fromQuery === secret || fromHeader === `Bearer ${secret}`;
 }
 
+// Inspect 1 sub Ticto pelo email — debug profundo
+auditRoutes.get("/ticto-lead", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const email = (c.req.query("email") ?? "").toLowerCase();
+  if (!email) return c.json({ error: "email required" }, 400);
+
+  const tictoSubs: Array<Record<string, unknown>> = [];
+  let page = 1;
+  while (true) {
+    const r = await getSubscriptionsHistory(page);
+    const data = r.data ?? [];
+    if (data.length === 0) break;
+    tictoSubs.push(...data);
+    const last = r.meta?.last_page ?? page;
+    if (page >= last) break;
+    page++;
+  }
+
+  const matches = tictoSubs.filter((s) => {
+    const c = (s.customer as Record<string, unknown>) ?? {};
+    return String(c.email ?? "").toLowerCase() === email;
+  });
+
+  return c.json({ count: matches.length, subs: matches });
+});
+
 auditRoutes.get("/ticto", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
 
