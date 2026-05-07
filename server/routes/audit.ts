@@ -320,18 +320,35 @@ auditRoutes.get("/asaas", async (c) => {
   const key = process.env.ASAAS_API_KEY;
   if (!key) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
 
-  // 1) Lista todos customers
-  const customers: Array<Record<string, unknown>> = [];
-  let offset = 0;
-  while (true) {
-    const r = await fetch(`${url}/customers?limit=100&offset=${offset}`, { headers: { access_token: key } });
-    if (!r.ok) return c.json({ error: `Asaas ${r.status}` }, 500);
-    const b = (await r.json()) as { data: Array<Record<string, unknown>>; hasMore: boolean };
-    customers.push(...b.data);
-    if (!b.hasMore) break;
-    offset += 100;
-    if (offset > 5000) break;
+  // Helper: lista paginada de qualquer endpoint Asaas (limit 100/page)
+  async function listAll<T = Record<string, unknown>>(path: string): Promise<T[]> {
+    const out: T[] = [];
+    let offset = 0;
+    while (true) {
+      const r = await fetch(`${url}${path}${path.includes("?") ? "&" : "?"}limit=100&offset=${offset}`, {
+        headers: { access_token: key },
+      });
+      if (!r.ok) {
+        if (r.status === 429) {
+          await new Promise((res) => setTimeout(res, 2000));
+          continue;
+        }
+        break;
+      }
+      const b = (await r.json()) as { data: T[]; hasMore: boolean };
+      out.push(...b.data);
+      if (!b.hasMore) break;
+      offset += 100;
+      if (offset > 10000) break;
+      await new Promise((res) => setTimeout(res, 200));
+    }
+    return out;
   }
+
+  // 1) Lista TUDO globalmente (3-10 calls em vez de 1 por customer)
+  const customers = await listAll<{ id: string; name?: string; email?: string; cpfCnpj?: string }>("/customers");
+  const allSubs = await listAll<{ id: string; customer: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string; deletedDate?: string }>("/subscriptions");
+  const allPays = await listAll<{ id: string; customer: string; status: string; value: number; description?: string; confirmedDate?: string; paymentDate?: string; dueDate?: string; subscription?: string }>("/payments");
 
   // 2) Pra cada customer, busca subs + payments (paralelo limitado pra não estourar API)
   type Bucket = {
@@ -352,99 +369,70 @@ auditRoutes.get("/asaas", async (c) => {
   };
   const buckets: Bucket[] = [];
 
-  // Helper: fetch com retry pra absorver rate-limit Asaas
-  async function fetchJsonRetry(u: string, retries = 3): Promise<{ data: Array<Record<string, unknown>> } | null> {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const r = await fetch(u, { headers: { access_token: key } });
-        if (r.ok) return (await r.json()) as { data: Array<Record<string, unknown>> };
-        if (r.status === 429 || r.status >= 500) {
-          await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
-          continue;
-        }
-        return null;
-      } catch {
-        await new Promise((res) => setTimeout(res, 500));
-      }
-    }
-    return null;
+  // Index payments e subs por customer pra lookup O(1)
+  const subsByCustomer = new Map<string, typeof allSubs>();
+  for (const s of allSubs) {
+    if (!subsByCustomer.has(s.customer)) subsByCustomer.set(s.customer, []);
+    subsByCustomer.get(s.customer)!.push(s);
+  }
+  const paysByCustomer = new Map<string, typeof allPays>();
+  for (const p of allPays) {
+    if (!paysByCustomer.has(p.customer)) paysByCustomer.set(p.customer, []);
+    paysByCustomer.get(p.customer)!.push(p);
   }
 
-  // Concurrency baixa pra não tomar 429
-  const concurrency = 3;
-  let cursor = 0;
-  let fetchErrors = 0;
-  while (cursor < customers.length) {
-    const slice = customers.slice(cursor, cursor + concurrency);
-    await Promise.all(
-      slice.map(async (cust) => {
-        const cid = String(cust.id);
-        const [subBody, payBody] = await Promise.all([
-          fetchJsonRetry(`${url}/subscriptions?customer=${cid}&limit=20`),
-          fetchJsonRetry(`${url}/payments?customer=${cid}&limit=50`),
-        ]);
-        if (!subBody || !payBody) {
-          fetchErrors++;
-          return;
-        }
-        const sub = subBody.data ?? [];
-        const pays = payBody.data ?? [];
+  const cutoff = Date.now() - 35 * 24 * 60 * 60 * 1000;
+  for (const cust of customers) {
+    const sub = subsByCustomer.get(cust.id) ?? [];
+    const pays = paysByCustomer.get(cust.id) ?? [];
 
-        // Pega sub mais recente
-        const lastSub = [...sub].sort((a, b) =>
-          String(b.dateCreated ?? "").localeCompare(String(a.dateCreated ?? "")),
-        )[0];
+    // Pega sub mais recente
+    const lastSub = [...sub].sort((a, b) =>
+      String(b.dateCreated ?? "").localeCompare(String(a.dateCreated ?? "")),
+    )[0];
 
-        // Conta payments por status
-        const pConfirmed = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? ""))).length;
-        const pRefunded = pays.filter((p) => /^REFUNDED$/i.test(String(p.status ?? ""))).length;
-        const pPending = pays.filter((p) => /^(PENDING|OVERDUE)$/i.test(String(p.status ?? ""))).length;
+    const pConfirmed = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? ""))).length;
+    const pRefunded = pays.filter((p) => /^REFUNDED$/i.test(String(p.status ?? ""))).length;
+    const pPending = pays.filter((p) => /^(PENDING|OVERDUE)$/i.test(String(p.status ?? ""))).length;
 
-        // Última data de pagamento confirmado
-        const lastPay = pays.find((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? "")));
-        const lastDate = String(lastPay?.confirmedDate ?? lastPay?.paymentDate ?? lastPay?.dueDate ?? "") || null;
+    const lastPay = pays.find((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? "")));
+    const lastDate = String(lastPay?.confirmedDate ?? lastPay?.paymentDate ?? lastPay?.dueDate ?? "") || null;
 
-        // Classifica:
-        let classification: Bucket["classification"] = "sem_assinatura";
-        const subStatus = String(lastSub?.status ?? "").toUpperCase();
-        const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(String(p.status ?? "")));
-        const cutoff = Date.now() - 35 * 24 * 60 * 60 * 1000;
-        const recentPaid = pays.some((p) => {
-          if (!/^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? ""))) return false;
-          const d = new Date(String(p.confirmedDate ?? p.paymentDate ?? p.dueDate));
-          return d.getTime() > cutoff;
-        });
+    let classification: Bucket["classification"] = "sem_assinatura";
+    const subStatus = String(lastSub?.status ?? "").toUpperCase();
+    const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(String(p.status ?? "")));
+    const recentPaid = pays.some((p) => {
+      if (!/^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(String(p.status ?? ""))) return false;
+      const d = new Date(String(p.confirmedDate ?? p.paymentDate ?? p.dueDate));
+      return d.getTime() > cutoff;
+    });
 
-        if (lastSub && subStatus === "ACTIVE") {
-          classification = recentPaid ? "ativa" : "atrasada";
-        } else if (lastSub && (subStatus === "INACTIVE" || subStatus === "EXPIRED")) {
-          classification = "cancelada";
-        } else if (onlyRefund) {
-          classification = "reembolsada";
-        } else if (pays.length > 0 && !lastSub) {
-          // Tem payments mas sem subscription — provavelmente compra one-off ou parcelado
-          classification = recentPaid ? "ativa" : "cancelada";
-        }
+    if (lastSub && subStatus === "ACTIVE") {
+      classification = recentPaid ? "ativa" : "atrasada";
+    } else if (lastSub && (subStatus === "INACTIVE" || subStatus === "EXPIRED")) {
+      classification = "cancelada";
+    } else if (onlyRefund) {
+      classification = "reembolsada";
+    } else if (pays.length > 0 && !lastSub) {
+      classification = recentPaid ? "ativa" : "cancelada";
+    }
 
-        buckets.push({
-          name: String(cust.name ?? ""),
-          email: String(cust.email ?? ""),
-          cpf: String(cust.cpfCnpj ?? ""),
-          customerId: cid,
-          subStatus: lastSub ? String(lastSub.status ?? "") : null,
-          subValue: lastSub ? Number(lastSub.value) : null,
-          subCycle: lastSub ? String(lastSub.cycle ?? "") : null,
-          description: lastSub ? String(lastSub.description ?? "") : (pays[0] ? String(pays[0].description ?? "") : null),
-          paymentsCount: pays.length,
-          paymentsConfirmed: pConfirmed,
-          paymentsRefunded: pRefunded,
-          paymentsPending: pPending,
-          lastPaymentDate: lastDate,
-          classification,
-        });
-      }),
-    );
-    cursor += concurrency;
+    buckets.push({
+      name: String(cust.name ?? ""),
+      email: String(cust.email ?? ""),
+      cpf: String(cust.cpfCnpj ?? ""),
+      customerId: String(cust.id),
+      subStatus: lastSub ? String(lastSub.status ?? "") : null,
+      subValue: lastSub ? Number(lastSub.value) : null,
+      subCycle: lastSub ? String(lastSub.cycle ?? "") : null,
+      description: lastSub ? String(lastSub.description ?? "") : (pays[0] ? String(pays[0].description ?? "") : null),
+      paymentsCount: pays.length,
+      paymentsConfirmed: pConfirmed,
+      paymentsRefunded: pRefunded,
+      paymentsPending: pPending,
+      lastPaymentDate: lastDate,
+      classification,
+    });
   }
 
   // Resumos
@@ -471,9 +459,10 @@ auditRoutes.get("/asaas", async (c) => {
   return c.json({
     summary: {
       totalCustomers: customers.length,
+      totalSubs: allSubs.length,
+      totalPayments: allPays.length,
       ...byClass,
       mrrAtivas: Math.round(mrrAtivas * 100) / 100,
-      fetchErrors,
     },
     planos: Object.entries(planos)
       .map(([plano, info]) => ({ plano, ...info }))
