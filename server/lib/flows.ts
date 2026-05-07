@@ -642,6 +642,12 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   }
   if (input.eventType === "assinatura_cancelada") {
     updates.canceladoEm = now;
+    // Se lead já tinha refund, manter status='reembolsada' (mais informativo
+    // pra MRR/relatório). Cancel posterior só registra a data, não sobrescreve.
+    if (lead.subscriptionStatus === "reembolsada" || lead.reembolsadoEm) {
+      updates.status = lead.status; // não muda
+      updates.subscriptionStatus = "reembolsada";
+    }
   }
   if (input.eventType === "reembolso") {
     // Data canônica do refund — não mais inferida via atualizadoEm.
