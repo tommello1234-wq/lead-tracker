@@ -73,6 +73,9 @@ auditRoutes.get("/ticto", async (c) => {
     const offer = s.offer as Record<string, unknown> | undefined;
     const item = s.item as Record<string, unknown> | undefined;
     const candidates = [
+      // Sub Ticto: price no root é em centavos.
+      Number(s.price),
+      Number(s.first_charge_price),
       Number(offer?.price),
       Number(offer?.amount),
       Number(item?.amount),
@@ -81,7 +84,6 @@ auditRoutes.get("/ticto", async (c) => {
       Number(s.total),
       Number(s.unit_price),
     ];
-    // Valores ticto vêm em centavos. Pega o primeiro > 0 e divide por 100.
     for (const c of candidates) {
       if (Number.isFinite(c) && c > 0) return c / 100;
     }
@@ -95,8 +97,12 @@ auditRoutes.get("/ticto", async (c) => {
       tictoActiveCount++;
       const valor = extractValor(s);
       const period = String(s.periodicity ?? s.periodicidade ?? "monthly").toLowerCase();
-      if (period.includes("anual") || period === "yearly") tictoMrr += valor / 12;
-      else tictoMrr += valor;
+      const interval = String(s.interval ?? "monthly").toLowerCase();
+      if (period.includes("anual") || period === "yearly" || interval.includes("year") || interval.includes("anual")) {
+        tictoMrr += valor / 12;
+      } else {
+        tictoMrr += valor;
+      }
     }
   }
 
@@ -303,13 +309,13 @@ auditRoutes.get("/ticto", async (c) => {
       ? {
           id: sampleAtiva.id,
           situation: sampleAtiva.situation,
-          status: sampleAtiva.status,
-          amount: sampleAtiva.amount,
-          value: sampleAtiva.value,
+          price: sampleAtiva.price,
+          first_charge_price: sampleAtiva.first_charge_price,
+          interval: sampleAtiva.interval,
+          payment_method: sampleAtiva.payment_method,
           offer: sampleAtiva.offer,
-          item: sampleAtiva.item,
-          product_name: sampleAtiva.product_name,
-          periodicity: sampleAtiva.periodicity,
+          product: sampleAtiva.product,
+          customer: sampleAtiva.customer,
         }
       : null,
     tictoActiveMissingFromDb,
