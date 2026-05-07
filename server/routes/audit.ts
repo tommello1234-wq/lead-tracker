@@ -36,6 +36,13 @@ auditRoutes.get("/ticto", async (c) => {
     page++;
   }
 
+  // Debug: shape da 1ª sub
+  const sampleShape = tictoSubs[0] ? Object.keys(tictoSubs[0]).sort() : [];
+  const sampleAtiva = tictoSubs.find((s) => {
+    const sit = String(s.situation ?? s.status ?? "").toLowerCase();
+    return sit === "ativa" || sit === "active";
+  });
+
   // 2. Subs Ticto no banco
   const dbSubs = await db
     .select({
@@ -60,12 +67,33 @@ auditRoutes.get("/ticto", async (c) => {
   const tictoByStatus: Record<string, number> = {};
   let tictoMrr = 0;
   let tictoActiveCount = 0;
+  // Helper: extrai valor da sub Ticto. Tenta vários campos pq a API muda
+  // entre payloads (offer.amount, value, item.amount, etc).
+  function extractValor(s: Record<string, unknown>): number {
+    const offer = s.offer as Record<string, unknown> | undefined;
+    const item = s.item as Record<string, unknown> | undefined;
+    const candidates = [
+      Number(offer?.price),
+      Number(offer?.amount),
+      Number(item?.amount),
+      Number(s.value),
+      Number(s.amount),
+      Number(s.total),
+      Number(s.unit_price),
+    ];
+    // Valores ticto vêm em centavos. Pega o primeiro > 0 e divide por 100.
+    for (const c of candidates) {
+      if (Number.isFinite(c) && c > 0) return c / 100;
+    }
+    return 0;
+  }
+
   for (const s of tictoSubs) {
     const sit = String((s.situation ?? s.status ?? "")).toLowerCase();
     tictoByStatus[sit] = (tictoByStatus[sit] ?? 0) + 1;
     if (sit === "ativa" || sit === "active") {
       tictoActiveCount++;
-      const valor = Number(s.amount ?? 0) / 100;
+      const valor = extractValor(s);
       const period = String(s.periodicity ?? s.periodicidade ?? "monthly").toLowerCase();
       if (period.includes("anual") || period === "yearly") tictoMrr += valor / 12;
       else tictoMrr += valor;
@@ -124,7 +152,7 @@ auditRoutes.get("/ticto", async (c) => {
     const customer = (ts.customer as Record<string, unknown>) ?? {};
     const email = String(customer.email ?? "").toLowerCase();
     const cpf = String(customer.cpf ?? customer.cnpj ?? "");
-    const tictoValor = Number(ts.amount ?? 0) / 100;
+    const tictoValor = extractValor(ts);
     const tictoPlano = `${(ts.product as Record<string, unknown>)?.name ?? ts.product_name ?? ""} ${(ts.offer as Record<string, unknown>)?.name ?? ""}`.trim() || "(sem plano)";
 
     // Tenta match por subscription_id (hash da Ticto)
@@ -218,6 +246,39 @@ auditRoutes.get("/ticto", async (c) => {
     return true;
   });
 
+  // Quem está ATIVO no Ticto mas o lead correspondente está como NÃO-ativo
+  // (ou ativo num gateway diferente, ou sem sub Ticto no banco).
+  const dbActiveTictoEmails = new Set<string>();
+  const dbActiveTictoCpfs = new Set<string>();
+  for (const s of dbSubs) {
+    if (s.status !== "ativa") continue;
+    if (s.leadEmail) dbActiveTictoEmails.add(s.leadEmail.toLowerCase());
+    if (s.leadCpf) dbActiveTictoCpfs.add(s.leadCpf);
+  }
+  const tictoActiveMissingFromDb: Array<{
+    email: string | null;
+    cpf: string | null;
+    nome: string;
+    plano: string;
+    valor: number;
+  }> = [];
+  for (const ts of tictoSubs) {
+    const sit = String(ts.situation ?? ts.status ?? "").toLowerCase();
+    if (sit !== "ativa" && sit !== "active") continue;
+    const customer = (ts.customer as Record<string, unknown>) ?? {};
+    const email = String(customer.email ?? "").toLowerCase();
+    const cpf = String(customer.cpf ?? customer.cnpj ?? "");
+    if (email && dbActiveTictoEmails.has(email)) continue;
+    if (cpf && dbActiveTictoCpfs.has(cpf)) continue;
+    tictoActiveMissingFromDb.push({
+      email: email || null,
+      cpf: cpf || null,
+      nome: String(customer.name ?? ""),
+      plano: `${(ts.product as Record<string, unknown>)?.name ?? ts.product_name ?? ""} ${(ts.offer as Record<string, unknown>)?.name ?? ""}`.trim(),
+      valor: extractValor(ts),
+    });
+  }
+
   return c.json({
     ok: true,
     summary: {
@@ -237,7 +298,22 @@ auditRoutes.get("/ticto", async (c) => {
     },
     tictoByStatus,
     dbByStatus,
-    issues: issues.slice(0, 50),
+    sampleShape,
+    sampleAtiva: sampleAtiva
+      ? {
+          id: sampleAtiva.id,
+          situation: sampleAtiva.situation,
+          status: sampleAtiva.status,
+          amount: sampleAtiva.amount,
+          value: sampleAtiva.value,
+          offer: sampleAtiva.offer,
+          item: sampleAtiva.item,
+          product_name: sampleAtiva.product_name,
+          periodicity: sampleAtiva.periodicity,
+        }
+      : null,
+    tictoActiveMissingFromDb,
+    issues: issues.slice(0, 30),
     orphanActive: orphanActive.slice(0, 20).map((s) => ({
       leadId: s.leadId,
       nome: s.leadNome,
