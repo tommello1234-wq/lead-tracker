@@ -29,6 +29,45 @@ webhookRoutes.get("/", (c) =>
 
 
 
+/* GET /api/webhooks/asaas/customers-summary — pega TODOS customers
+ * com pagamento, classifica pelo último pagamento + subscription. */
+webhookRoutes.get("/asaas/customers-summary", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  type Cust = { id: string; name?: string; email?: string };
+  // Lista todos customers
+  const customers: Cust[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await fetch(`${url}/customers?limit=100&offset=${offset}`, { headers: { access_token: key } });
+    const b = (await r.json()) as { data: Cust[]; hasMore: boolean };
+    customers.push(...b.data);
+    if (!b.hasMore) break;
+    offset += 100;
+    if (offset > 5000) break;
+  }
+
+  // Pra cada customer, conta payments por status
+  const stats = { totalCustomers: customers.length, comPagamentoConfirmed: 0, soReembolso: 0, semPagamento: 0, comSubAtiva: 0 };
+  let processed = 0;
+  for (const cust of customers) {
+    const pRes = await fetch(`${url}/payments?customer=${cust.id}&limit=10`, { headers: { access_token: key } });
+    const pBody = (await pRes.json()) as { data: Array<{ status: string }> };
+    const statuses = (pBody.data ?? []).map((p) => (p.status ?? "").toUpperCase());
+    if (statuses.length === 0) stats.semPagamento++;
+    else if (statuses.includes("CONFIRMED") || statuses.includes("RECEIVED")) stats.comPagamentoConfirmed++;
+    else if (statuses.every((s) => s === "REFUNDED")) stats.soReembolso++;
+
+    const sRes = await fetch(`${url}/subscriptions?customer=${cust.id}&status=ACTIVE&limit=1`, { headers: { access_token: key } });
+    const sBody = (await sRes.json()) as { data: unknown[] };
+    if (sBody.data?.length > 0) stats.comSubAtiva++;
+    processed++;
+  }
+  return c.json({ ok: true, ...stats, processed });
+});
+
 /* GET /api/webhooks/asaas/all-subs-summary — quantos customers tem com subs
  * de cada status (ACTIVE, INACTIVE, CANCELED, EXPIRED). Dry-run admin. */
 webhookRoutes.get("/asaas/all-subs-summary", async (c) => {
