@@ -284,6 +284,16 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       });
       if (!lead) continue;
 
+      // Gateway-aware: se lead está em outro gateway (ex: migrou pra
+      // Stripe/Asaas), sub Ticto cancelada NÃO sobrescreve. Mesma regra
+      // do flows.ts handleGatewayEvent — fix da Martha/Eduardo.
+      if (lead.gateway && lead.gateway !== "ticto" && mapped.sub === "cancelada") {
+        // Pula esta sub — cancelamento Ticto enquanto cliente está
+        // ativo em outro gateway é cancelamento "lateral" (cliente
+        // migrou e cancelou plano antigo).
+        continue;
+      }
+
       const updates: Record<string, unknown> = {
         atualizadoEm: new Date(),
       };
