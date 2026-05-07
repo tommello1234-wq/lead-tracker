@@ -6,8 +6,8 @@
  * garante consistência mesmo se um webhook falhou.
  */
 import { db } from "../../db/client.js";
-import { leads, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
-import { eq, or } from "drizzle-orm";
+import { leads, eventos, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
+import { eq, or, sql } from "drizzle-orm";
 import { upsertSubscription } from "./subscriptions.js";
 
 type StripeSubscription = {
@@ -62,31 +62,83 @@ function mapPlanoFromSlug(slug?: string): string | null {
   return null;
 }
 
+type StripeInvoice = {
+  id: string;
+  customer: string;
+  subscription?: string | null;
+  amount_paid: number;
+  amount_due: number;
+  status: string; // paid, open, void, uncollectible, draft
+  description?: string | null;
+  status_transitions?: { paid_at?: number | null };
+  lines?: { data: Array<{ description?: string | null; price?: { unit_amount?: number } }> };
+};
+
+type StripeRefund = {
+  id: string;
+  amount: number;
+  charge: string;
+  payment_intent?: string | null;
+  status: string;
+  created: number;
+};
+
+type StripeCharge = {
+  id: string;
+  customer?: string | null;
+  invoice?: string | null;
+  amount: number;
+  refunded: boolean;
+  amount_refunded: number;
+};
+
 export async function runStripeSync(): Promise<{
   total: number;
   updated: number;
   created: number;
   notFound: number;
   unchanged: number;
+  evCreated: number;
 }> {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY não configurada");
 
-  // 1) Pega todas subscriptions paginadas (status=all)
-  const subs: StripeSubscription[] = [];
-  let starting_after: string | undefined;
-  while (true) {
-    const params = new URLSearchParams({ status: "all", limit: "100" });
-    if (starting_after) params.set("starting_after", starting_after);
-    const r = await fetch(`https://api.stripe.com/v1/subscriptions?${params}`, {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    if (!r.ok) throw new Error(`Stripe ${r.status}: ${await r.text()}`);
-    const body = (await r.json()) as { data: StripeSubscription[]; has_more: boolean };
-    subs.push(...body.data);
-    if (!body.has_more || body.data.length === 0) break;
-    starting_after = body.data[body.data.length - 1].id;
-    if (subs.length > 5000) break;
+  // Helper paginado Stripe
+  async function listAllStripe<T>(path: string, params: Record<string, string> = {}): Promise<T[]> {
+    const out: T[] = [];
+    let starting_after: string | undefined;
+    while (true) {
+      const p = new URLSearchParams({ limit: "100", ...params });
+      if (starting_after) p.set("starting_after", starting_after);
+      const r = await fetch(`https://api.stripe.com/v1${path}?${p}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!r.ok) throw new Error(`Stripe ${path} ${r.status}: ${await r.text()}`);
+      const body = (await r.json()) as { data: T[]; has_more: boolean };
+      out.push(...body.data);
+      if (!body.has_more || body.data.length === 0) break;
+      starting_after = (body.data[body.data.length - 1] as { id: string }).id;
+      if (out.length > 5000) break;
+    }
+    return out;
+  }
+
+  // 1) Pega todas subscriptions, invoices, charges (1x cada — sem rate-limit)
+  const subs = await listAllStripe<StripeSubscription>("/subscriptions", { status: "all" });
+  const allInvoices = await listAllStripe<StripeInvoice>("/invoices", { status: "paid" });
+  const allCharges = await listAllStripe<StripeCharge>("/charges");
+
+  // Index invoices/charges por customer
+  const invoicesByCust = new Map<string, StripeInvoice[]>();
+  for (const inv of allInvoices) {
+    if (!invoicesByCust.has(inv.customer)) invoicesByCust.set(inv.customer, []);
+    invoicesByCust.get(inv.customer)!.push(inv);
+  }
+  const chargesByCust = new Map<string, StripeCharge[]>();
+  for (const ch of allCharges) {
+    if (!ch.customer) continue;
+    if (!chargesByCust.has(ch.customer)) chargesByCust.set(ch.customer, []);
+    chargesByCust.get(ch.customer)!.push(ch);
   }
 
   // 2) Pra cada sub, busca customer e atualiza/cria lead
@@ -94,6 +146,70 @@ export async function runStripeSync(): Promise<{
   let created = 0;
   let notFound = 0;
   let unchanged = 0;
+  let evCreated = 0;
+
+  // Cria eventos compra_aprovada/reembolso pra cada invoice paga / refund.
+  // Idempotente via order.hash = invoice.id ou charge.id.
+  async function syncStripeEvents(
+    leadId: number,
+    produtoId: number,
+    customerId: string,
+  ) {
+    const invs = invoicesByCust.get(customerId) ?? [];
+    const charges = chargesByCust.get(customerId) ?? [];
+
+    for (const inv of invs) {
+      if (inv.status !== "paid") continue;
+      const exists = await db
+        .select({ id: eventos.id })
+        .from(eventos)
+        .where(sql`${eventos.payload}->'order'->>'hash' = ${inv.id}`)
+        .limit(1);
+      if (exists.length > 0) continue;
+      const dt = inv.status_transitions?.paid_at
+        ? new Date(inv.status_transitions.paid_at * 1000)
+        : new Date();
+      const desc = inv.lines?.data?.[0]?.description ?? inv.description ?? "Stripe";
+      await db.insert(eventos).values({
+        leadId,
+        produtoId,
+        source: "stripe-sync",
+        eventType: "compra_aprovada",
+        payload: {
+          payment: { value: inv.amount_paid / 100, description: desc, status: "paid" },
+          order: { hash: inv.id },
+        },
+        processedOk: true,
+        receivedAt: dt,
+      });
+      evCreated++;
+    }
+
+    // Refunds: charges com refunded=true
+    for (const ch of charges) {
+      if (!ch.refunded || ch.amount_refunded === 0) continue;
+      const refKey = `refund_${ch.id}`;
+      const exists = await db
+        .select({ id: eventos.id })
+        .from(eventos)
+        .where(sql`${eventos.payload}->'order'->>'hash' = ${refKey}`)
+        .limit(1);
+      if (exists.length > 0) continue;
+      await db.insert(eventos).values({
+        leadId,
+        produtoId,
+        source: "stripe-sync",
+        eventType: "reembolso",
+        payload: {
+          payment: { value: ch.amount_refunded / 100, status: "refunded" },
+          order: { hash: refKey },
+        },
+        processedOk: true,
+        receivedAt: new Date(),
+      });
+      evCreated++;
+    }
+  }
   for (const sub of subs) {
     // Customer info
     const cRes = await fetch(`https://api.stripe.com/v1/customers/${sub.customer}`, {
@@ -158,6 +274,7 @@ export async function runStripeSync(): Promise<{
         gatewayCustomerId: sub.customer,
         canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
       });
+      await syncStripeEvents(lead.id, PRODUTO_GRAVYX, sub.customer);
       created++;
       continue;
     }
@@ -173,7 +290,11 @@ export async function runStripeSync(): Promise<{
       lead.subscriptionStatus !== mapped.sub ||
       lead.gateway !== "stripe" ||
       (valor > 0 && lead.valorAssinatura !== valor);
-    if (!needsUpdate) { unchanged++; continue; }
+    if (!needsUpdate) {
+      await syncStripeEvents(lead.id, lead.produtoId ?? 1, sub.customer);
+      unchanged++;
+      continue;
+    }
 
     const updates: Record<string, unknown> = {
       gateway: "stripe",
@@ -204,8 +325,9 @@ export async function runStripeSync(): Promise<{
       gatewayCustomerId: sub.customer,
       canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
     });
+    await syncStripeEvents(lead.id, lead.produtoId ?? 1, sub.customer);
     updated++;
   }
 
-  return { total: subs.length, updated, created, notFound, unchanged };
+  return { total: subs.length, updated, created, notFound, unchanged, evCreated };
 }
