@@ -478,11 +478,20 @@ export async function getFaturamento(
   if (since != null) baseConditions.push(gte(eventos.receivedAt, since));
   if (until != null) baseConditions.push(lte(eventos.receivedAt, until));
 
-  // Extrai valor com fallbacks pros vários formatos de payload
+  // Extrai valor com fallbacks pros vários formatos de payload.
+  // Ordem importa: campos mais específicos primeiro, fallbacks por último.
   const valorExpr = sql<number>`coalesce(
-    (${eventos.payload}->>'valor')::numeric,
+    -- Ticto v2 webhook: item.amount em centavos
     ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+    -- Ticto API backfill: transaction.paid_amount em centavos (item é null)
+    ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+    -- Ticto API backfill alternativo: offer.price em centavos
+    ((${eventos.payload}->'offer'->>'price')::numeric / 100),
+    -- Stripe: data.object.amount_total em centavos
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    -- Asaas: payment.value já em reais decimal
+    ((${eventos.payload}->'payment'->>'value')::numeric),
+    -- Fallback: valor_assinatura do lead
     (select valor_assinatura from leads where id = ${eventos.leadId}),
     0
   )::numeric(10,2)`;

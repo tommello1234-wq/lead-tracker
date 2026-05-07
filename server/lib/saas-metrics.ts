@@ -77,11 +77,14 @@ const metodoExpr = sql<string>`
 
 /**
  * Mesma extração de valor (em reais) que getFaturamento usa.
+ * Ordem importa: campos mais específicos primeiro.
  */
 const valorExpr = sql<number>`coalesce(
-  (${eventos.payload}->>'valor')::numeric,
   ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+  ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+  ((${eventos.payload}->'offer'->>'price')::numeric / 100),
   ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+  ((${eventos.payload}->'payment'->>'value')::numeric),
   (select valor_assinatura from leads where id = ${eventos.leadId}),
   0
 )::numeric(10,2)`;
