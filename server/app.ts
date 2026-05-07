@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { authRoutes } from "./routes/auth.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { cronRoutes } from "./routes/cron.js";
+import { auditRoutes } from "./routes/audit.js";
 import { produtosRoutes } from "./routes/produtos.js";
 import { leadsRoutes } from "./routes/leads.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
@@ -29,6 +30,7 @@ app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
 app.route("/auth", authRoutes);
 app.route("/webhooks", webhookRoutes);
 app.route("/cron", cronRoutes);
+app.route("/audit", auditRoutes);
 
 // Protegidas (cookie de sessão)
 app.use("/produtos/*", requireAuth);
