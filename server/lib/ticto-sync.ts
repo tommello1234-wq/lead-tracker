@@ -103,7 +103,28 @@ function mapSubSituation(situation: string): {
   if (s === "atrasada" || s === "delayed") return { lead: "cliente_em_risco", sub: "atrasada" };
   if (s === "cancelada" || s === "canceled" || s === "cancelled")
     return { lead: "cliente_cancelado", sub: "cancelada" };
+  if (s === "reembolsada" || s === "refunded")
+    return { lead: "cliente_em_risco", sub: "reembolsada" };
   return null;
+}
+
+/**
+ * Status real da sub: a Ticto não atualiza `situation` quando refund de cobrança
+ * ocorre. Olha a ÚLTIMA transação pra detectar reembolso/atraso real.
+ *
+ * Caso real: cliente Daniel — situation="Ativa" mas transactions[0].status="refunded".
+ * Sem isso, próximo sync marcaria como ativa de novo.
+ */
+function realSubStatus(sub: TictoSubscription): string {
+  const txs = (sub as { transactions?: Array<{ status?: string; is_latest_transaction?: boolean }> }).transactions ?? [];
+  const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+  if (latest?.status) {
+    const s = String(latest.status).toLowerCase();
+    if (s === "refunded" || s === "chargeback") return "reembolsada";
+    if (s === "delayed") return "atrasada";
+    if (s === "refused") return "atrasada";
+  }
+  return String(sub.situation ?? sub.status ?? "");
 }
 
 /**
@@ -286,7 +307,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       const email = String(customer?.email ?? "");
       const phones = customer?.phones as AnyObject[] | undefined;
       const phone = parsePhone(phones?.[0] ?? customer?.phone);
-      const situation = String((sub as AnyObject).situation ?? sub.status ?? "");
+      const situation = realSubStatus(sub);
       const mapped = mapSubSituation(situation);
       if (!mapped) continue;
 
