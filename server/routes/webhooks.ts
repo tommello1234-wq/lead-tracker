@@ -29,6 +29,53 @@ webhookRoutes.get("/", (c) =>
 
 
 
+/* GET /api/webhooks/asaas/all-subs-summary — quantos customers tem com subs
+ * de cada status (ACTIVE, INACTIVE, CANCELED, EXPIRED). Dry-run admin. */
+webhookRoutes.get("/asaas/all-subs-summary", async (c) => {
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ ok: false, error: "ASAAS_API_KEY ausente" }, 500);
+
+  type Sub = { id: string; status: string; value: number; cycle: string; description?: string; customer: string; dateCreated?: string };
+  const subs: Sub[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await fetch(`${url}/subscriptions?limit=100&offset=${offset}`, { headers: { access_token: key } });
+    const b = (await r.json()) as { data: Sub[]; hasMore: boolean };
+    subs.push(...b.data);
+    if (!b.hasMore) break;
+    offset += 100;
+    if (offset > 5000) break;
+  }
+
+  // Agrupa por customer, pega a última subscription por dateCreated
+  const byCustomer = new Map<string, Sub[]>();
+  for (const s of subs) {
+    const arr = byCustomer.get(s.customer) ?? [];
+    arr.push(s);
+    byCustomer.set(s.customer, arr);
+  }
+  // Pra cada customer, ordena subs por dateCreated DESC, pega a primeira
+  const lastByCustomer = new Map<string, Sub>();
+  for (const [cust, arr] of byCustomer) {
+    arr.sort((a, b) => (b.dateCreated ?? "").localeCompare(a.dateCreated ?? ""));
+    lastByCustomer.set(cust, arr[0]);
+  }
+
+  // Conta por status da última sub
+  const byStatus: Record<string, number> = {};
+  for (const sub of lastByCustomer.values()) {
+    byStatus[sub.status] = (byStatus[sub.status] ?? 0) + 1;
+  }
+
+  return c.json({
+    ok: true,
+    totalSubs: subs.length,
+    customersUnicos: byCustomer.size,
+    porStatusUltimaSub: byStatus,
+  });
+});
+
 /* GET /api/webhooks/asaas/find-customer?email=X — admin temp */
 webhookRoutes.get("/asaas/find-customer", async (c) => {
   const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
