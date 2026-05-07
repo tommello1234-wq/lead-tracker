@@ -84,13 +84,24 @@ export function RenewalCalendar({
     viewMonth === today.getMonth() &&
     viewYear === today.getFullYear();
 
+  // Limites: mês atual mínimo, +12 meses no futuro máximo.
+  // Voltar pro passado não faz sentido — calendário mostra DIA do mês
+  // (renovação recorrente), não datas históricas. Cliente que paga dia 4
+  // aparece no dia 4 de qualquer mês visualizado.
+  const minDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  const maxDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
+  const viewDate = new Date(viewYear, viewMonth, 1);
+  const canPrev = viewDate > minDate;
+  const canNext = viewDate < maxDate;
   const prevMonth = () => {
+    if (!canPrev) return;
     if (viewMonth === 0) {
       setViewYear(viewYear - 1);
       setViewMonth(11);
     } else setViewMonth(viewMonth - 1);
   };
   const nextMonth = () => {
+    if (!canNext) return;
     if (viewMonth === 11) {
       setViewYear(viewYear + 1);
       setViewMonth(0);
@@ -115,7 +126,8 @@ export function RenewalCalendar({
           <button
             type="button"
             onClick={prevMonth}
-            className="size-8 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors text-foreground/70"
+            disabled={!canPrev}
+            className="size-8 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors text-foreground/70 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
           >
             ‹
           </button>
@@ -125,7 +137,8 @@ export function RenewalCalendar({
           <button
             type="button"
             onClick={nextMonth}
-            className="size-8 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors text-foreground/70"
+            disabled={!canNext}
+            className="size-8 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors text-foreground/70 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
           >
             ›
           </button>
