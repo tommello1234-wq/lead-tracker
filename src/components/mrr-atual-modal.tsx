@@ -255,7 +255,7 @@ export function MrrAtualModal({ onClose, onLeadClick }: { onClose: () => void; o
                 <tbody>
                   {filtered.map((l) => (
                     <tr
-                      key={l.id}
+                      key={l.subscriptionId ?? l.id}
                       onClick={() => onLeadClick?.(l.id)}
                       className="border-b border-border/40 last:border-b-0 hover:bg-muted/20 cursor-pointer"
                     >

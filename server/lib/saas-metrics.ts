@@ -162,17 +162,16 @@ export async function getMetodoBreakdown(
     )
     select
       ue.metodo,
-      count(*)::int as ativos,
+      count(distinct s.lead_id)::int as ativos,
       coalesce(sum(
         case
-          when l.periodicidade = 'anual' then l.valor_assinatura / 12
-          when l.periodicidade in ('vitalicio', 'gratis') then 0
-          else l.valor_assinatura
+          when s.periodicidade = 'anual' then s.valor / 12
+          when s.periodicidade in ('vitalicio', 'gratis') then 0
+          else s.valor
         end
       ), 0)::numeric(10,2) as mrr
     from ultimo_evento ue
-    join leads l on l.id = ue.lead_id
-    where l.subscription_status = 'ativa'
+    join subscriptions s on s.lead_id = ue.lead_id and s.status = 'ativa'
     group by ue.metodo
   `);
 

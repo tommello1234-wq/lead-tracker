@@ -9,6 +9,7 @@
 import { db } from "../../db/client.js";
 import { leads, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
 import { eq, or } from "drizzle-orm";
+import { upsertSubscription } from "./subscriptions.js";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
 type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string };
@@ -153,6 +154,18 @@ export async function runAsaasSync(): Promise<{
     if (mapped.sub === "cancelada" && !lead.canceladoEm) updates.canceladoEm = new Date();
 
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
+    // Mantém sub Asaas em sincronia
+    await upsertSubscription({
+      leadId: lead.id,
+      gateway: "asaas",
+      status: mapped.sub,
+      valor: valor > 0 ? valor : (lead.valorAssinatura ?? null),
+      planoNome: planoNome ?? lead.planoNome ?? null,
+      periodicidade: lead.periodicidade,
+      produtoId: lead.produtoId ?? null,
+      gatewaySubscriptionId: lastSub?.id ?? null,
+      gatewayCustomerId: cpf ?? null,
+    });
     updated++;
   }
 

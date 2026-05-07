@@ -244,6 +244,40 @@ export type FlowStepRow = typeof flowSteps.$inferSelect;
 export type NovoFlowStep = typeof flowSteps.$inferInsert;
 
 /**
+ * Assinaturas — uma pessoa (lead) pode ter N assinaturas ativas em
+ * gateways diferentes. Antes a info de subscription ficava direto em
+ * `leads` (1 sub por lead), agora cada lead vira "identidade" (pessoa)
+ * e cada subscription vira uma linha aqui.
+ *
+ * MRR = soma das assinaturas com status='ativa' (não mais leads.ativo).
+ */
+export const subscriptions = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id")
+    .notNull()
+    .references(() => leads.id, { onDelete: "cascade" }),
+  gateway: text("gateway").notNull(), // ticto | asaas | stripe
+  gatewaySubscriptionId: text("gateway_subscription_id"),
+  gatewayCustomerId: text("gateway_customer_id"),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "set null",
+  }),
+  planoNome: text("plano_nome"),
+  valor: real("valor"),
+  periodicidade: text("periodicidade").$type<Periodicidade>().notNull().default("mensal"),
+  status: text("status").$type<SubscriptionStatus>().notNull().default("ativa"),
+  pagouEm: timestamp("pagou_em", { mode: "date" }),
+  proximoPagamentoEm: timestamp("proximo_pagamento_em", { mode: "date" }),
+  ultimaRenovacaoEm: timestamp("ultima_renovacao_em", { mode: "date" }),
+  canceladoEm: timestamp("cancelado_em", { mode: "date" }),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+
+/**
  * Movimentações de MRR — cada mudança no faturamento recorrente vira uma linha.
  *
  * `amount` é o DELTA em R$ no MRR (positivo pra new/expansion/reactivation,

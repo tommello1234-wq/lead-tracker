@@ -153,7 +153,7 @@ export function DetailsModal({
               <tbody>
                 {data.map((l) => (
                   <tr
-                    key={l.id}
+                    key={l.subscriptionId ?? l.id}
                     className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
                   >
                     <td className="px-5 py-2.5 font-medium truncate max-w-[200px]">{l.nome}</td>

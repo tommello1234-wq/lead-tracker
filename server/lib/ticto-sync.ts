@@ -16,6 +16,7 @@ import {
   type TictoOrder,
   type TictoSubscription,
 } from "./ticto-api.js";
+import { upsertSubscription } from "./subscriptions.js";
 
 type AnyObject = Record<string, unknown>;
 
@@ -211,6 +212,20 @@ async function processOrder(order: TictoOrder): Promise<"created" | "updated" | 
     receivedAt: mapped.pagouEm ?? new Date(),
   });
 
+  // Sincroniza a sub correspondente (1 row por lead+gateway).
+  await upsertSubscription({
+    leadId: lead.id,
+    gateway: "ticto",
+    status: mapped.subStatus,
+    valor: valor ?? null,
+    planoNome: planoNome ?? null,
+    periodicidade: lead.periodicidade,
+    produtoId: lead.produtoId ?? null,
+    gatewaySubscriptionId: orderHash || null,
+    gatewayCustomerId: cpf || null,
+    pagouEm: mapped.pagouEm,
+  });
+
   return action;
 }
 
@@ -321,6 +336,19 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         await db.update(leads).set(updates).where(eq(leads.id, lead.id));
         subsUpdated++;
       }
+      // Mantém a sub Ticto em sincronia (1 row por lead+gateway).
+      // Não pula no caso do guard gateway-aware acima (cancel lateral): o
+      // `continue` antes desse bloco já filtrou o caso problemático.
+      await upsertSubscription({
+        leadId: lead.id,
+        gateway: "ticto",
+        status: mapped.sub,
+        valor: lead.valorAssinatura ?? null,
+        planoNome: lead.planoNome ?? null,
+        periodicidade: lead.periodicidade,
+        produtoId: lead.produtoId ?? null,
+        gatewayCustomerId: cpf || null,
+      });
     }
 
     const lastPage = resp.meta?.last_page ?? subsPage;

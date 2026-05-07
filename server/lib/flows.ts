@@ -23,6 +23,7 @@ import {
   type Periodicidade,
 } from "../../db/schema.js";
 import { renderTemplate } from "./message-templates.js";
+import { upsertSubscription } from "./subscriptions.js";
 import { eq, and, inArray, asc, gte, isNull, sql } from "drizzle-orm";
 
 export type GatewayEvent =
@@ -617,6 +618,25 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     novaPeriodicidade: input.periodicidade ?? lead.periodicidade,
     produtoId: input.produtoId ?? lead.produtoId ?? null,
     ocorridoEm: now,
+  });
+
+  // Upsert da subscription correspondente (1 row por gateway).
+  // Lead pode ter múltiplas subs ativas em gateways diferentes — o MRR vem
+  // dessa tabela, então é crítico manter em sincronia. Não toca nas subs de
+  // outros gateways do mesmo lead (cancel Ticto não cancela Stripe, etc).
+  await upsertSubscription({
+    leadId: lead.id,
+    gateway: input.source,
+    status: transition.subscription,
+    valor: input.valor ?? lead.valorAssinatura,
+    planoNome: input.planoNome ?? lead.planoNome,
+    periodicidade: input.periodicidade ?? lead.periodicidade,
+    produtoId: input.produtoId ?? lead.produtoId ?? null,
+    gatewaySubscriptionId: input.gatewayLastOrderId ?? null,
+    gatewayCustomerId: input.gatewayCustomerId ?? null,
+    pagouEm: input.eventType === "compra_aprovada" ? now : null,
+    ultimaRenovacaoEm: input.eventType === "assinatura_renovada" ? now : null,
+    canceladoEm: input.eventType === "assinatura_cancelada" ? now : null,
   });
 
   // Agenda mensagens conforme o fluxo (lido do DB — editavel via /automacoes)

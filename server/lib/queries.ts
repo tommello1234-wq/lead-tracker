@@ -1,5 +1,5 @@
 import { db } from "../../db/client.js";
-import { leads, mensagensAgendadas, eventos, produtos, type Lead } from "../../db/schema.js";
+import { leads, mensagensAgendadas, eventos, produtos, subscriptions, type Lead } from "../../db/schema.js";
 import { desc, eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withCache } from "./cache.js";
 
@@ -119,16 +119,32 @@ export async function getDashboardMetrics(
     return true;
   };
 
-  // MRR e clientesAtivos sempre snapshot atual (não dependem de período).
-  // MRR normaliza por periodicidade: anuais entram como /12, vitalícios e
-  // grátis não contam (não são receita recorrente).
-  const clientesAtivos = all.filter((l) => l.subscriptionStatus === "ativa");
-  const mrr = clientesAtivos.reduce((acc, l) => {
-    const v = l.valorAssinatura ?? 0;
-    if (l.periodicidade === "anual") return acc + v / 12;
-    if (l.periodicidade === "vitalicio" || l.periodicidade === "gratis") return acc;
+  // MRR e clientesAtivos = somar das subscriptions ativas (1 lead pode ter N subs).
+  // MRR normaliza por periodicidade: anuais entram como /12, vitalícios/grátis não contam.
+  // ClientesAtivos = leads únicos com pelo menos 1 sub ativa.
+  const subsAtivas = await db
+    .select({
+      leadId: subscriptions.leadId,
+      valor: subscriptions.valor,
+      periodicidade: subscriptions.periodicidade,
+    })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.status, "ativa"),
+        produtoId != null
+          ? eq(subscriptions.produtoId, produtoId)
+          : sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+      ),
+    );
+  const mrr = subsAtivas.reduce((acc, s) => {
+    const v = s.valor ?? 0;
+    if (s.periodicidade === "anual") return acc + v / 12;
+    if (s.periodicidade === "vitalicio" || s.periodicidade === "gratis") return acc;
     return acc + v;
   }, 0);
+  const clientesAtivosIds = new Set(subsAtivas.map((s) => s.leadId));
+  const clientesAtivos = all.filter((l) => clientesAtivosIds.has(l.id));
 
   // Receita do PERÍODO selecionado (compras pagas no intervalo).
   // Se since=null e until=null, conta histórico todo.
@@ -151,16 +167,29 @@ export async function getDashboardMetrics(
   const vendasHoje = all.filter((l) => l.pagouEm && l.pagouEm >= today);
   const vendasMes = all.filter((l) => l.pagouEm && l.pagouEm >= monthStart);
 
+  // MRR potencial = MRR atual + subs aguardando_pagamento (PIX gerado mas não pago)
+  const subsAguardando = await db
+    .select({
+      valor: subscriptions.valor,
+      periodicidade: subscriptions.periodicidade,
+    })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.status, "aguardando_pagamento"),
+        produtoId != null
+          ? eq(subscriptions.produtoId, produtoId)
+          : sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+      ),
+    );
   const mrrPotencial =
     mrr +
-    all
-      .filter((l) => l.subscriptionStatus === "aguardando_pagamento")
-      .reduce((acc, l) => {
-        const v = l.valorAssinatura ?? 0;
-        if (l.periodicidade === "anual") return acc + v / 12;
-        if (l.periodicidade === "vitalicio" || l.periodicidade === "gratis") return acc;
-        return acc + v;
-      }, 0);
+    subsAguardando.reduce((acc, s) => {
+      const v = s.valor ?? 0;
+      if (s.periodicidade === "anual") return acc + v / 12;
+      if (s.periodicidade === "vitalicio" || s.periodicidade === "gratis") return acc;
+      return acc + v;
+    }, 0);
 
   const receitaPerdidaPix = pixExpiradosNoPeriodo.reduce(
     (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
@@ -405,32 +434,47 @@ export async function getRenewalCalendar(
   produtoId: number | null = null,
   referenceDate: Date | null = null,
 ): Promise<Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }>> {
-  const cond = produtoCondition(produtoId);
-  cond.push(eq(leads.subscriptionStatus, "ativa"));
-  cond.push(eq(leads.periodicidade, "mensal"));
-  // Se referenceDate passada, filtra leads que JÁ PAGARAM até aquela data.
-  // Útil pra ver "quem renovou em março/2026" — só conta clientes que
-  // entraram até 31/03/2026, não os que vieram depois.
-  if (referenceDate) {
-    cond.push(lte(leads.pagouEm, referenceDate));
+  // Agora conta cada SUB ativa mensal (1 lead pode ter N subs).
+  const conds = [
+    eq(subscriptions.status, "ativa"),
+    eq(subscriptions.periodicidade, "mensal"),
+  ];
+  if (produtoId != null) {
+    conds.push(eq(subscriptions.produtoId, produtoId));
+  } else {
+    conds.push(
+      sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+    );
   }
-  const all = await db.select().from(leads).where(and(...cond));
+  if (referenceDate) {
+    conds.push(lte(subscriptions.pagouEm, referenceDate));
+  }
+  const subRows = await db
+    .select({
+      leadId: subscriptions.leadId,
+      pagouEm: subscriptions.pagouEm,
+      valor: subscriptions.valor,
+      planoNome: subscriptions.planoNome,
+      nome: leads.nome,
+    })
+    .from(subscriptions)
+    .innerJoin(leads, eq(leads.id, subscriptions.leadId))
+    .where(and(...conds));
 
-  // Agrupa por dia do mês (1-31). Pra leads sem pagouEm (não deveriam ser
-  // ativos sem isso, mas defesa em profundidade), pula.
+  // Agrupa por dia do mês (1-31) baseado em pagouEm da sub.
   const byDay = new Map<
     number,
     Array<{ id: number; nome: string; valor: number; plano: string | null }>
   >();
-  for (const l of all) {
-    if (!l.pagouEm) continue;
-    const dia = l.pagouEm.getUTCDate(); // dia do mês UTC; SP fuso fica próximo
+  for (const s of subRows) {
+    if (!s.pagouEm) continue;
+    const dia = s.pagouEm.getUTCDate();
     const list = byDay.get(dia) ?? [];
     list.push({
-      id: l.id,
-      nome: l.nome,
-      valor: l.valorAssinatura ?? 0,
-      plano: l.planoNome,
+      id: s.leadId,
+      nome: s.nome,
+      valor: s.valor ?? 0,
+      plano: s.planoNome,
     });
     byDay.set(dia, list);
   }
@@ -541,23 +585,44 @@ export type PlanoBreakdown = {
 /**
  * Breakdown de planos por nome (ex: "Gravyx Creator", "Gravyx Studio").
  * Usado pro gráfico de pizza no dashboard.
+ *
+ * Conta SUBSCRIPTIONS (não leads): 1 lead com 2 subs = 2 entradas (1 por plano).
+ * "ativos" = subs com status='ativa'. "total" = todas subs do plano (incl. canceladas).
+ * "receita" = MRR das subs ativas (anual/12, vitalício/grátis = 0).
  */
 export async function getPlanoBreakdown(
   produtoId: number | null = null,
 ): Promise<PlanoBreakdown[]> {
-  const cond = produtoCondition(produtoId);
-  const all = await db.select().from(leads).where(and(...cond));
+  const conds = [];
+  if (produtoId != null) {
+    conds.push(eq(subscriptions.produtoId, produtoId));
+  } else {
+    conds.push(
+      sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+    );
+  }
+  const subRows = await db
+    .select({
+      planoNome: subscriptions.planoNome,
+      valor: subscriptions.valor,
+      periodicidade: subscriptions.periodicidade,
+      status: subscriptions.status,
+    })
+    .from(subscriptions)
+    .where(and(...conds));
 
   const map = new Map<string, { total: number; receita: number; ativos: number }>();
-  for (const l of all) {
-    const key = (l.planoNome ?? "Sem plano").trim() || "Sem plano";
+  for (const s of subRows) {
+    const key = (s.planoNome ?? "Sem plano").trim() || "Sem plano";
     const cur = map.get(key) ?? { total: 0, receita: 0, ativos: 0 };
     cur.total++;
-    if (l.subscriptionStatus === "ativa") {
+    if (s.status === "ativa") {
       cur.ativos++;
-      cur.receita += l.valorAssinatura ?? 0;
-    } else if (l.pagouEm) {
-      cur.receita += l.valorAssinatura ?? l.valorEstimado ?? 0;
+      const v = s.valor ?? 0;
+      if (s.periodicidade === "anual") cur.receita += v / 12;
+      else if (s.periodicidade !== "vitalicio" && s.periodicidade !== "gratis") {
+        cur.receita += v;
+      }
     }
     map.set(key, cur);
   }

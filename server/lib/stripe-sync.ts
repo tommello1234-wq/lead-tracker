@@ -8,6 +8,7 @@
 import { db } from "../../db/client.js";
 import { leads, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
 import { eq, or } from "drizzle-orm";
+import { upsertSubscription } from "./subscriptions.js";
 
 type StripeSubscription = {
   id: string;
@@ -141,6 +142,19 @@ export async function runStripeSync(): Promise<{
     if (phone && !lead.contato) updates.contato = phone;
 
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
+    // Mantém sub Stripe em sincronia
+    await upsertSubscription({
+      leadId: lead.id,
+      gateway: "stripe",
+      status: mapped.sub,
+      valor: valor > 0 ? valor : (lead.valorAssinatura ?? null),
+      planoNome: planoNome ?? lead.planoNome ?? null,
+      periodicidade: lead.periodicidade,
+      produtoId: lead.produtoId ?? null,
+      gatewaySubscriptionId: sub.id,
+      gatewayCustomerId: sub.customer,
+      canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
+    });
     updated++;
   }
 
