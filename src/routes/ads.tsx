@@ -195,26 +195,22 @@ export function AdsPage() {
     enabled: hasMeta,
   });
 
-  // Métricas financeiras do produto/período pra montar os 4 KPIs principais
-  // (Faturamento, Gastos, ROAS, Lucro) e os cards secundários.
-  // /ads é só Gravyx (única conta Meta) — força id=1 mesmo quando user
-  // selecionou "Todos" no contexto, pra cards não trazerem dados de WDF/etc.
-  const produtoParam = produtoId ?? 1;
+  // Métricas do produto selecionado no contexto (ou agregado se "Todos").
+  // Meta API só tem conta Gravyx — pra outros produtos, gastos = 0 / ROAS = N/A.
+  const produtoParam = produtoId ?? "all";
   const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  // Faturamento, vendas, métricas — sempre rodam (independente de Meta).
   const faturamento = useQuery({
     queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<Faturamento>(`/api/dashboard/faturamento?${baseQs}`),
-    enabled: hasMeta,
   });
   const planos = useQuery({
     queryKey: ["dashboard", "vendas-por-plano", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<VendasPorPlano[]>(`/api/dashboard/vendas-por-plano?${baseQs}`),
-    enabled: hasMeta,
   });
   const metrics = useQuery({
     queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
-    enabled: hasMeta,
   });
   const m = metrics.data;
 
@@ -286,25 +282,24 @@ export function AdsPage() {
         </div>
       </header>
 
+      {/* Banner se produto selecionado não tem Meta — não bloqueia outros cards */}
       {!hasMeta ? (
-        <div className="card-soft p-12 text-center">
-          <div className="size-16 rounded-2xl bg-lime-soft text-forest grid place-items-center mx-auto mb-4">
-            <Link2 className="size-7" />
+        <div className="card-soft p-4 flex items-center gap-3 bg-muted/20">
+          <div className="size-9 rounded-xl bg-lime-soft text-forest grid place-items-center shrink-0">
+            <Link2 className="size-4" />
           </div>
-          <h3 className="text-lg font-semibold mb-1">
-            Conta Meta não conectada
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
-            O produto <strong>{produtoSel?.nome ?? "selecionado"}</strong> ainda
-            não tem uma conta de anúncio Meta vinculada. Hoje só o Gravyx tem
-            tracking ativo.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Pra conectar: vincule o produto a uma conta Meta Ads no
-            Business Manager e cadastre o ID no Lead Tracker.
-          </p>
+          <div className="text-sm">
+            <p className="font-medium">
+              {produtoSel?.nome ?? "Este produto"} sem conta Meta vinculada
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Mostrando faturamento e vendas do período. Métricas de tráfego (gastos / ROAS) só pra Gravyx.
+            </p>
+          </div>
         </div>
-      ) : isError ? (
+      ) : null}
+
+      {hasMeta && isError ? (
         <div className="card-soft p-6 border-destructive/30">
           <div className="flex items-start gap-3">
             <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
@@ -320,25 +315,22 @@ export function AdsPage() {
             </div>
           </div>
         </div>
-      ) : insights.isLoading ? (
-        <div className="card-soft p-8 text-center text-sm text-muted-foreground">
-          Carregando dados Meta...
-        </div>
-      ) : i ? (
-        <>
+      ) : null}
+
+      <>
           {/* === Linha 1: 4 KPIs principais (faturamento / gastos / ROAS / lucro) === */}
           {(() => {
             const fatLiq = faturamento.data?.total ?? 0;
-            const gastos = i.spend ?? 0;
+            const gastos = i?.spend ?? 0;
             const roasReal = gastos > 0 ? fatLiq / gastos : 0;
             const lucro = fatLiq - gastos;
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KpiCard label="Faturamento Líquido Total" value={brl(fatLiq)} />
-                <KpiCard label="Gastos com anúncios" value={brl(gastos)} />
+                <KpiCard label="Gastos com anúncios" value={hasMeta ? brl(gastos) : "—"} hint={!hasMeta ? "Sem conta Meta" : undefined} />
                 <KpiCard
                   label="ROAS"
-                  value={roasReal > 0 ? roasReal.toFixed(2) : "—"}
+                  value={hasMeta && roasReal > 0 ? roasReal.toFixed(2) : "—"}
                   tone={roasReal >= 3 ? "good" : roasReal >= 1 ? "neutral" : "bad"}
                 />
                 <KpiCard
@@ -354,7 +346,7 @@ export function AdsPage() {
           {(() => {
             const fat = faturamento.data;
             const fatLiq = fat?.total ?? 0;
-            const gastos = i.spend ?? 0;
+            const gastos = i?.spend ?? 0;
             const lucro = fatLiq - gastos;
             const margem = fatLiq > 0 ? (lucro / fatLiq) * 100 : 0;
             const refundPct = fat && fat.count + fat.refundCount > 0
@@ -389,13 +381,14 @@ export function AdsPage() {
             );
           })()}
 
-          {/* Funil de conversão: cards detalhados (60%) + visual (40%) */}
+          {/* Funil + Tabela só aparecem com Meta conectado */}
+          {hasMeta && i ? (
+            <>
           <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4 items-stretch">
             <ConversionFunnel insights={i} />
             <VerticalFunnel insights={i} />
           </div>
 
-          {/* Tabela de campanhas */}
           <div className="card-soft overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-3">
               <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
@@ -574,8 +567,9 @@ export function AdsPage() {
           <p className="text-xs text-muted-foreground text-center">
             Dados via Meta Marketing API · Conta act_918344584462338 · Token temporário (renove no Graph Explorer quando expirar)
           </p>
-        </>
-      ) : null}
+            </>
+          ) : null}
+      </>
     </div>
   );
 }
