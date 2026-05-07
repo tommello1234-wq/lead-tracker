@@ -20,6 +20,95 @@ function isAuthed(c: { req: { query: (k: string) => string | undefined; header: 
   return fromQuery === secret || fromHeader === `Bearer ${secret}`;
 }
 
+// Atualiza valor das subs Ticto no banco pra refletir s.price real (com taxa).
+// Match por email/cpf. Só toca em subs que mudam.
+auditRoutes.post("/ticto-sync-prices", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  const tictoSubs: Array<Record<string, unknown>> = [];
+  let page = 1;
+  while (true) {
+    const r = await getSubscriptionsHistory(page);
+    const data = r.data ?? [];
+    if (data.length === 0) break;
+    tictoSubs.push(...data);
+    const last = r.meta?.last_page ?? page;
+    if (page >= last) break;
+    page++;
+  }
+
+  // Map por email + cpf → price real
+  type TictoPrice = { email: string; cpf: string; tictoId: string; price: number; subId: string };
+  const tictoData: TictoPrice[] = [];
+  for (const ts of tictoSubs) {
+    const cust = (ts.customer as Record<string, unknown>) ?? {};
+    const email = String(cust.email ?? "").toLowerCase();
+    const cpf = String(cust.cpf ?? cust.cnpj ?? "");
+    const price = Number(ts.price ?? 0) / 100;
+    if (price <= 0) continue;
+    tictoData.push({
+      email,
+      cpf,
+      tictoId: String(ts.id ?? ""),
+      subId: String((ts.order as Record<string, unknown>)?.hash ?? ""),
+      price,
+    });
+  }
+
+  // Pra cada sub Ticto no banco, busca correspondente no Ticto e atualiza
+  const dbSubs = await db
+    .select({
+      id: subscriptions.id,
+      leadId: subscriptions.leadId,
+      valor: subscriptions.valor,
+      gatewaySubscriptionId: subscriptions.gatewaySubscriptionId,
+      leadEmail: leads.email,
+      leadCpf: leads.gatewayCustomerId,
+    })
+    .from(subscriptions)
+    .innerJoin(leads, eq(leads.id, subscriptions.leadId))
+    .where(eq(subscriptions.gateway, "ticto"));
+
+  let updated = 0;
+  let unchanged = 0;
+  let noMatch = 0;
+  const samples: Array<{ leadId: number; email: string | null; from: number | null; to: number }> = [];
+
+  for (const dbS of dbSubs) {
+    let match = dbS.gatewaySubscriptionId
+      ? tictoData.find((t) => t.subId === dbS.gatewaySubscriptionId || t.tictoId === dbS.gatewaySubscriptionId)
+      : undefined;
+    if (!match && dbS.leadEmail) {
+      match = tictoData.find((t) => t.email === (dbS.leadEmail ?? "").toLowerCase());
+    }
+    if (!match && dbS.leadCpf) {
+      match = tictoData.find((t) => t.cpf === dbS.leadCpf);
+    }
+    if (!match) { noMatch++; continue; }
+
+    if (Math.abs((dbS.valor ?? 0) - match.price) < 0.01) {
+      unchanged++;
+      continue;
+    }
+
+    await db
+      .update(subscriptions)
+      .set({ valor: match.price, atualizadoEm: new Date() })
+      .where(eq(subscriptions.id, dbS.id));
+    // Também atualiza valor_assinatura no lead (drill-downs/ARPU/etc)
+    await db
+      .update(leads)
+      .set({ valorAssinatura: match.price, atualizadoEm: new Date() })
+      .where(eq(leads.id, dbS.leadId));
+    if (samples.length < 10) {
+      samples.push({ leadId: dbS.leadId, email: dbS.leadEmail, from: dbS.valor, to: match.price });
+    }
+    updated++;
+  }
+
+  return c.json({ ok: true, updated, unchanged, noMatch, samples });
+});
+
 // Inspect 1 sub Ticto pelo email — debug profundo
 auditRoutes.get("/ticto-lead", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
