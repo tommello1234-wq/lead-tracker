@@ -81,9 +81,11 @@ export function DetailsModal({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // total + receita acumulada
+  // total + receita acumulada (já considera reembolsos como valor negativo
+  // pra "compras" — daí soma bate com card "Faturamento" do dashboard)
   const total = data?.length ?? 0;
   const receita = data?.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) ?? 0;
+  const isCompras = kind === "compras";
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/30 backdrop-blur-sm animate-in fade-in-0">
@@ -97,7 +99,9 @@ export function DetailsModal({
             <p className="text-xs text-muted-foreground">
               {isLoading
                 ? "Carregando..."
-                : `${total} ${total === 1 ? "lead" : "leads"}${receita > 0 ? ` · ${brl(receita)} acumulado` : ""}`}
+                : isCompras
+                  ? `${total} transaç${total === 1 ? "ão" : "ões"} · ${brl(receita)} líquido`
+                  : `${total} ${total === 1 ? "lead" : "leads"}${receita > 0 ? ` · ${brl(receita)} acumulado` : ""}`}
             </p>
           </div>
           <button
@@ -136,6 +140,11 @@ export function DetailsModal({
                   <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                     Contato
                   </th>
+                  {isCompras ? (
+                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Tipo
+                    </th>
+                  ) : null}
                   <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                     Plano
                   </th>
@@ -143,37 +152,64 @@ export function DetailsModal({
                     Valor
                   </th>
                   <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Pagou
+                    {isCompras ? "Data" : "Pagou"}
                   </th>
-                  <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
-                    Cancelou
-                  </th>
+                  {!isCompras ? (
+                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                      Cancelou
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
-                {data.map((l) => (
-                  <tr
-                    key={l.subscriptionId ?? l.id}
-                    className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
-                  >
-                    <td className="px-5 py-2.5 font-medium truncate max-w-[200px]">{l.nome}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
-                      {l.contato ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[180px]">
-                      {l.planoNome ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-medium">
-                      {l.valorAssinatura ? brl(l.valorAssinatura) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
-                      {formatDate(l.pagouEm)}
-                    </td>
-                    <td className="px-5 py-2.5 text-muted-foreground tabular-nums">
-                      {formatDate(l.canceladoEm)}
-                    </td>
-                  </tr>
-                ))}
+                {data.map((l) => {
+                  const isRefund = l.eventType === "reembolso";
+                  const isRenewal = l.eventType === "assinatura_renovada";
+                  return (
+                    <tr
+                      key={l.eventoId ?? l.subscriptionId ?? l.id}
+                      className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
+                    >
+                      <td className="px-5 py-2.5 font-medium truncate max-w-[200px]">{l.nome}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
+                        {l.contato ?? "—"}
+                      </td>
+                      {isCompras ? (
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
+                              isRefund
+                                ? "bg-destructive/10 text-destructive"
+                                : isRenewal
+                                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                  : "bg-lime-soft text-forest"
+                            }`}
+                          >
+                            {isRefund ? "Reembolso" : isRenewal ? "Renovação" : "Compra"}
+                          </span>
+                        </td>
+                      ) : null}
+                      <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[180px]">
+                        {l.planoNome ?? "—"}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${isRefund ? "text-destructive" : ""}`}>
+                        {l.valorAssinatura != null
+                          ? l.valorAssinatura < 0
+                            ? `−${brl(Math.abs(l.valorAssinatura))}`
+                            : brl(l.valorAssinatura)
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
+                        {formatDate(l.pagouEm)}
+                      </td>
+                      {!isCompras ? (
+                        <td className="px-5 py-2.5 text-muted-foreground tabular-nums">
+                          {formatDate(l.canceladoEm)}
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

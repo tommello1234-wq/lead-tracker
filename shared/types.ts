@@ -240,6 +240,8 @@ export type MetaCampaign = {
 export type DetailLead = {
   id: number;
   subscriptionId?: number;
+  eventoId?: number;
+  eventType?: string;
   nome: string;
   contato: string | null;
   email: string | null;

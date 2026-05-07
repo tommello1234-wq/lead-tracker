@@ -3,8 +3,8 @@
  * Cada `kind` retorna a lista de leads relevantes ao card clicado.
  */
 import { db } from "../../db/client.js";
-import { leads, subscriptions, type Lead } from "../../db/schema.js";
-import { and, eq, gte, lte, isNotNull, desc } from "drizzle-orm";
+import { leads, subscriptions, eventos, type Lead } from "../../db/schema.js";
+import { and, eq, gte, lte, isNotNull, desc, inArray, sql } from "drizzle-orm";
 
 export type DetailsKind =
   | "ativos"
@@ -21,6 +21,8 @@ export type DetailsKind =
 export type DetailLead = {
   id: number;
   subscriptionId?: number; // se row é de uma sub específica (ativos)
+  eventoId?: number; // se row é de uma transação específica (compras)
+  eventType?: string; // 'compra_aprovada' | 'assinatura_renovada' | 'reembolso'
   nome: string;
   contato: string | null;
   email: string | null;
@@ -189,17 +191,50 @@ export async function getDetails(
       ).map(toDetail);
 
     case "compras": {
-      conds.push(isNotNull(leads.pagouEm));
-      if (since) conds.push(gte(leads.pagouEm, since));
-      if (until) conds.push(lte(leads.pagouEm, until));
-      return (
-        await db
-          .select()
-          .from(leads)
-          .where(and(...conds))
-          .orderBy(desc(leads.pagouEm))
-          .limit(500)
-      ).map(toDetail);
+      // 1 row por TRANSAÇÃO (evento compra_aprovada/renovada/reembolso),
+      // não 1 row por lead. Bate exatamente com o card "Faturamento" do
+      // dashboard. Valor extraído do payload do evento (cobrança real,
+      // não lead.valorAssinatura que pode ter sido atualizado).
+      const evConds = [
+        eq(eventos.processedOk, true),
+        inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada", "reembolso"]),
+      ];
+      if (produtoId != null) evConds.push(eq(eventos.produtoId, produtoId));
+      if (since) evConds.push(gte(eventos.receivedAt, since));
+      if (until) evConds.push(lte(eventos.receivedAt, until));
+
+      const valorExpr = sql<number>`coalesce(
+        ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+        ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+        ((${eventos.payload}->'offer'->>'price')::numeric / 100),
+        ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+        ((${eventos.payload}->'payment'->>'value')::numeric),
+        0
+      )::numeric(10,2)`;
+
+      const rows = await db
+        .select({
+          eventoId: eventos.id,
+          eventType: eventos.eventType,
+          receivedAt: eventos.receivedAt,
+          valor: valorExpr,
+          lead: leads,
+        })
+        .from(eventos)
+        .innerJoin(leads, eq(leads.id, eventos.leadId))
+        .where(and(...evConds))
+        .orderBy(desc(eventos.receivedAt))
+        .limit(1000);
+
+      return rows.map((r) => ({
+        ...toDetail(r.lead),
+        eventoId: r.eventoId,
+        eventType: r.eventType,
+        // Reembolso vira valor negativo (mostra impacto líquido na soma)
+        valorAssinatura:
+          r.eventType === "reembolso" ? -Number(r.valor) : Number(r.valor),
+        pagouEm: r.receivedAt.toISOString(),
+      }));
     }
 
     case "fila_msgs":
