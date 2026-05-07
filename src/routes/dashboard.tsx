@@ -8,7 +8,6 @@ import {
   Calendar,
   ChevronDown,
   Target,
-  ArrowUpCircle,
   ArrowDownCircle,
   Wallet,
 } from "lucide-react";
@@ -147,8 +146,8 @@ export function DashboardPage() {
         hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
       />
 
-      {/* KPI grid principal */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Snapshot SaaS: estado atual do negócio */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard
           label="MRR atual"
           value={m ? brl(m.mrr) : "—"}
@@ -169,42 +168,26 @@ export function DashboardPage() {
           iconTone="forest"
           onClick={() => setDetails("cancelados")}
         />
+      </div>
+
+      {/* Fluxo de caixa do período: Faturamento (entradas) − Reembolsos (saídas) − Ads = Lucro */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          label="Faturamento no período"
-          value={faturamento.data ? brl(faturamento.data.total) : "—"}
+          label="Faturamento"
+          value={faturamento.data ? brl(faturamento.data.grossTotal) : "—"}
           hint={
             faturamento.data
-              ? `${faturamento.data.count} transações${
-                  faturamento.data.refundCount > 0
-                    ? ` · −${brl(faturamento.data.refundTotal)} reembolso${
-                        faturamento.data.refundCount > 1 ? "s" : ""
-                      }`
-                    : ""
-                }${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
+              ? `${faturamento.data.count} compra${faturamento.data.count === 1 ? "" : "s"} + renovações${
+                  m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""
+                }`
               : undefined
           }
           icon={Banknote}
           iconTone="forest"
           onClick={() => setDetails("compras")}
         />
-      </div>
-
-      {/* Entradas / Saídas / Lucro — visão de fluxo de caixa do período */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          label="Entradas"
-          value={faturamento.data ? brl(faturamento.data.grossTotal) : "—"}
-          hint={
-            faturamento.data
-              ? `${faturamento.data.count} compras + renovações`
-              : undefined
-          }
-          icon={ArrowUpCircle}
-          iconTone="forest"
-          onClick={() => setDetails("compras")}
-        />
-        <StatCard
-          label="Saídas"
+          label="Reembolsos"
           value={
             faturamento.data
               ? `−${brl(faturamento.data.refundTotal)}`
@@ -232,9 +215,9 @@ export function DashboardPage() {
           }
           hint={
             faturamento.data && cac.data && cac.data.adSpend > 0
-              ? `Líquido − ${brl(cac.data.adSpend)} ads`
+              ? `Faturamento − Reembolsos − ${brl(cac.data.adSpend)} ads`
               : faturamento.data
-                ? "Entradas − Saídas"
+                ? "Faturamento − Reembolsos"
                 : undefined
           }
           icon={Wallet}
