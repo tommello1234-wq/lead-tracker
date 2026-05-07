@@ -65,6 +65,7 @@ function mapPlanoFromSlug(slug?: string): string | null {
 export async function runStripeSync(): Promise<{
   total: number;
   updated: number;
+  created: number;
   notFound: number;
   unchanged: number;
 }> {
@@ -88,8 +89,9 @@ export async function runStripeSync(): Promise<{
     if (subs.length > 5000) break;
   }
 
-  // 2) Pra cada sub, busca customer e atualiza lead
+  // 2) Pra cada sub, busca customer e atualiza/cria lead
   let updated = 0;
+  let created = 0;
   let notFound = 0;
   let unchanged = 0;
   for (const sub of subs) {
@@ -104,14 +106,58 @@ export async function runStripeSync(): Promise<{
     const email = cust.email?.toLowerCase() ?? null;
 
     // Match lead por email/phone/customer_id
-    const lead = await db.query.leads.findFirst({
+    let lead = await db.query.leads.findFirst({
       where: or(
         email ? eq(leads.email, email) : undefined,
         phone ? eq(leads.contato, phone) : undefined,
         eq(leads.gatewayCustomerId, sub.customer),
       ),
     });
-    if (!lead) { notFound++; continue; }
+
+    const mappedNew = mapStripeStatus(sub.status);
+    const valorNew = (sub.items.data[0]?.price.unit_amount ?? 0) / 100;
+    const slugNew = sub.metadata?.gravyx_slug ?? sub.metadata?.slug;
+    const planoNew = mapPlanoFromSlug(slugNew);
+
+    // Cria lead se não existe (cliente Stripe sem registro local).
+    // Ignora subs sem email/phone/customer válido (evita lead lixo).
+    if (!lead) {
+      if (!email && !phone && !sub.customer) { notFound++; continue; }
+      const [createdLead] = await db
+        .insert(leads)
+        .values({
+          nome: cust.name ?? "Cliente Stripe",
+          email,
+          contato: phone,
+          tipo: "compra_aprovada",
+          status: mappedNew.lead,
+          subscriptionStatus: mappedNew.sub,
+          gateway: "stripe",
+          gatewayCustomerId: sub.customer,
+          gatewayLastOrderId: sub.id,
+          planoNome: planoNew,
+          valorAssinatura: valorNew > 0 ? valorNew : null,
+          pagouEm: sub.canceled_at ? null : new Date(sub.current_period_end * 1000 - 30 * 24 * 60 * 60 * 1000),
+          canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
+          atualizadoEm: new Date(),
+        })
+        .returning();
+      lead = createdLead;
+      await upsertSubscription({
+        leadId: lead.id,
+        gateway: "stripe",
+        status: mappedNew.sub,
+        valor: valorNew > 0 ? valorNew : null,
+        planoNome: planoNew,
+        periodicidade: "mensal",
+        produtoId: null,
+        gatewaySubscriptionId: sub.id,
+        gatewayCustomerId: sub.customer,
+        canceladoEm: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
+      });
+      created++;
+      continue;
+    }
 
     const mapped = mapStripeStatus(sub.status);
     const valor = (sub.items.data[0]?.price.unit_amount ?? 0) / 100;
@@ -158,5 +204,5 @@ export async function runStripeSync(): Promise<{
     updated++;
   }
 
-  return { total: subs.length, updated, notFound, unchanged };
+  return { total: subs.length, updated, created, notFound, unchanged };
 }
