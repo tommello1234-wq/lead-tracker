@@ -68,14 +68,15 @@ export function RenewalCalendar({
     return { count, valor, maxValor };
   }, [byDay, viewYear, viewMonth, data]);
 
-  // Intensidade de cor baseada em valor relativo ao máximo do mês
+  // Intensidade de cor (tons pastel) baseada em valor relativo ao máximo do mês.
+  // Texto sempre em forest pra contraste sutil sem agredir.
   function intensityClass(valor: number): string {
-    if (!totalMes.maxValor || valor === 0) return "bg-card border-border/40";
+    if (!totalMes.maxValor || valor === 0) return "bg-card border-border/40 text-foreground/60";
     const ratio = valor / totalMes.maxValor;
-    if (ratio >= 0.75) return "bg-forest text-[oklch(0.86_0.18_130)] border-forest";
-    if (ratio >= 0.5) return "bg-[oklch(0.55_0.18_140)] text-white border-transparent";
-    if (ratio >= 0.25) return "bg-[oklch(0.7_0.16_140)] text-white border-transparent";
-    return "bg-lime-soft text-forest border-transparent";
+    if (ratio >= 0.75) return "bg-[oklch(0.82_0.14_140)] text-forest border-transparent";
+    if (ratio >= 0.5) return "bg-[oklch(0.88_0.11_140)] text-forest border-transparent";
+    if (ratio >= 0.25) return "bg-[oklch(0.93_0.08_140)] text-forest border-transparent";
+    return "bg-lime-soft/50 text-forest border-transparent";
   }
 
   const isToday = (d: number) =>
@@ -212,11 +213,11 @@ export function RenewalCalendar({
           {/* Legenda heatmap */}
           <div className="flex items-center gap-2 mt-3 text-[10px] text-muted-foreground">
             <span>Receita por dia:</span>
-            <div className="size-3 rounded bg-muted/20 border border-border/30" />
-            <div className="size-3 rounded bg-lime-soft" />
-            <div className="size-3 rounded bg-[oklch(0.7_0.16_140)]" />
-            <div className="size-3 rounded bg-[oklch(0.55_0.18_140)]" />
-            <div className="size-3 rounded bg-forest" />
+            <div className="size-3 rounded bg-card border border-border/40" />
+            <div className="size-3 rounded bg-lime-soft/50" />
+            <div className="size-3 rounded bg-[oklch(0.93_0.08_140)]" />
+            <div className="size-3 rounded bg-[oklch(0.88_0.11_140)]" />
+            <div className="size-3 rounded bg-[oklch(0.82_0.14_140)]" />
             <span>menos → mais</span>
           </div>
         </>
