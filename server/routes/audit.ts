@@ -116,8 +116,23 @@ auditRoutes.get("/ticto", async (c) => {
     return 0;
   }
 
+  // Status real considera ÚLTIMA transação (situation pode estar stale).
+  // Ex: sub Daniel — situation="Ativa" mas transactions[0].status="refunded".
+  function realStatus(s: Record<string, unknown>): string {
+    const sit = String(s.situation ?? s.status ?? "").toLowerCase();
+    const txs = (s.transactions as Array<Record<string, unknown>>) ?? [];
+    const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+    if (latest) {
+      const txStatus = String(latest.status ?? "").toLowerCase();
+      if (txStatus === "refunded" || txStatus === "chargeback") return "reembolsada";
+      if (txStatus === "delayed") return "atrasada";
+      if (txStatus === "refused") return "atrasada";
+    }
+    return sit;
+  }
+
   for (const s of tictoSubs) {
-    const sit = String((s.situation ?? s.status ?? "")).toLowerCase();
+    const sit = realStatus(s);
     tictoByStatus[sit] = (tictoByStatus[sit] ?? 0) + 1;
     if (sit === "ativa" || sit === "active") {
       tictoActiveCount++;
@@ -180,7 +195,7 @@ auditRoutes.get("/ticto", async (c) => {
   let onlyInTicto = 0;
 
   for (const ts of tictoSubs) {
-    const sit = String((ts.situation ?? ts.status ?? "")).toLowerCase();
+    const sit = realStatus(ts);
     const customer = (ts.customer as Record<string, unknown>) ?? {};
     const email = String(customer.email ?? "").toLowerCase();
     const cpf = String(customer.cpf ?? customer.cnpj ?? "");
@@ -258,7 +273,7 @@ auditRoutes.get("/ticto", async (c) => {
   const tictoActiveByCpf = new Set<string>();
   const tictoActiveBySubId = new Set<string>();
   for (const ts of tictoSubs) {
-    const sit = String((ts.situation ?? ts.status ?? "")).toLowerCase();
+    const sit = realStatus(ts);
     if (sit !== "ativa" && sit !== "active") continue;
     const customer = (ts.customer as Record<string, unknown>) ?? {};
     const email = String(customer.email ?? "").toLowerCase();
@@ -295,7 +310,7 @@ auditRoutes.get("/ticto", async (c) => {
     valor: number;
   }> = [];
   for (const ts of tictoSubs) {
-    const sit = String(ts.situation ?? ts.status ?? "").toLowerCase();
+    const sit = realStatus(ts);
     if (sit !== "ativa" && sit !== "active") continue;
     const customer = (ts.customer as Record<string, unknown>) ?? {};
     const email = String(customer.email ?? "").toLowerCase();
