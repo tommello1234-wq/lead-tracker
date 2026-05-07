@@ -616,6 +616,65 @@ export type PlanoBreakdown = {
 };
 
 /**
+ * Vendas por plano NO PERÍODO: conta eventos compra_aprovada agrupados
+ * por plano, filtrados por produto/período. Usado no card /ads.
+ *
+ * Diferente de getPlanoBreakdown (que conta subs lifetime + ativos atuais).
+ * Aqui é "quantas vendas de cada plano entraram no período".
+ */
+export async function getVendasPorPlano(
+  produtoId: number | null = null,
+  since: Date | null = null,
+  until: Date | null = null,
+): Promise<Array<{ plano: string; vendas: number; receita: number }>> {
+  const conds = [
+    eq(eventos.processedOk, true),
+    inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+  ];
+  if (produtoId != null) conds.push(eq(eventos.produtoId, produtoId));
+  if (since) conds.push(gte(eventos.receivedAt, since));
+  if (until) conds.push(lte(eventos.receivedAt, until));
+
+  // Extrai plano do payload (Ticto: product.name + offer.name; Asaas: payment.description; Stripe: metadata.slug).
+  const planoExpr = sql<string>`coalesce(
+    nullif(trim(concat(
+      ${eventos.payload}->'product'->>'name', ' ',
+      ${eventos.payload}->'offer'->>'name'
+    )), ''),
+    ${eventos.payload}->'item'->>'product_name',
+    ${eventos.payload}->'payment'->>'description',
+    ${eventos.payload}->'data'->'object'->'metadata'->>'plano',
+    'Sem plano'
+  )`;
+  const valorExpr = sql<number>`coalesce(
+    ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+    ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+    ((${eventos.payload}->'offer'->>'price')::numeric / 100),
+    ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    ((${eventos.payload}->'payment'->>'value')::numeric),
+    0
+  )::numeric(10,2)`;
+
+  const rows = await db
+    .select({
+      plano: planoExpr,
+      vendas: sql<number>`count(*)::int`,
+      receita: sql<number>`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`,
+    })
+    .from(eventos)
+    .where(and(...conds))
+    .groupBy(planoExpr);
+
+  return rows
+    .map((r) => ({
+      plano: String(r.plano).trim() || "Sem plano",
+      vendas: Number(r.vendas),
+      receita: Number(r.receita),
+    }))
+    .sort((a, b) => b.vendas - a.vendas);
+}
+
+/**
  * Breakdown de planos por nome (ex: "Gravyx Creator", "Gravyx Studio").
  * Usado pro gráfico de pizza no dashboard.
  *

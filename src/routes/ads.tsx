@@ -23,7 +23,7 @@ import type {
   CampaignStatus,
   Produto,
   Faturamento,
-  PlanoBreakdown,
+  VendasPorPlano,
   TaxaAprovacao,
   DashboardMetrics,
 } from "@shared/types";
@@ -209,11 +209,8 @@ export function AdsPage() {
     enabled: hasMeta,
   });
   const planos = useQuery({
-    queryKey: ["dashboard", "breakdowns", produtoParam],
-    queryFn: () =>
-      api
-        .get<{ planos: PlanoBreakdown[] }>(`/api/dashboard/breakdowns?produtoId=${produtoParam}`)
-        .then((r) => r.planos),
+    queryKey: ["dashboard", "vendas-por-plano", produtoParam, sinceParam, untilParam],
+    queryFn: () => api.get<VendasPorPlano[]>(`/api/dashboard/vendas-por-plano?${baseQs}`),
     enabled: hasMeta,
   });
   const taxaAprov = useQuery({
@@ -360,13 +357,12 @@ export function AdsPage() {
             );
           })()}
 
-          {/* === Linha 2: Vendas por Plano (tall esq) + 3-col grid de cards === */}
+          {/* === Linha 2: Vendas por Plano (tall esq) + grid 2-col de cards === */}
           {(() => {
             const fat = faturamento.data;
             const fatLiq = fat?.total ?? 0;
             const gastos = i.spend ?? 0;
             const lucro = fatLiq - gastos;
-            const roi = gastos > 0 ? lucro / gastos : 0;
             const margem = fatLiq > 0 ? (lucro / fatLiq) * 100 : 0;
             const refundPct = fat && fat.count + fat.refundCount > 0
               ? (fat.refundCount / (fat.count + fat.refundCount)) * 100
@@ -376,21 +372,13 @@ export function AdsPage() {
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-4 items-stretch">
                 {/* esq: Vendas por Plano (alta) */}
                 <VendasPorPlanoCard data={planos.data} isLoading={planos.isLoading} />
-                {/* dir: grid 3 cols × 3 rows com cards menores */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 grid-rows-[auto_auto_auto] gap-4 auto-rows-min">
+                {/* dir: grid 3 cols com cards menores + Taxa de Aprovação tall */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 auto-rows-min">
                   <KpiCard label="Vendas Pendentes" value={brl(vendasPendentes)} hint={m ? `${m.pixGerados} PIX em aberto` : undefined} />
-                  <KpiCard label="ROI" value={roi !== 0 ? roi.toFixed(2) : "—"} tone={roi >= 0 ? "good" : "bad"} />
-                  <KpiCard label="Imposto Meta Ads" value={brl(0)} hint="placeholder" />
-
                   <KpiCard
                     label="Vendas Reembolsadas"
                     value={brl(fat?.refundTotal ?? 0)}
                     hint={fat ? `${fat.refundCount} reembolso${fat.refundCount === 1 ? "" : "s"}` : undefined}
-                  />
-                  <KpiCard
-                    label="Margem"
-                    value={`${margem.toFixed(1)}%`}
-                    tone={margem >= 0 ? "good" : "bad"}
                   />
                   {/* Taxa Aprovação: ocupa 2 linhas na col 3 */}
                   <div className="row-span-2">
@@ -398,12 +386,16 @@ export function AdsPage() {
                   </div>
 
                   <KpiCard
+                    label="Margem"
+                    value={`${margem.toFixed(1)}%`}
+                    tone={margem >= 0 ? "good" : "bad"}
+                  />
+                  <KpiCard
                     label="Reembolso"
                     value={`${refundPct.toFixed(1)}%`}
                     hint={fat ? `${fat.refundCount} de ${fat.count + fat.refundCount} transações` : undefined}
                     tone={refundPct < 5 ? "good" : refundPct < 15 ? "neutral" : "bad"}
                   />
-                  <div />
                 </div>
               </div>
             );

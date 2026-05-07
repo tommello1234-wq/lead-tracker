@@ -6,6 +6,7 @@ import {
   getPlanoBreakdown,
   getTipoBreakdown,
   getSidebarCounts,
+  getVendasPorPlano,
 } from "../lib/queries.js";
 import {
   getMetodoBreakdown,
@@ -194,6 +195,16 @@ dashboardRoutes.get("/saas", async (c) => {
     getRetencaoPorMetodo(produtoId),
   ]);
   return c.json({ metodos, funilPix, retencao });
+});
+
+/* GET /api/dashboard/vendas-por-plano
+ * Vendas por plano no período (eventos compra_aprovada/renovada agrupado). */
+dashboardRoutes.get("/vendas-por-plano", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const data = await getVendasPorPlano(produtoId, since, until);
+  return c.json(data);
 });
 
 /* GET /api/dashboard/taxa-aprovacao

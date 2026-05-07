@@ -45,6 +45,12 @@ export type PlanoBreakdown = {
   ativos: number;
 };
 
+export type VendasPorPlano = {
+  plano: string;
+  vendas: number;
+  receita: number;
+};
+
 export type Faturamento = {
   count: number; // qtd transações positivas (compras + renovações)
   total: number; // líquido (bruto - reembolsos)
