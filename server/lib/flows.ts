@@ -643,6 +643,10 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   if (input.eventType === "assinatura_cancelada") {
     updates.canceladoEm = now;
   }
+  if (input.eventType === "reembolso") {
+    // Data canônica do refund — não mais inferida via atualizadoEm.
+    updates.reembolsadoEm = now;
+  }
   // Associa produto se vier no payload e o lead ainda nao tem
   if (input.produtoId && !lead.produtoId) {
     updates.produtoId = input.produtoId;

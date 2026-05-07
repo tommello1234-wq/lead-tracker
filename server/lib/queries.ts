@@ -155,14 +155,27 @@ export async function getDashboardMetrics(
       : pixPagosTotal;
 
   // Cohort de PIX no período: leads que GERARAM PIX dentro da janela.
+  // pixGerados/pagos via leads (data estável). pixExpirados via EVENTO
+  // (snapshot status muda quando cliente recupera — estávamos perdendo
+  // contagem de quem expirou e depois pagou).
   const pixGeradosNoPeriodo =
     since || until
       ? all.filter((l) => inPeriod(l.pixGeradoEm))
       : all.filter((l) => l.pixGeradoEm != null);
   const pixPagosCohort = pixGeradosNoPeriodo.filter((l) => l.pagouEm != null);
-  const pixExpiradosNoPeriodo = pixGeradosNoPeriodo.filter(
-    (l) => l.status === "pix_expirado",
-  );
+
+  const pixExpiradosCondsNew = [
+    eq(eventos.eventType, "pix_expirado"),
+    eq(eventos.processedOk, true),
+  ];
+  if (produtoId != null) pixExpiradosCondsNew.push(eq(eventos.produtoId, produtoId));
+  if (since) pixExpiradosCondsNew.push(gte(eventos.receivedAt, since));
+  if (until) pixExpiradosCondsNew.push(lte(eventos.receivedAt, until));
+  const [pixExpRow] = await db
+    .select({ n: sql<number>`count(distinct lead_id)::int` })
+    .from(eventos)
+    .where(and(...pixExpiradosCondsNew));
+  const pixExpiradosCount = pixExpRow?.n ?? 0;
 
   const vendasHoje = all.filter((l) => l.pagouEm && l.pagouEm >= today);
   const vendasMes = all.filter((l) => l.pagouEm && l.pagouEm >= monthStart);
@@ -191,17 +204,38 @@ export async function getDashboardMetrics(
       return acc + v;
     }, 0);
 
-  const receitaPerdidaPix = pixExpiradosNoPeriodo.reduce(
-    (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
-    0,
-  );
+  // Receita: lê do payload dos eventos (não de leads.valorAssinatura — esse
+  // muda quando atualizamos preço corrente, contaminando histórico).
+  // getFaturamento já tem extração robusta de valor via JSON.
+  const fat = await getFaturamento(produtoId, since, until);
+  const receitaTotal = fat.total;
 
-  const receitaTotal = pixPagosNoPeriodo.reduce(
-    (acc, l) => acc + (l.valorAssinatura ?? l.valorEstimado ?? 0),
-    0,
-  );
+  // Receita perdida em PIX = soma do valor dos eventos pix_expirado no período
+  const pixExpRefundConds = [
+    eq(eventos.eventType, "pix_expirado"),
+    eq(eventos.processedOk, true),
+  ];
+  if (produtoId != null) pixExpRefundConds.push(eq(eventos.produtoId, produtoId));
+  if (since) pixExpRefundConds.push(gte(eventos.receivedAt, since));
+  if (until) pixExpRefundConds.push(lte(eventos.receivedAt, until));
+  const pixValorExpr = sql<number>`coalesce(
+    ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+    ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+    ((${eventos.payload}->'offer'->>'price')::numeric / 100),
+    ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    ((${eventos.payload}->'payment'->>'value')::numeric),
+    0
+  )::numeric(10,2)`;
+  const [pixLost] = await db
+    .select({
+      total: sql<number>`coalesce(sum(${pixValorExpr}), 0)::numeric(10,2)`,
+    })
+    .from(eventos)
+    .where(and(...pixExpRefundConds));
+  const receitaPerdidaPix = Number(pixLost?.total ?? 0);
+
   const ticketMedio =
-    pixPagosNoPeriodo.length > 0 ? receitaTotal / pixPagosNoPeriodo.length : 0;
+    fat.count > 0 ? fat.grossTotal / fat.count : 0;
 
   // Mensagens — sempre globais (não filtra por produto, todo mundo no mesmo zap)
   const pendingMsgs = await db
@@ -267,11 +301,8 @@ export async function getDashboardMetrics(
   const ltv = arpu * avgLifetimeMonths;
 
   // Métricas de ciclo de vida que respeitam período (se filtro aplicado).
-  // - totalAssinantes: leads que pagaram pela 1ª vez no período (pagouEm)
-  // - cancelados: leads que cancelaram no período (canceladoEm)
-  // - reembolsos: leads que reembolsaram no período (atualizadoEm como proxy
-  //   da data de transição pra reembolsada — não temos campo dedicado).
-  // Sem período (since=null && until=null), são lifetime.
+  // Todas usam datas canônicas de transição (pagouEm/canceladoEm/reembolsadoEm),
+  // não atualizadoEm. Sem período (since=null && until=null), são lifetime.
   const hasPeriod = since != null || until != null;
   const totalAssinantes = hasPeriod
     ? all.filter((l) => l.pagouEm && inPeriod(l.pagouEm)).length
@@ -281,23 +312,13 @@ export async function getDashboardMetrics(
         (l) => l.status === "cliente_cancelado" && inPeriod(l.canceladoEm),
       ).length
     : all.filter((l) => l.status === "cliente_cancelado").length;
-  // Reembolsos: conta eventos de tipo 'reembolso' no período (data real do
-  // refund). Não usa lead.atualizadoEm porque qualquer UPDATE no lead muda
-  // esse campo (ex: sync de preço, atualização de contato), inflando o número.
-  let reembolsos: number;
-  if (hasPeriod) {
-    const refundConds = [eq(eventos.eventType, "reembolso"), eq(eventos.processedOk, true)];
-    if (produtoId != null) refundConds.push(eq(eventos.produtoId, produtoId));
-    if (since) refundConds.push(gte(eventos.receivedAt, since));
-    if (until) refundConds.push(lte(eventos.receivedAt, until));
-    const [r] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(eventos)
-      .where(and(...refundConds));
-    reembolsos = r?.n ?? 0;
-  } else {
-    reembolsos = all.filter((l) => l.subscriptionStatus === "reembolsada").length;
-  }
+  // Reembolsos no período: usa reembolsadoEm (data canônica setada na
+  // transição). Lifetime: subscriptionStatus='reembolsada'.
+  const reembolsos = hasPeriod
+    ? all.filter(
+        (l) => l.subscriptionStatus === "reembolsada" && inPeriod(l.reembolsadoEm),
+      ).length
+    : all.filter((l) => l.subscriptionStatus === "reembolsada").length;
 
   return {
     totalLeads: all.length,
@@ -313,7 +334,7 @@ export async function getDashboardMetrics(
     clientesAtivos: clientesAtivos.length,
     pixGerados: pixGeradosNoPeriodo.length,
     pixPagos: pixPagosCohort.length,
-    pixExpirados: pixExpiradosNoPeriodo.length,
+    pixExpirados: pixExpiradosCount,
     taxaConversaoPix:
       pixGeradosNoPeriodo.length > 0
         ? pixPagosCohort.length / pixGeradosNoPeriodo.length

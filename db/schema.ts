@@ -127,6 +127,9 @@ export const leads = pgTable("leads", {
   pagouEm: timestamp("pagou_em", { mode: "date" }),
   ultimaRenovacaoEm: timestamp("ultima_renovacao_em", { mode: "date" }),
   canceladoEm: timestamp("cancelado_em", { mode: "date" }),
+  // Data canônica do REEMBOLSO. Antes era inferida via atualizadoEm (errado:
+  // muda em qualquer UPDATE). Agora é setada só na transição → reembolsada.
+  reembolsadoEm: timestamp("reembolsado_em", { mode: "date" }),
 
   // Timestamps de interacao
   primeiroContatoEm: timestamp("primeiro_contato_em", { mode: "date" }),

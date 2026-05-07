@@ -6,7 +6,7 @@
  */
 import { Hono } from "hono";
 import { db } from "../../db/client.js";
-import { subscriptions, leads } from "../../db/schema.js";
+import { subscriptions, leads, eventos, mrrMovements } from "../../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { getSubscriptionsHistory } from "../lib/ticto-api.js";
 
@@ -19,6 +19,154 @@ function isAuthed(c: { req: { query: (k: string) => string | undefined; header: 
   const fromHeader = c.req.header("authorization");
   return fromQuery === secret || fromHeader === `Bearer ${secret}`;
 }
+
+/**
+ * GET /api/audit/consistency
+ * Cruza as 4 fontes (leads / subscriptions / eventos / mrr_movements) e
+ * reporta divergências. Read-only. Roda toda semana ou após cada deploy.
+ *
+ * Categorias verificadas:
+ *  1. Lead com subscription_status='ativa' mas SEM sub ativa
+ *  2. Lead com sub ativa mas subscription_status != 'ativa'
+ *  3. Lead com subscription_status='reembolsada' mas SEM reembolsadoEm
+ *  4. Lead com subscription_status='cancelada' mas SEM canceladoEm
+ *  5. Eventos 'reembolso' sem mrr_movement do tipo refund correspondente
+ *  6. Eventos 'assinatura_cancelada' sem mrr_movement do tipo churn
+ *  7. Subs com valor=0 status='ativa' (não somam no MRR)
+ *  8. Leads com pagouEm null mas subscription_status='ativa'
+ *  9. Eventos webhook duplicados (mesmo lead+event_type+order_hash)
+ */
+auditRoutes.get("/consistency", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  // 1+2 Lead vs sub ativa
+  const subStatusMismatch = await db.execute<{
+    lead_id: number;
+    nome: string;
+    lead_status: string;
+    n_active_subs: number;
+  }>(sql`
+    SELECT l.id as lead_id, l.nome,
+      l.subscription_status as lead_status,
+      COALESCE(SUM(CASE WHEN s.status = 'ativa' THEN 1 ELSE 0 END), 0)::int as n_active_subs
+    FROM leads l
+    LEFT JOIN subscriptions s ON s.lead_id = l.id
+    GROUP BY l.id, l.nome, l.subscription_status
+    HAVING (l.subscription_status = 'ativa' AND COALESCE(SUM(CASE WHEN s.status = 'ativa' THEN 1 ELSE 0 END), 0) = 0)
+        OR (l.subscription_status != 'ativa' AND COALESCE(SUM(CASE WHEN s.status = 'ativa' THEN 1 ELSE 0 END), 0) > 0)
+    ORDER BY l.id
+    LIMIT 50
+  `);
+
+  // 3 Reembolsada sem reembolsadoEm
+  const refundNoDate = await db
+    .select({ id: leads.id, nome: leads.nome })
+    .from(leads)
+    .where(and(eq(leads.subscriptionStatus, "reembolsada"), sql`${leads.reembolsadoEm} IS NULL`))
+    .limit(50);
+
+  // 4 Cancelada sem canceladoEm
+  const cancelNoDate = await db
+    .select({ id: leads.id, nome: leads.nome })
+    .from(leads)
+    .where(and(eq(leads.subscriptionStatus, "cancelada"), sql`${leads.canceladoEm} IS NULL`))
+    .limit(50);
+
+  // 5 Eventos refund sem movement
+  const refundsNoMovement = await db.execute<{
+    evento_id: number;
+    lead_id: number;
+    received_at: string;
+  }>(sql`
+    SELECT e.id as evento_id, e.lead_id, e.received_at
+    FROM eventos e
+    WHERE e.event_type = 'reembolso' AND e.processed_ok = true
+      AND e.lead_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM mrr_movements m
+        WHERE m.evento_id = e.id AND m.type = 'refund'
+      )
+    ORDER BY e.received_at DESC
+    LIMIT 50
+  `);
+
+  // 6 Eventos cancelamento sem movement churn
+  const cancelsNoMovement = await db.execute<{
+    evento_id: number;
+    lead_id: number;
+    received_at: string;
+  }>(sql`
+    SELECT e.id as evento_id, e.lead_id, e.received_at
+    FROM eventos e
+    WHERE e.event_type = 'assinatura_cancelada' AND e.processed_ok = true
+      AND e.lead_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM mrr_movements m
+        WHERE m.evento_id = e.id AND m.type = 'churn'
+      )
+    ORDER BY e.received_at DESC
+    LIMIT 50
+  `);
+
+  // 7 Subs ativas sem valor (não somam no MRR — invisível)
+  const subsZero = await db
+    .select({
+      id: subscriptions.id,
+      leadId: subscriptions.leadId,
+      gateway: subscriptions.gateway,
+      planoNome: subscriptions.planoNome,
+      valor: subscriptions.valor,
+    })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.status, "ativa"), sql`(${subscriptions.valor} IS NULL OR ${subscriptions.valor} = 0)`))
+    .limit(50);
+
+  // 8 Lead ativo sem pagouEm
+  const activeNoPaid = await db
+    .select({ id: leads.id, nome: leads.nome })
+    .from(leads)
+    .where(and(eq(leads.subscriptionStatus, "ativa"), sql`${leads.pagouEm} IS NULL`))
+    .limit(50);
+
+  // 9 Eventos duplicados (mesmo lead+event_type+order_hash)
+  const dupes = await db.execute<{
+    lead_id: number;
+    event_type: string;
+    order_hash: string;
+    cnt: number;
+  }>(sql`
+    SELECT lead_id, event_type, payload->'order'->>'hash' as order_hash, COUNT(*)::int as cnt
+    FROM eventos
+    WHERE processed_ok = true AND erro IS NULL
+      AND payload->'order'->>'hash' IS NOT NULL
+      AND event_type IN ('assinatura_cancelada', 'reembolso', 'compra_aprovada', 'assinatura_renovada')
+    GROUP BY lead_id, event_type, payload->'order'->>'hash'
+    HAVING COUNT(*) > 1
+    LIMIT 50
+  `);
+
+  const issues = {
+    subStatusMismatch: (subStatusMismatch as unknown as Array<unknown>).slice(0, 50),
+    refundNoDate,
+    cancelNoDate,
+    refundsNoMovement: (refundsNoMovement as unknown as Array<unknown>).slice(0, 50),
+    cancelsNoMovement: (cancelsNoMovement as unknown as Array<unknown>).slice(0, 50),
+    subsZero,
+    activeNoPaid,
+    dupes: (dupes as unknown as Array<unknown>).slice(0, 50),
+  };
+
+  const counts = Object.fromEntries(
+    Object.entries(issues).map(([k, v]) => [k, Array.isArray(v) ? v.length : 0]),
+  );
+  const totalIssues = Object.values(counts).reduce((a, b) => a + (b as number), 0);
+
+  return c.json({
+    ok: true,
+    summary: { totalIssues, ...counts },
+    issues,
+  });
+});
 
 // Atualiza valor das subs Ticto no banco pra refletir s.price real (com taxa).
 // Match por email/cpf. Só toca em subs que mudam.
