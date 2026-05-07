@@ -5,7 +5,6 @@ import {
   DollarSign,
   TrendingUp,
   AlertTriangle,
-  RotateCcw,
   Calendar,
   ChevronDown,
   Target,
@@ -268,21 +267,7 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-{/* Reembolsos isolado (Total leads/Fila/Em risco moveram pra /leads) */}
-      {m && m.reembolsos > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Reembolsos no período"
-            value={m.reembolsos.toLocaleString("pt-BR")}
-            hint="Cliente pediu dinheiro de volta"
-            icon={RotateCcw}
-            iconTone="rose"
-            onClick={() => setDetails("reembolsos")}
-          />
-        </div>
-      ) : null}
-
-      {/* Movimentação MRR — só pra produtos saas ou visão Todos */}
+{/* Movimentação MRR — só pra produtos saas ou visão Todos */}
       {isSaasView ? (
         <MrrBreakdown
           data={mrr.data}
