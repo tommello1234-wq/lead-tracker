@@ -321,6 +321,43 @@ async function isDuplicateAbandonedCart(
 }
 
 /**
+ * Dedup geral por `order_hash` ou `transaction_hash` — Ticto às vezes manda
+ * o MESMO webhook duas vezes (visto na prática: 2 `assinatura_cancelada`
+ * idênticas com 48ms de diff). Sem dedup, cria 2 movements de churn.
+ *
+ * Se já existe evento processado_ok=true do mesmo lead+eventType+hash nas
+ * últimas 24h, considera duplicata e pula.
+ */
+async function isDuplicateByHash(
+  leadId: number,
+  eventType: GatewayEvent,
+  rawPayload: unknown,
+): Promise<boolean> {
+  const p = rawPayload as { order?: { hash?: unknown }; transaction?: { hash?: unknown } } | null;
+  const orderHash = typeof p?.order?.hash === "string" ? p.order.hash : null;
+  const txHash = typeof p?.transaction?.hash === "string" ? p.transaction.hash : null;
+  if (!orderHash && !txHash) return false;
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const conds = [
+    eq(eventos.leadId, leadId),
+    eq(eventos.eventType, eventType),
+    eq(eventos.processedOk, true),
+    isNull(eventos.erro),
+    gte(eventos.receivedAt, cutoff),
+  ];
+  if (orderHash && txHash) {
+    conds.push(sql`(${eventos.payload}->'order'->>'hash' = ${orderHash} OR ${eventos.payload}->'transaction'->>'hash' = ${txHash})`);
+  } else if (orderHash) {
+    conds.push(sql`${eventos.payload}->'order'->>'hash' = ${orderHash}`);
+  } else if (txHash) {
+    conds.push(sql`${eventos.payload}->'transaction'->>'hash' = ${txHash}`);
+  }
+  const existing = await db.select({ id: eventos.id }).from(eventos).where(and(...conds)).limit(1);
+  return existing.length > 0;
+}
+
+/**
  * Registra um movimento de MRR a partir de um evento do gateway.
  * Decide o tipo do movimento (new/expansion/contraction/churn/reactivation/refund)
  * comparando estado anterior do lead com os valores que vêm no input.
@@ -523,6 +560,26 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       payload: input.rawPayload as object,
       processedOk: true,
       erro: "Duplicado: mesmo checkout_url já visto nas últimas 24h",
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true,
+    };
+  }
+
+  // Dedup geral por order_hash/tx_hash — Ticto manda webhooks duplicados.
+  // Sem isso, cria movements churn/refund duplicados.
+  if (await isDuplicateByHash(lead.id, input.eventType, input.rawPayload)) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+      erro: "Duplicado: mesmo order_hash/tx_hash já processado nas últimas 24h",
     });
     return {
       leadId: lead.id,
