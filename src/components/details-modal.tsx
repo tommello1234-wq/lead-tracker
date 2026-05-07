@@ -87,30 +87,99 @@ export function DetailsModal({
   const receita = data?.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) ?? 0;
   const isCompras = kind === "compras";
 
+  // Pra modal de "compras", calcular breakdown por tipo
+  const breakdown = useMemo(() => {
+    if (!isCompras || !data) return null;
+    const acc = {
+      compras: { count: 0, total: 0 },
+      renovacoes: { count: 0, total: 0 },
+      reembolsos: { count: 0, total: 0 },
+    };
+    for (const l of data) {
+      const v = l.valorAssinatura ?? 0;
+      if (l.eventType === "reembolso") {
+        acc.reembolsos.count++;
+        acc.reembolsos.total += Math.abs(v);
+      } else if (l.eventType === "assinatura_renovada") {
+        acc.renovacoes.count++;
+        acc.renovacoes.total += v;
+      } else {
+        acc.compras.count++;
+        acc.compras.total += v;
+      }
+    }
+    return acc;
+  }, [isCompras, data]);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/30 backdrop-blur-sm animate-in fade-in-0">
       <div
-        className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden"
+        className={`bg-card border border-border rounded-3xl shadow-2xl w-full ${isCompras ? "max-w-5xl" : "max-w-4xl"} max-h-[88vh] flex flex-col overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between gap-3 px-6 py-4 border-b border-border">
-          <div>
+        <header className="px-6 py-4 border-b border-border">
+          <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-lg font-semibold">{TITLES[kind]}</h2>
-            <p className="text-xs text-muted-foreground">
-              {isLoading
-                ? "Carregando..."
-                : isCompras
-                  ? `${total} transaç${total === 1 ? "ão" : "ões"} · ${brl(receita)} líquido`
-                  : `${total} ${total === 1 ? "lead" : "leads"}${receita > 0 ? ` · ${brl(receita)} acumulado` : ""}`}
-            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="size-9 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors"
+            >
+              <X className="size-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="size-9 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors"
-          >
-            <X className="size-4" />
-          </button>
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground">Carregando...</p>
+          ) : isCompras && breakdown ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="card-soft p-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Compras
+                </p>
+                <p className="font-bold tabular-nums text-forest">
+                  {brl(breakdown.compras.total)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {breakdown.compras.count} transações
+                </p>
+              </div>
+              <div className="card-soft p-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Renovações
+                </p>
+                <p className="font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                  {brl(breakdown.renovacoes.total)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {breakdown.renovacoes.count} transações
+                </p>
+              </div>
+              <div className="card-soft p-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Reembolsos
+                </p>
+                <p className="font-bold tabular-nums text-destructive">
+                  −{brl(breakdown.reembolsos.total)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {breakdown.reembolsos.count} transações
+                </p>
+              </div>
+              <div className="card-soft p-3 bg-lime-soft/40">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Líquido total
+                </p>
+                <p className="font-bold tabular-nums">{brl(receita)}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {total} no total
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {`${total} ${total === 1 ? "lead" : "leads"}${receita > 0 ? ` · ${brl(receita)} acumulado` : ""}`}
+            </p>
+          )}
         </header>
 
         <div className="flex-1 overflow-y-auto">
