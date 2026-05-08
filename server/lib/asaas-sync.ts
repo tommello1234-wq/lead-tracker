@@ -208,14 +208,15 @@ export async function runAsaasSync(): Promise<{
       ? paidPays.filter((p) => p.subscription === lastSub.id)
       : paidPays;
     const subNextDue = parseBrt(lastSub?.nextDueDate);
-    // firstPaidDate (pagouEm) = 1ª cobrança RECEIVED desta subscription
+    // firstPaidDate (pagouEm) = 1ª cobrança desta sub. Usa dueDate (data
+    // oficial de vencimento) em vez de confirmedDate, pois cliente pode ter
+    // pago 1 dia antes/depois — dueDate é o dia "fixo" que aparece no Asaas.
     const firstPaidDate = paidOfCurrentSub
-      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .map((p) => parseBrt(p.dueDate))
       .filter((d): d is Date => d !== null)
       .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-    // lastPaidDate (ultimaRenovacaoEm) = última cobrança RECEIVED (passado)
     const lastPaidDate = paidOfCurrentSub
-      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .map((p) => parseBrt(p.dueDate))
       .filter((d): d is Date => d !== null)
       .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     // proximoPagamentoEm = próxima cobrança Asaas (futuro), pra calendário
