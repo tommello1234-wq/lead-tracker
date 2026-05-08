@@ -188,17 +188,26 @@ export async function runAsaasSync(): Promise<{
       return d.getTime() > cutoff;
     });
 
-    // Data REAL do último pagamento confirmado (pra calendário de renovação ficar certo)
+    // Data REAL do último pagamento confirmado.
+    // Asaas retorna "YYYY-MM-DD" sem hora — interpretamos como meio-dia BRT
+    // pra evitar drift de timezone (UTC=00:00 → BRT=21:00 do dia anterior).
+    function parseBrt(s: string | undefined | null): Date | null {
+      if (!s) return null;
+      // Se já tem 'T' (ISO completo), usa direto
+      if (s.includes("T")) {
+        const d = new Date(s);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      // YYYY-MM-DD → meio-dia BRT
+      const d = new Date(`${s}T12:00:00-03:00`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
     const paidPays = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""));
-    const lastPaidDate = paidPays
-      .map((p) => new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
-      .filter((d) => !Number.isNaN(d.getTime()))
-      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    // Data da PRIMEIRA compra confirmada (pagouEm canônico)
-    const firstPaidDate = paidPays
-      .map((p) => new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
-      .filter((d) => !Number.isNaN(d.getTime()))
-      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const paidDates = paidPays
+      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .filter((d): d is Date => d !== null);
+    const lastPaidDate = paidDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const firstPaidDate = paidDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
