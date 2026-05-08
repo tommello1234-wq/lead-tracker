@@ -123,10 +123,20 @@ export async function runStripeSync(): Promise<{
     return out;
   }
 
-  // 1) Pega todas subscriptions, invoices, charges (1x cada — sem rate-limit)
+  // 1) Pega todas subscriptions, invoices, charges, refunds (1x cada — sem rate-limit)
   const subs = await listAllStripe<StripeSubscription>("/subscriptions", { status: "all" });
   const allInvoices = await listAllStripe<StripeInvoice>("/invoices", { status: "paid" });
   const allCharges = await listAllStripe<StripeCharge>("/charges");
+  const allRefunds = await listAllStripe<StripeRefund>("/refunds");
+  // Index refunds por charge — pra pegar data real do refund (refund.created)
+  const refundsByCharge = new Map<string, StripeRefund>();
+  for (const rf of allRefunds) {
+    // Pega o refund mais antigo de cada charge (1ª data de estorno)
+    const existing = refundsByCharge.get(rf.charge);
+    if (!existing || rf.created < existing.created) {
+      refundsByCharge.set(rf.charge, rf);
+    }
+  }
 
   // Index invoices/charges por customer
   const invoicesByCust = new Map<string, StripeInvoice[]>();
@@ -185,7 +195,8 @@ export async function runStripeSync(): Promise<{
       evCreated++;
     }
 
-    // Refunds: charges com refunded=true
+    // Refunds: charges com refunded=true. Data real vem de refund.created
+    // (não new Date() — senão evento aparece como "hoje" mesmo se foi antigo).
     for (const ch of charges) {
       if (!ch.refunded || ch.amount_refunded === 0) continue;
       const refKey = `refund_${ch.id}`;
@@ -195,6 +206,8 @@ export async function runStripeSync(): Promise<{
         .where(sql`${eventos.payload}->'order'->>'hash' = ${refKey}`)
         .limit(1);
       if (exists.length > 0) continue;
+      const refund = refundsByCharge.get(ch.id);
+      const refundDate = refund ? new Date(refund.created * 1000) : new Date();
       await db.insert(eventos).values({
         leadId,
         produtoId,
@@ -205,7 +218,7 @@ export async function runStripeSync(): Promise<{
           order: { hash: refKey },
         },
         processedOk: true,
-        receivedAt: new Date(),
+        receivedAt: refundDate,
       });
       evCreated++;
     }
