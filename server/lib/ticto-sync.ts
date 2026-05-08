@@ -68,6 +68,26 @@ function lastPaidDate(sub: TictoSubscription): Date | null {
   return authorized[0] ?? null;
 }
 
+/**
+ * Mapeia product.name da Ticto → produto_id do banco.
+ *
+ * Ticto é multi-produto (Gravyx, Web Designer, etc). Hardcode pra Gravyx
+ * (id=1) classifica errado quando o cliente comprou outro produto. Mesma
+ * regra do detectProdutoIdByPlano do asaas-sync.
+ */
+function detectProdutoIdByName(productName: string | undefined | null): number {
+  if (!productName) return 1;
+  const n = productName.toLowerCase();
+  if (n.includes("gravyx")) return 1;
+  if (n.includes("web designer")) return 13;
+  if (n.includes("lucrando com foto")) return 14;
+  if (n.includes("designer de prompt")) return 15;
+  if (n.includes("pacote avulso")) return 16;
+  if (n.includes("upward academy")) return 17; // Outros legado
+  if (n.includes("arsenal")) return 17;
+  return 17; // Outros (legado) por default — não joga em Gravyx
+}
+
 /** Próxima cobrança. Tenta sub.next_charge, fallback = lastPaid + interval meses. */
 function nextChargeDate(sub: TictoSubscription, lastPaid: Date | null): Date | null {
   const o = sub as AnyObject;
@@ -394,7 +414,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
 
       await db.insert(eventos).values({
         leadId,
-        produtoId: 1,
+        produtoId: detectProdutoIdByName(product?.name as string | undefined),
         source: "ticto-sync",
         eventType,
         payload: {
@@ -451,6 +471,9 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           : (product?.name as string | undefined) ?? "Sem plano";
         const valor = sub.price ? Number(sub.price) / 100 : null;
         const isAnnual = (sub as AnyObject).interval === 12;
+        // Detecta produto pelo nome (Ticto vende Gravyx + outros produtos
+        // do mesmo produtor — não pode hardcoded como Gravyx).
+        const produtoId = detectProdutoIdByName(product?.name as string | undefined);
         // Datas REAIS da sub Ticto (NUNCA new Date()): firstPaidDate da
         // primeira tx authorized, lastPaidDate da última, nextCharge =
         // sub.next_charge ?? lastPaid+interval. Sem isso, calendário de
@@ -469,7 +492,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
             subscriptionStatus: mapped.sub,
             gateway: "ticto",
             gatewayCustomerId: cpf || null,
-            produtoId: 1, // Gravyx por default (Ticto = só Gravyx hoje)
+            produtoId,
             planoNome,
             valorAssinatura: valor,
             periodicidade: isAnnual ? "anual" : "mensal",
@@ -488,7 +511,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           valor,
           planoNome,
           periodicidade: isAnnual ? "anual" : "mensal",
-          produtoId: 1,
+          produtoId,
           gatewayCustomerId: cpf || null,
           pagouEm: firstPaid,
           proximoPagamentoEm: nextCharge,
@@ -513,6 +536,8 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       const firstPaid = firstPaidDate(sub);
       const lastPaid = lastPaidDate(sub);
       const nextCharge = nextChargeDate(sub, lastPaid);
+      const product = sub.product as AnyObject | undefined;
+      const detectedProdutoId = detectProdutoIdByName(product?.name as string | undefined);
 
       const updates: Record<string, unknown> = {
         atualizadoEm: new Date(),
@@ -524,6 +549,11 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         if (mapped.sub === "cancelada" && !lead.canceladoEm) {
           updates.canceladoEm = new Date();
         }
+      }
+      // Reclassifica produto_id se sync detectou produto diferente
+      // (corrige hardcode antigo que jogava tudo em Gravyx).
+      if (detectedProdutoId !== lead.produtoId) {
+        updates.produtoId = detectedProdutoId;
       }
       // Datas REAIS — corrige bug das 209 subs no calendário
       if (firstPaid && (!lead.pagouEm || firstPaid < lead.pagouEm)) {
@@ -558,7 +588,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         valor: lead.valorAssinatura ?? null,
         planoNome: lead.planoNome ?? null,
         periodicidade: lead.periodicidade,
-        produtoId: lead.produtoId ?? null,
+        produtoId: detectedProdutoId,
         gatewayCustomerId: cpf || null,
         pagouEm: firstPaid,
         proximoPagamentoEm: nextCharge,
