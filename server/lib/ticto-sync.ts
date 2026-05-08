@@ -46,6 +46,51 @@ function parseDateBR(s: string): Date | null {
   );
 }
 
+/** Primeira tx authorized da sub (data de adesão). null se nunca pagou. */
+function firstPaidDate(sub: TictoSubscription): Date | null {
+  const txs = ((sub as AnyObject).transactions as AnyObject[]) ?? [];
+  const authorized = txs
+    .filter((t) => String(t.status ?? "").toLowerCase() === "authorized")
+    .map((t) => parseDateBR(String(t.created_at ?? "")))
+    .filter((d): d is Date => d !== null)
+    .sort((a, b) => a.getTime() - b.getTime());
+  return authorized[0] ?? null;
+}
+
+/** Última tx authorized da sub (última renovação paga). null se nunca pagou. */
+function lastPaidDate(sub: TictoSubscription): Date | null {
+  const txs = ((sub as AnyObject).transactions as AnyObject[]) ?? [];
+  const authorized = txs
+    .filter((t) => String(t.status ?? "").toLowerCase() === "authorized")
+    .map((t) => parseDateBR(String(t.created_at ?? "")))
+    .filter((d): d is Date => d !== null)
+    .sort((a, b) => b.getTime() - a.getTime());
+  return authorized[0] ?? null;
+}
+
+/** Próxima cobrança. Tenta sub.next_charge, fallback = lastPaid + interval meses. */
+function nextChargeDate(sub: TictoSubscription, lastPaid: Date | null): Date | null {
+  const o = sub as AnyObject;
+  // Ticto pode usar várias chaves: next_charge, next_charge_at, next_payment_date
+  const candidates = [o.next_charge, o.next_charge_at, o.next_payment_date].filter(Boolean);
+  for (const c of candidates) {
+    const s = String(c);
+    const br = parseDateBR(s);
+    if (br) return br;
+    // tenta YYYY-MM-DD ou ISO
+    const iso = new Date(s.length === 10 ? `${s}T12:00:00-03:00` : s);
+    if (!Number.isNaN(iso.getTime())) return iso;
+  }
+  // Fallback: lastPaid + interval (1 mês mensal, 12 meses anual)
+  if (lastPaid) {
+    const interval = Number(o.interval ?? 1);
+    const next = new Date(lastPaid);
+    next.setMonth(next.getMonth() + interval);
+    return next;
+  }
+  return null;
+}
+
 function mapTransactionStatus(order: TictoOrder): {
   eventType: string;
   leadStatus: LeadStatus;
@@ -406,6 +451,13 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           : (product?.name as string | undefined) ?? "Sem plano";
         const valor = sub.price ? Number(sub.price) / 100 : null;
         const isAnnual = (sub as AnyObject).interval === 12;
+        // Datas REAIS da sub Ticto (NUNCA new Date()): firstPaidDate da
+        // primeira tx authorized, lastPaidDate da última, nextCharge =
+        // sub.next_charge ?? lastPaid+interval. Sem isso, calendário de
+        // renovação fica todo no dia que sync rodou (bug das 209 subs).
+        const firstPaid = firstPaidDate(sub);
+        const lastPaid = lastPaidDate(sub);
+        const nextCharge = nextChargeDate(sub, lastPaid);
         const [createdLead] = await db
           .insert(leads)
           .values({
@@ -421,9 +473,11 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
             planoNome,
             valorAssinatura: valor,
             periodicidade: isAnnual ? "anual" : "mensal",
-            pagouEm: mapped.sub === "ativa" ? new Date() : null,
+            pagouEm: firstPaid,
+            ultimaRenovacaoEm: lastPaid,
             canceladoEm: mapped.sub === "cancelada" ? new Date() : null,
             atualizadoEm: new Date(),
+            criadoEm: firstPaid ?? new Date(),
           })
           .returning();
         lead = createdLead;
@@ -436,6 +490,8 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           periodicidade: isAnnual ? "anual" : "mensal",
           produtoId: 1,
           gatewayCustomerId: cpf || null,
+          pagouEm: firstPaid,
+          proximoPagamentoEm: nextCharge,
         });
         await syncTictoTransactions(lead.id, sub);
         subsUpdated++;
@@ -452,6 +508,12 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         continue;
       }
 
+      // Datas REAIS da sub (NUNCA NEW Date()): firstPaid pra calendário,
+      // lastPaid pra ultimaRenovacaoEm, nextCharge pra próxima cobrança.
+      const firstPaid = firstPaidDate(sub);
+      const lastPaid = lastPaidDate(sub);
+      const nextCharge = nextChargeDate(sub, lastPaid);
+
       const updates: Record<string, unknown> = {
         atualizadoEm: new Date(),
       };
@@ -462,6 +524,13 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         if (mapped.sub === "cancelada" && !lead.canceladoEm) {
           updates.canceladoEm = new Date();
         }
+      }
+      // Datas REAIS — corrige bug das 209 subs no calendário
+      if (firstPaid && (!lead.pagouEm || firstPaid < lead.pagouEm)) {
+        updates.pagouEm = firstPaid;
+      }
+      if (lastPaid && (!lead.ultimaRenovacaoEm || lastPaid > lead.ultimaRenovacaoEm)) {
+        updates.ultimaRenovacaoEm = lastPaid;
       }
       // Sincroniza dados do cliente (Ticto = source of truth)
       const tictoName = String(customer?.name ?? "").trim();
@@ -491,6 +560,8 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         periodicidade: lead.periodicidade,
         produtoId: lead.produtoId ?? null,
         gatewayCustomerId: cpf || null,
+        pagouEm: firstPaid,
+        proximoPagamentoEm: nextCharge,
       });
       // Cria eventos históricos das transações da sub (compras + reembolsos).
       // Idempotente — só cria o que não existe.

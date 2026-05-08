@@ -71,7 +71,15 @@ export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
   if (args.gatewaySubscriptionId) updates.gatewaySubscriptionId = args.gatewaySubscriptionId;
   if (args.gatewayCustomerId) updates.gatewayCustomerId = args.gatewayCustomerId;
   if (args.produtoId != null) updates.produtoId = args.produtoId;
-  if (args.pagouEm && !existing.pagouEm) updates.pagouEm = args.pagouEm;
+  // pagouEm = data da PRIMEIRA cobrança paga (não muda em renovações).
+  // Atualiza se: existing é null OU novo é mais antigo que existing
+  // (corrige bug onde sync setou pagou_em = NOW() em vez da data real).
+  if (
+    args.pagouEm &&
+    (!existing.pagouEm || args.pagouEm.getTime() < existing.pagouEm.getTime())
+  ) {
+    updates.pagouEm = args.pagouEm;
+  }
   if (args.proximoPagamentoEm) updates.proximoPagamentoEm = args.proximoPagamentoEm;
   if (args.ultimaRenovacaoEm) updates.ultimaRenovacaoEm = args.ultimaRenovacaoEm;
   if (args.status === "cancelada" && !existing.canceladoEm) {
