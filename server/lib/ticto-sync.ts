@@ -266,6 +266,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
   ordersUpdated: number;
   ordersSkipped: number;
   subsUpdated: number;
+  evCreated: number;
 }> {
   // 1. Orders dos últimos N dias
   const today = new Date();
@@ -303,7 +304,74 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
 
   // 2. Subscriptions (todas — só ~234)
   let subsUpdated = 0;
+  let evCreated = 0;
   let subsPage = 1;
+
+  // Helper: cria eventos compra/refund pra cada transaction da sub Ticto.
+  // Idempotente via order.hash (transaction.hash). Sem isso, faturamento
+  // histórico fica zero porque o sync só cria 1 evento por sub (não por tx).
+  async function syncTictoTransactions(leadId: number, sub: TictoSubscription) {
+    const txs = ((sub as AnyObject).transactions as AnyObject[]) ?? [];
+    const offer = sub.offer as AnyObject | undefined;
+    const product = sub.product as AnyObject | undefined;
+    const customer = sub.customer as AnyObject | undefined;
+    const planoNome = offer?.name
+      ? `${product?.name ?? ""} ${offer.name}`.trim()
+      : (product?.name as string | undefined) ?? null;
+
+    for (const tx of txs) {
+      const txStatus = String(tx.status ?? "").toLowerCase();
+      let eventType: string | null = null;
+      if (txStatus === "authorized") eventType = "compra_aprovada";
+      else if (txStatus === "refunded" || txStatus === "chargeback") eventType = "reembolso";
+      else continue; // outros (delayed, refused, processing, waiting_payment) — não geram evento de receita
+
+      const txHash = String(tx.hash ?? "");
+      if (!txHash) continue;
+
+      // Dedup: se já existe evento com mesmo transaction.hash, pula
+      const exists = await db
+        .select({ id: eventos.id })
+        .from(eventos)
+        .where(sql`${eventos.payload}->'transaction'->>'hash' = ${txHash}`)
+        .limit(1);
+      if (exists.length > 0) continue;
+
+      // Data: tx.created_at no formato "DD/MM/YYYY HH:mm:ss"
+      const dateStr = String(tx.created_at ?? "");
+      const m = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/);
+      const receivedAt = m
+        ? new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6]}-03:00`)
+        : new Date();
+
+      // Valor: tx.paid_amount em centavos
+      const valorCents = Number(tx.paid_amount ?? 0);
+
+      await db.insert(eventos).values({
+        leadId,
+        produtoId: 1,
+        source: "ticto-sync",
+        eventType,
+        payload: {
+          transaction: {
+            hash: txHash,
+            paid_amount: valorCents,
+            payment_method: tx.payment_method,
+            status: txStatus,
+            occurrence: tx.occurrence,
+          },
+          offer: { name: offer?.name, price: offer?.price },
+          product: { name: product?.name },
+          item: { product_name: planoNome, amount: valorCents },
+          customer: { name: customer?.name, email: customer?.email },
+          order: { hash: txHash },
+        },
+        processedOk: true,
+        receivedAt,
+      });
+      evCreated++;
+    }
+  }
   while (true) {
     const resp = await getSubscriptionsHistory(subsPage);
     const subs = resp.data ?? [];
@@ -369,6 +437,7 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           produtoId: 1,
           gatewayCustomerId: cpf || null,
         });
+        await syncTictoTransactions(lead.id, sub);
         subsUpdated++;
         continue;
       }
@@ -423,6 +492,9 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         produtoId: lead.produtoId ?? null,
         gatewayCustomerId: cpf || null,
       });
+      // Cria eventos históricos das transações da sub (compras + reembolsos).
+      // Idempotente — só cria o que não existe.
+      await syncTictoTransactions(lead.id, sub);
     }
 
     const lastPage = resp.meta?.last_page ?? subsPage;
@@ -430,5 +502,5 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
     subsPage++;
   }
 
-  return { ordersCreated, ordersUpdated, ordersSkipped, subsUpdated };
+  return { ordersCreated, ordersUpdated, ordersSkipped, subsUpdated, evCreated };
 }
