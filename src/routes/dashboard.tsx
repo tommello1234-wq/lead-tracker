@@ -146,8 +146,12 @@ export function DashboardPage() {
         hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
       />
 
-      {/* Snapshot SaaS: estado atual do negócio */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Snapshot consolidado: 2 linhas × 3 cards.
+       *  L1: MRR | LTV | Faturamento (estado e receita do período)
+       *  L2: Saídas | Lucro | CAC (custo e resultado do período)
+       *  Saídas usa iconTone rose pra deixar claro que é débito — não
+       *  precisa do sinal "−" no número. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           label="MRR atual"
           value={m ? brl(m.mrr) : "—"}
@@ -168,10 +172,6 @@ export function DashboardPage() {
           iconTone="forest"
           onClick={() => setDetails("cancelados")}
         />
-      </div>
-
-      {/* Fluxo de caixa do período: Faturamento (líquido) − Saídas (ads) = Lucro */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Faturamento"
           value={faturamento.data ? brl(faturamento.data.total) : "—"}
@@ -190,7 +190,7 @@ export function DashboardPage() {
         />
         <StatCard
           label="Saídas"
-          value={cac.data ? `−${brl(cac.data.adSpend ?? 0)}` : "—"}
+          value={cac.data ? brl(cac.data.adSpend ?? 0) : "—"}
           hint={
             cac.isError
               ? "Erro Meta API"
@@ -220,11 +220,7 @@ export function DashboardPage() {
               : "lime"
           }
         />
-      </div>
-
-{/* CAC blended (gasto Meta / clientes Lead Tracker) — pra SaaS */}
-      {isSaasView ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {isSaasView ? (
           <StatCard
             label="CAC (real, blended)"
             value={cac.data && cac.data.cac > 0 ? brl(cac.data.cac) : "—"}
@@ -238,8 +234,8 @@ export function DashboardPage() {
             icon={Target}
             iconTone="forest"
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
 {/* Movimentação MRR — só pra produtos saas ou visão Todos */}
       {isSaasView ? (
