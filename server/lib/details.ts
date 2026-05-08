@@ -4,7 +4,7 @@
  */
 import { db } from "../../db/client.js";
 import { leads, subscriptions, eventos, type Lead } from "../../db/schema.js";
-import { and, eq, gte, lte, isNotNull, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, lte, isNotNull, isNull, desc, inArray, sql } from "drizzle-orm";
 
 export type DetailsKind =
   | "ativos"
@@ -197,6 +197,8 @@ export async function getDetails(
       // não lead.valorAssinatura que pode ter sido atualizado).
       const evConds = [
         eq(eventos.processedOk, true),
+        // Exclui duplicatas / ignorados (têm erro preenchido mesmo com OK=true)
+        isNull(eventos.erro),
         inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada", "reembolso"]),
       ];
       if (produtoId != null) evConds.push(eq(eventos.produtoId, produtoId));
@@ -216,6 +218,7 @@ export async function getDetails(
         .select({
           eventoId: eventos.id,
           eventType: eventos.eventType,
+          source: eventos.source,
           receivedAt: eventos.receivedAt,
           valor: valorExpr,
           lead: leads,
@@ -226,11 +229,21 @@ export async function getDetails(
         .orderBy(desc(eventos.receivedAt))
         .limit(1000);
 
+      // Deriva gateway a partir do source do evento, não do lead.gateway
+      // (lead pode ter sido tocado por múltiplos gateways ao longo do tempo,
+      // o gateway atual não reflete de onde cada transação veio).
+      function gatewayFromSource(src: string): string {
+        if (src.startsWith("ticto")) return "ticto";
+        if (src.startsWith("asaas")) return "asaas";
+        if (src.startsWith("stripe")) return "stripe";
+        return src;
+      }
+
       return rows.map((r) => ({
         ...toDetail(r.lead),
         eventoId: r.eventoId,
         eventType: r.eventType,
-        // Reembolso vira valor negativo (mostra impacto líquido na soma)
+        gateway: gatewayFromSource(r.source),
         valorAssinatura:
           r.eventType === "reembolso" ? -Number(r.valor) : Number(r.valor),
         pagouEm: r.receivedAt.toISOString(),
