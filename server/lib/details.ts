@@ -118,6 +118,10 @@ export async function getDetails(
 
     case "em_risco":
       conds.push(eq(leads.status, "cliente_em_risco"));
+      // Em risco não tem data canônica clara, usa atualizadoEm (último
+      // movimento que provocou o estado).
+      if (since) conds.push(gte(leads.atualizadoEm, since));
+      if (until) conds.push(lte(leads.atualizadoEm, until));
       return (
         await db
           .select()
@@ -173,6 +177,9 @@ export async function getDetails(
 
     case "cancelados":
       conds.push(eq(leads.subscriptionStatus, "cancelada"));
+      // Filtro de período usa canceladoEm (data canônica da transição).
+      if (since) conds.push(gte(leads.canceladoEm, since));
+      if (until) conds.push(lte(leads.canceladoEm, until));
       return (
         await db
           .select()
@@ -184,12 +191,16 @@ export async function getDetails(
 
     case "reembolsos":
       conds.push(eq(leads.subscriptionStatus, "reembolsada"));
+      // Filtro de período usa reembolsadoEm (data canônica). Sem isso, o
+      // modal mostrava reembolsos lifetime mesmo com filtro "hoje" ativo.
+      if (since) conds.push(gte(leads.reembolsadoEm, since));
+      if (until) conds.push(lte(leads.reembolsadoEm, until));
       return (
         await db
           .select()
           .from(leads)
           .where(and(...conds))
-          .orderBy(desc(leads.atualizadoEm))
+          .orderBy(desc(leads.reembolsadoEm))
           .limit(500)
       ).map(toDetail);
 
