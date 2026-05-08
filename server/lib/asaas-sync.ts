@@ -203,11 +203,14 @@ export async function runAsaasSync(): Promise<{
       return Number.isNaN(d.getTime()) ? null : d;
     }
     const paidPays = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""));
-    const paidDates = paidPays
-      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+    // Pra calendário de renovação: usa dueDate (data fixa de cobrança da sub).
+    // confirmedDate varia (pagou 1 dia antes/depois). dueDate é o dia do mês
+    // que a Asaas vai cobrar todo mês — é o que queremos pro calendário.
+    const dueDates = paidPays
+      .map((p) => parseBrt(p.dueDate))
       .filter((d): d is Date => d !== null);
-    const lastPaidDate = paidDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    const firstPaidDate = paidDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const lastPaidDate = dueDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const firstPaidDate = dueDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
