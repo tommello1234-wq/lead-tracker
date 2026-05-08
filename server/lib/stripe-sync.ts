@@ -58,7 +58,8 @@ function mapPlanoFromSlug(slug?: string): string | null {
   if (/studio/i.test(slug)) return "Gravyx Studio";
   if (/creator/i.test(slug)) return "Gravyx Creator";
   if (/starter/i.test(slug)) return "Gravyx Starter";
-  if (/premium/i.test(slug)) return "Gravyx Premium";
+  // "Premium" foi renomeado pra Studio — mantém slug antigo apontando pra Studio.
+  if (/premium/i.test(slug)) return "Gravyx Studio";
   return null;
 }
 
