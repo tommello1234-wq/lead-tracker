@@ -15,15 +15,11 @@ import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { ConversionFunnel } from "@/components/conversion-funnel";
 import { VerticalFunnel } from "@/components/vertical-funnel";
-import { VendasPorPlanoCard } from "@/components/vendas-por-plano-card";
 import type {
   MetaInsights,
   MetaCampaign,
   CampaignStatus,
   Produto,
-  Faturamento,
-  VendasPorPlano,
-  DashboardMetrics,
 } from "@shared/types";
 
 // Produtos com conta Meta conectada. Hoje só Gravyx (id=1, act_918344584462338).
@@ -195,24 +191,8 @@ export function AdsPage() {
     enabled: hasMeta,
   });
 
-  // Métricas do produto selecionado no contexto (ou agregado se "Todos").
-  // Meta API só tem conta Gravyx — pra outros produtos, gastos = 0 / ROAS = N/A.
-  const produtoParam = produtoId ?? "all";
-  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
-  // Faturamento, vendas, métricas — sempre rodam (independente de Meta).
-  const faturamento = useQuery({
-    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<Faturamento>(`/api/dashboard/faturamento?${baseQs}`),
-  });
-  const planos = useQuery({
-    queryKey: ["dashboard", "vendas-por-plano", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<VendasPorPlano[]>(`/api/dashboard/vendas-por-plano?${baseQs}`),
-  });
-  const metrics = useQuery({
-    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
-    queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
-  });
-  const m = metrics.data;
+  // /ads é SÓ tráfego — apenas dados Meta API. Sem faturamento/vendas/etc
+  // (esses ficam no dashboard /).
 
   const i = insights.data;
   const cs = campaigns.data ?? [];
@@ -318,68 +298,55 @@ export function AdsPage() {
       ) : null}
 
       <>
-          {/* === Linha 1: 4 KPIs principais (faturamento / gastos / ROAS / lucro) === */}
-          {(() => {
-            const fatLiq = faturamento.data?.total ?? 0;
-            const gastos = i?.spend ?? 0;
-            const roasReal = gastos > 0 ? fatLiq / gastos : 0;
-            const lucro = fatLiq - gastos;
-            return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KpiCard label="Faturamento Líquido Total" value={brl(fatLiq)} />
-                <KpiCard label="Gastos com anúncios" value={hasMeta ? brl(gastos) : "—"} hint={!hasMeta ? "Sem conta Meta" : undefined} />
-                <KpiCard
-                  label="ROAS"
-                  value={hasMeta && roasReal > 0 ? roasReal.toFixed(2) : "—"}
-                  tone={roasReal >= 3 ? "good" : roasReal >= 1 ? "neutral" : "bad"}
-                />
-                <KpiCard
-                  label="Lucro"
-                  value={brl(lucro)}
-                  tone={lucro >= 0 ? "good" : "bad"}
-                />
-              </div>
-            );
-          })()}
+          {/* === KPIs SÓ DE TRÁFEGO (vindos do Meta API) === */}
+          {hasMeta && i ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KpiCard
+                label="Gasto"
+                value={brl(i.spend)}
+                hint={`CPM ${brlSmall(i.cpm)}`}
+              />
+              <KpiCard
+                label="Receita atribuída"
+                value={i.purchaseValue > 0 ? brl(i.purchaseValue) : "—"}
+                hint={i.purchases > 0 ? `${num(i.purchases)} compras (Pixel)` : "Sem compras atribuídas"}
+              />
+              <KpiCard
+                label="ROAS"
+                value={i.roas > 0 ? `${i.roas.toFixed(2)}x` : "—"}
+                tone={i.roas >= 3 ? "good" : i.roas >= 1 ? "neutral" : "bad"}
+              />
+              <KpiCard
+                label="CPA (custo por compra)"
+                value={i.purchases > 0 ? brl(i.cpa) : "—"}
+                hint={`${num(i.purchases)} compras`}
+              />
+            </div>
+          ) : null}
 
-          {/* === Linha 2: Vendas por Plano (tall esq) + grid 2-col de cards === */}
-          {(() => {
-            const fat = faturamento.data;
-            const fatLiq = fat?.total ?? 0;
-            const gastos = i?.spend ?? 0;
-            const lucro = fatLiq - gastos;
-            const margem = fatLiq > 0 ? (lucro / fatLiq) * 100 : 0;
-            const refundPct = fat && fat.count + fat.refundCount > 0
-              ? (fat.refundCount / (fat.count + fat.refundCount)) * 100
-              : 0;
-            const vendasPendentes = m ? m.receitaPerdidaPix : 0;
-            return (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-4 items-stretch">
-                {/* esq: Vendas por Plano (alta) */}
-                <VendasPorPlanoCard data={planos.data} isLoading={planos.isLoading} />
-                {/* dir: grid 2x2 de cards menores */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 auto-rows-min">
-                  <KpiCard label="Vendas Pendentes" value={brl(vendasPendentes)} hint={m ? `${m.pixGerados} PIX em aberto` : undefined} />
-                  <KpiCard
-                    label="Vendas Reembolsadas"
-                    value={brl(fat?.refundTotal ?? 0)}
-                    hint={fat ? `${fat.refundCount} reembolso${fat.refundCount === 1 ? "" : "s"}` : undefined}
-                  />
-                  <KpiCard
-                    label="Margem"
-                    value={`${margem.toFixed(1)}%`}
-                    tone={margem >= 0 ? "good" : "bad"}
-                  />
-                  <KpiCard
-                    label="Reembolso"
-                    value={`${refundPct.toFixed(1)}%`}
-                    hint={fat ? `${fat.refundCount} de ${fat.count + fat.refundCount} transações` : undefined}
-                    tone={refundPct < 5 ? "good" : refundPct < 15 ? "neutral" : "bad"}
-                  />
-                </div>
-              </div>
-            );
-          })()}
+          {/* Tráfego: clicks / CTR / CPC / Initiate Checkout */}
+          {hasMeta && i ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KpiCard
+                label="Clicks"
+                value={num(i.clicks)}
+                hint={`CTR ${pct(i.ctr)}`}
+              />
+              <KpiCard
+                label="CPC (link)"
+                value={brlSmall(i.cpc)}
+              />
+              <KpiCard
+                label="Initiate Checkout"
+                value={i.initiateCheckout > 0 ? num(i.initiateCheckout) : "—"}
+                hint={i.purchases > 0 && i.initiateCheckout > 0 ? `${pct((i.purchases / i.initiateCheckout) * 100)} → compra` : undefined}
+              />
+              <KpiCard
+                label="Impressões"
+                value={i.ctr > 0 ? num(Math.round((i.clicks * 100) / i.ctr)) : "—"}
+              />
+            </div>
+          ) : null}
 
           {/* Funil + Tabela só aparecem com Meta conectado */}
           {hasMeta && i ? (
