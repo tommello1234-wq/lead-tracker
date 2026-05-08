@@ -486,6 +486,7 @@ export async function getRenewalCalendar(
     .select({
       leadId: subscriptions.leadId,
       pagouEm: subscriptions.pagouEm,
+      proximoPagamentoEm: subscriptions.proximoPagamentoEm,
       valor: subscriptions.valor,
       planoNome: subscriptions.planoNome,
       nome: leads.nome,
@@ -494,14 +495,16 @@ export async function getRenewalCalendar(
     .innerJoin(leads, eq(leads.id, subscriptions.leadId))
     .where(and(...conds));
 
-  // Agrupa por dia do mês (1-31) baseado em pagouEm da sub.
+  // Agrupa por dia do mês — prioriza proximoPagamentoEm (próxima cobrança real)
+  // sobre pagouEm (data de entrada). Se nenhum, ignora.
   const byDay = new Map<
     number,
     Array<{ id: number; nome: string; valor: number; plano: string | null }>
   >();
   for (const s of subRows) {
-    if (!s.pagouEm) continue;
-    const dia = s.pagouEm.getUTCDate();
+    const ref = s.proximoPagamentoEm ?? s.pagouEm;
+    if (!ref) continue;
+    const dia = ref.getUTCDate();
     const list = byDay.get(dia) ?? [];
     list.push({
       id: s.leadId,

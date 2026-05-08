@@ -13,7 +13,7 @@ import { upsertSubscription } from "./subscriptions.js";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
 type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string; nextDueDate?: string };
-type AsaasPayment = { id: string; status: string; value: number; subscription?: string; description?: string; dueDate: string; confirmedDate?: string; paymentDate?: string; dateCreated?: string };
+type AsaasPayment = { id: string; status: string; value: number; subscription?: string | null; description?: string; dueDate: string; confirmedDate?: string; paymentDate?: string; dateCreated?: string };
 
 function normalizePhone(raw?: string): string | null {
   if (!raw) return null;
@@ -202,17 +202,24 @@ export async function runAsaasSync(): Promise<{
       const d = new Date(`${s}T12:00:00-03:00`);
       return Number.isNaN(d.getTime()) ? null : d;
     }
+    // Filtra payments da SUB ATUAL (não payments de subs antigas/avulsas)
     const paidPays = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""));
-    // Pra calendário de renovação: prioriza nextDueDate da SUBSCRIPTION (dia
-    // oficial da próxima cobrança Asaas). Fallback: dueDate do último payment
-    // confirmado. Cliente pode mudar dia de cobrança (Jonathan: entrou dia 2,
-    // agora cobra dia 10) — nextDueDate sempre reflete o atual.
+    const paidOfCurrentSub = lastSub
+      ? paidPays.filter((p) => p.subscription === lastSub.id)
+      : paidPays;
     const subNextDue = parseBrt(lastSub?.nextDueDate);
-    const dueDates = paidPays
-      .map((p) => parseBrt(p.dueDate))
-      .filter((d): d is Date => d !== null);
-    const lastPaidDate = subNextDue ?? dueDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    const firstPaidDate = subNextDue ?? dueDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    // firstPaidDate (pagouEm) = 1ª cobrança RECEIVED desta subscription
+    const firstPaidDate = paidOfCurrentSub
+      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .filter((d): d is Date => d !== null)
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    // lastPaidDate (ultimaRenovacaoEm) = última cobrança RECEIVED (passado)
+    const lastPaidDate = paidOfCurrentSub
+      .map((p) => parseBrt(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .filter((d): d is Date => d !== null)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    // proximoPagamentoEm = próxima cobrança Asaas (futuro), pra calendário
+    const nextPaymentDate = subNextDue;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
@@ -271,6 +278,7 @@ export async function runAsaasSync(): Promise<{
         gatewayCustomerId: cpf,
         pagouEm: firstPaidDate,
         ultimaRenovacaoEm: lastPaidDate,
+        proximoPagamentoEm: nextPaymentDate,
       });
       await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
       created++;
@@ -329,6 +337,7 @@ export async function runAsaasSync(): Promise<{
       gatewayCustomerId: cpf ?? null,
       pagouEm: firstPaidDate,
       ultimaRenovacaoEm: lastPaidDate,
+      proximoPagamentoEm: nextPaymentDate,
     });
     await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
     updated++;
