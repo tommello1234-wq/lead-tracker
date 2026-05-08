@@ -267,7 +267,12 @@ export async function runAsaasSync(): Promise<{
       lead.gateway !== "asaas" ||
       lead.subscriptionStatus !== mapped.sub ||
       lead.status !== mapped.lead ||
-      (valor > 0 && lead.valorAssinatura !== valor);
+      (valor > 0 && lead.valorAssinatura !== valor) ||
+      (firstPaidDate != null && lead.pagouEm == null) ||
+      (lastPaidDate != null && (
+        lead.ultimaRenovacaoEm == null ||
+        lastPaidDate.getTime() !== lead.ultimaRenovacaoEm.getTime()
+      ));
     // Mesmo se lead não mudou, sincroniza eventos de payments (pode ter
     // novos payments desde o último sync — ou faltou criar pra leads antigos)
     if (!needsUpdate) {
