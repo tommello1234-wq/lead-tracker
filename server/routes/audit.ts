@@ -585,6 +585,60 @@ auditRoutes.get("/asaas", async (c) => {
   });
 });
 
+// Lista todas subs Ticto com status real (atrasadas/canceladas/etc)
+auditRoutes.get("/ticto-list", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const status = (c.req.query("status") ?? "").toLowerCase();
+
+  const tictoSubs: Array<Record<string, unknown>> = [];
+  let page = 1;
+  while (true) {
+    const r = await getSubscriptionsHistory(page);
+    const data = r.data ?? [];
+    if (data.length === 0) break;
+    tictoSubs.push(...data);
+    const last = r.meta?.last_page ?? page;
+    if (page >= last) break;
+    page++;
+  }
+
+  function realStatus(s: Record<string, unknown>): string {
+    const txs = (s.transactions as Array<Record<string, unknown>>) ?? [];
+    const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+    if (latest) {
+      const tx = String(latest.status ?? "").toLowerCase();
+      if (tx === "refunded" || tx === "chargeback") return "reembolsada";
+      if (tx === "delayed" || tx === "refused") return "atrasada";
+    }
+    return String(s.situation ?? s.status ?? "").toLowerCase();
+  }
+
+  const list = tictoSubs
+    .map((s) => {
+      const offer = (s.offer as Record<string, unknown>) ?? {};
+      const product = (s.product as Record<string, unknown>) ?? {};
+      const customer = (s.customer as Record<string, unknown>) ?? {};
+      const phones = (customer.phones as Array<Record<string, unknown>>) ?? [];
+      const phone = phones[0] ?? customer.phone;
+      const txs = (s.transactions as Array<Record<string, unknown>>) ?? [];
+      const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+      return {
+        status: realStatus(s),
+        situation: s.situation,
+        nome: customer.name,
+        email: customer.email,
+        phone: phone ? `${(phone as Record<string, unknown>).ddi ?? "+55"}${(phone as Record<string, unknown>).ddd ?? ""}${(phone as Record<string, unknown>).number ?? ""}`.replace(/\D/g, "") : null,
+        plano: `${product.name ?? ""} ${offer.name ?? ""}`.trim(),
+        valor: Number(s.price) / 100,
+        ultimoPagamento: latest?.created_at,
+        ultimoStatus: latest?.status,
+      };
+    })
+    .filter((x) => !status || x.status === status);
+
+  return c.json({ count: list.length, list });
+});
+
 // Inspect 1 sub Ticto pelo email — debug profundo
 auditRoutes.get("/ticto-lead", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
