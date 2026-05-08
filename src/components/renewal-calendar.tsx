@@ -34,8 +34,10 @@ function buildMonthGrid(year: number, month: number): Array<{ dia: number | null
 
 export function RenewalCalendar({
   produtoParam,
+  onLeadClick,
 }: {
   produtoParam: string | number;
+  onLeadClick?: (id: number) => void;
 }) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -301,7 +303,8 @@ export function RenewalCalendar({
                   {selectedDay.leads.map((l) => (
                     <tr
                       key={l.id}
-                      className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
+                      onClick={onLeadClick ? () => { onLeadClick(l.id); setSelectedDay(null); } : undefined}
+                      className={`border-b border-border/40 last:border-b-0 hover:bg-muted/20 ${onLeadClick ? "cursor-pointer" : ""}`}
                     >
                       <td className="px-5 py-2.5 font-medium truncate max-w-[260px]">
                         {l.nome}

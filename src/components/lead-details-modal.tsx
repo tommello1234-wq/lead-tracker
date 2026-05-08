@@ -63,6 +63,7 @@ type LeadDetails = {
     processedOk: boolean;
     erro: string | null;
     receivedAt: string;
+    payload?: Record<string, unknown> | null;
   }>;
   mensagens: Array<{
     id: number;
@@ -313,6 +314,87 @@ export function LeadDetailsModal({
                   </div>
                 </section>
               ) : null}
+
+              {/* Pagamentos (extraídos dos eventos compra/refund) */}
+              {(() => {
+                type Pay = { id: number; tipo: string; valor: number; metodo: string; gateway: string; data: string };
+                const pays: Pay[] = data.eventos
+                  .filter((e) => ["compra_aprovada", "assinatura_renovada", "reembolso"].includes(e.eventType))
+                  .map((e) => {
+                    const p = (e.payload ?? {}) as Record<string, unknown>;
+                    const item = (p.item as Record<string, unknown>) ?? {};
+                    const tx = (p.transaction as Record<string, unknown>) ?? {};
+                    const offer = (p.offer as Record<string, unknown>) ?? {};
+                    const payment = (p.payment as Record<string, unknown>) ?? {};
+                    const dataObj = (((p.data as Record<string, unknown>)?.object as Record<string, unknown>) ?? {});
+                    const valorRaw =
+                      Number(item.amount) / 100 ||
+                      Number(tx.paid_amount) / 100 ||
+                      Number(offer.price) / 100 ||
+                      Number(dataObj.amount_total) / 100 ||
+                      Number(payment.value) ||
+                      0;
+                    const metodo = String(
+                      tx.payment_method ??
+                      p.payment_method ??
+                      ((dataObj.payment_method_types as string[])?.[0]) ??
+                      payment.billingType ??
+                      "—",
+                    ).toLowerCase();
+                    const metodoLabel =
+                      metodo === "credit_card" || metodo === "card" || metodo === "cartao" ? "Cartão"
+                      : metodo === "pix" || metodo === "pix_recurring" ? "Pix"
+                      : metodo === "boleto" || metodo === "bank_slip" ? "Boleto"
+                      : metodo === "undefined" || metodo === "—" ? "—"
+                      : metodo;
+                    return {
+                      id: e.id,
+                      tipo: e.eventType === "reembolso" ? "Reembolso" : e.eventType === "assinatura_renovada" ? "Renovação" : "Compra",
+                      valor: e.eventType === "reembolso" ? -valorRaw : valorRaw,
+                      metodo: metodoLabel,
+                      gateway: e.source.split("-")[0],
+                      data: e.receivedAt,
+                    };
+                  });
+                if (pays.length === 0) return null;
+                return (
+                  <section>
+                    <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                      <CreditCard className="size-4" />
+                      Pagamentos ({pays.length})
+                    </h3>
+                    <div className="border border-border/50 rounded-xl divide-y divide-border/30">
+                      {pays.map((p) => (
+                        <div key={p.id} className="px-3 py-2 grid grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-3 text-sm">
+                          <span
+                            className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
+                              p.tipo === "Reembolso"
+                                ? "bg-destructive/10 text-destructive"
+                                : p.tipo === "Renovação"
+                                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                  : "bg-lime-soft text-forest"
+                            }`}
+                          >
+                            {p.tipo}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold bg-muted text-muted-foreground">
+                            {p.gateway}
+                          </span>
+                          <span className="text-xs text-muted-foreground truncate">
+                            {p.metodo}
+                          </span>
+                          <span className={`tabular-nums font-semibold ${p.valor < 0 ? "text-destructive" : ""}`}>
+                            {p.valor < 0 ? `−${brl(Math.abs(p.valor))}` : brl(p.valor)}
+                          </span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {formatDt(p.data)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })()}
 
               {/* Eventos */}
               <section>

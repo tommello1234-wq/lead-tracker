@@ -193,7 +193,7 @@ export function LeadsPage() {
       </div>
 
       {/* Calendário de renovação — quantos leads pagam em cada dia do mês */}
-      <RenewalCalendar produtoParam={produtoParam} />
+      <RenewalCalendar produtoParam={produtoParam} onLeadClick={setSelectedLeadId} />
 
       {/* Activity feed (esquerda) + Kanban (direita). Activity recolhe pra
           slim 56px liberando espaço pro kanban quando user quer focar nele. */}
