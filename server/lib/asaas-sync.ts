@@ -187,6 +187,18 @@ export async function runAsaasSync(): Promise<{
       const d = new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate);
       return d.getTime() > cutoff;
     });
+
+    // Data REAL do último pagamento confirmado (pra calendário de renovação ficar certo)
+    const paidPays = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""));
+    const lastPaidDate = paidPays
+      .map((p) => new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    // Data da PRIMEIRA compra confirmada (pagouEm canônico)
+    const firstPaidDate = paidPays
+      .map((p) => new Date(p.confirmedDate ?? p.paymentDate ?? p.dueDate))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
@@ -226,7 +238,8 @@ export async function runAsaasSync(): Promise<{
           produtoId: detectedProdutoId,
           planoNome,
           valorAssinatura: valor > 0 ? valor : null,
-          pagouEm: recentPaid ? new Date() : null,
+          pagouEm: firstPaidDate,
+          ultimaRenovacaoEm: lastPaidDate,
           canceladoEm: mapped.sub === "cancelada" ? new Date() : null,
           atualizadoEm: new Date(),
         })
@@ -242,6 +255,8 @@ export async function runAsaasSync(): Promise<{
         produtoId: detectedProdutoId,
         gatewaySubscriptionId: lastSub?.id ?? null,
         gatewayCustomerId: cpf,
+        pagouEm: firstPaidDate,
+        ultimaRenovacaoEm: lastPaidDate,
       });
       await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
       created++;
@@ -277,6 +292,9 @@ export async function runAsaasSync(): Promise<{
       updates.produtoId = detectedProdutoId;
     }
     if (mapped.sub === "cancelada" && !lead.canceladoEm) updates.canceladoEm = new Date();
+    // Atualiza pagouEm pra data REAL (não NOW()) — pra calendário de renovação
+    if (firstPaidDate && !lead.pagouEm) updates.pagouEm = firstPaidDate;
+    if (lastPaidDate) updates.ultimaRenovacaoEm = lastPaidDate;
 
     await db.update(leads).set(updates).where(eq(leads.id, lead.id));
     // Mantém sub Asaas em sincronia
@@ -290,6 +308,8 @@ export async function runAsaasSync(): Promise<{
       produtoId: detectedProdutoId,
       gatewaySubscriptionId: lastSub?.id ?? null,
       gatewayCustomerId: cpf ?? null,
+      pagouEm: firstPaidDate,
+      ultimaRenovacaoEm: lastPaidDate,
     });
     await syncPaymentsAsEvents(lead.id, detectedProdutoId, pays);
     updated++;
