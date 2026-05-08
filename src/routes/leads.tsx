@@ -25,6 +25,7 @@ import { FunilBoard } from "@/components/funil-board";
 import { LiveActivityFeed, LiveActivityFeedCollapsed } from "@/components/live-activity";
 import { RenewalCalendar } from "@/components/renewal-calendar";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
+import { DetailsModal, type DetailsKind } from "@/components/details-modal";
 
 type View = "table" | "funil";
 
@@ -64,6 +65,7 @@ export function LeadsPage() {
   const [view, setView] = useState<View>("funil");
   const [activityCollapsed, setActivityCollapsed] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
+  const [details, setDetails] = useState<DetailsKind | null>(null);
 
   // Filtra leads por criadoEm dentro do período selecionado
   const { since, until } = useMemo(
@@ -142,6 +144,7 @@ export function LeadsPage() {
           }
           icon={Users}
           iconTone="lime"
+          onClick={() => setDetails("ativos")}
         />
         <StatCard
           label="Cancelados"
@@ -153,6 +156,7 @@ export function LeadsPage() {
           }
           icon={UserX}
           iconTone="rose"
+          onClick={() => setDetails("cancelados")}
         />
         <StatCard
           label="Reembolsos"
@@ -164,6 +168,7 @@ export function LeadsPage() {
           }
           icon={RotateCcw}
           iconTone="rose"
+          onClick={() => setDetails("reembolsos")}
         />
       </div>
 
@@ -175,6 +180,7 @@ export function LeadsPage() {
           hint={m ? `${m.totalLeads} no total` : undefined}
           icon={UserPlus}
           iconTone="forest"
+          onClick={() => setDetails("novos")}
         />
         <StatCard
           label="Em risco"
@@ -182,6 +188,7 @@ export function LeadsPage() {
           hint="Sinais de churn"
           icon={AlertTriangle}
           iconTone="amber"
+          onClick={() => setDetails("em_risco")}
         />
         <StatCard
           label="Fila de mensagens"
@@ -324,6 +331,17 @@ export function LeadsPage() {
         </div>
       )}
         </>
+      ) : null}
+
+      {details ? (
+        <DetailsModal
+          kind={details}
+          onClose={() => setDetails(null)}
+          onLeadClick={(id) => {
+            setSelectedLeadId(id);
+            setDetails(null);
+          }}
+        />
       ) : null}
 
       {selectedLeadId !== null ? (
