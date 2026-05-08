@@ -12,7 +12,7 @@ import { eq, or, sql } from "drizzle-orm";
 import { upsertSubscription } from "./subscriptions.js";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
-type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string };
+type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string; nextDueDate?: string };
 type AsaasPayment = { id: string; status: string; value: number; subscription?: string; description?: string; dueDate: string; confirmedDate?: string; paymentDate?: string; dateCreated?: string };
 
 function normalizePhone(raw?: string): string | null {
@@ -203,14 +203,16 @@ export async function runAsaasSync(): Promise<{
       return Number.isNaN(d.getTime()) ? null : d;
     }
     const paidPays = pays.filter((p) => /^(CONFIRMED|RECEIVED|RECEIVED_IN_CASH)$/i.test(p.status ?? ""));
-    // Pra calendário de renovação: usa dueDate (data fixa de cobrança da sub).
-    // confirmedDate varia (pagou 1 dia antes/depois). dueDate é o dia do mês
-    // que a Asaas vai cobrar todo mês — é o que queremos pro calendário.
+    // Pra calendário de renovação: prioriza nextDueDate da SUBSCRIPTION (dia
+    // oficial da próxima cobrança Asaas). Fallback: dueDate do último payment
+    // confirmado. Cliente pode mudar dia de cobrança (Jonathan: entrou dia 2,
+    // agora cobra dia 10) — nextDueDate sempre reflete o atual.
+    const subNextDue = parseBrt(lastSub?.nextDueDate);
     const dueDates = paidPays
       .map((p) => parseBrt(p.dueDate))
       .filter((d): d is Date => d !== null);
-    const lastPaidDate = dueDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    const firstPaidDate = dueDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const lastPaidDate = subNextDue ?? dueDates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const firstPaidDate = subNextDue ?? dueDates.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
