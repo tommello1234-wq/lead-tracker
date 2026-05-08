@@ -1,6 +1,6 @@
 import { db } from "../../db/client.js";
 import { leads, mensagensAgendadas, eventos, produtos, subscriptions, type Lead } from "../../db/schema.js";
-import { desc, eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import { desc, eq, and, gte, lte, sql, inArray, isNotNull } from "drizzle-orm";
 import { withCache } from "./cache.js";
 
 /**
@@ -553,7 +553,13 @@ export async function getFaturamento(
   refundCount: number;
   refundTotal: number;
 }> {
-  const baseConditions = [eq(eventos.processedOk, true)];
+  // Exige lead_id pra ser consistente com getDetails(compras), que faz INNER
+  // JOIN com leads. Sem isso, eventos órfãos (lead_id=null — restos de
+  // syncs com customers deletados) inflam o card mas não aparecem no modal.
+  const baseConditions = [
+    eq(eventos.processedOk, true),
+    isNotNull(eventos.leadId),
+  ];
   if (produtoId != null) baseConditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) baseConditions.push(gte(eventos.receivedAt, since));
   if (until != null) baseConditions.push(lte(eventos.receivedAt, until));
