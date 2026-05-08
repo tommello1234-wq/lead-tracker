@@ -270,10 +270,10 @@ export function DashboardPage() {
       )}
 
       {details ? (
-        <DetailsModal kind={details} onClose={() => setDetails(null)} />
+        <DetailsModal kind={details} onClose={() => setDetails(null)} onLeadClick={(id) => { setSelectedLeadId(id); setDetails(null); }} />
       ) : null}
       {mrrType ? (
-        <MrrMovementsModal type={mrrType} onClose={() => setMrrType(null)} />
+        <MrrMovementsModal type={mrrType} onClose={() => setMrrType(null)} onLeadClick={(id) => { setSelectedLeadId(id); setMrrType(null); }} />
       ) : null}
       {mrrAtualOpen ? (
         <MrrAtualModal

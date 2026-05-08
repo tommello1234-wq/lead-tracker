@@ -167,9 +167,11 @@ function groupByLead(items: ActivityItem[]): Group[] {
 export function LiveActivityFeed({
   collapsed = false,
   onToggleCollapsed,
+  onLeadClick,
 }: {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  onLeadClick?: (id: number) => void;
 } = {}) {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
@@ -247,6 +249,7 @@ export function LiveActivityFeed({
               group={g}
               isExpanded={expanded.has(g.key)}
               onToggle={() => toggle(g.key)}
+              onLeadClick={onLeadClick}
             />
           ))}
         </ul>
@@ -307,11 +310,21 @@ function LeadGroupRow({
   group,
   isExpanded,
   onToggle,
+  onLeadClick,
 }: {
   group: Group;
   isExpanded: boolean;
   onToggle: () => void;
+  onLeadClick?: (id: number) => void;
 }) {
+  // Clicar no nome/avatar abre o perfil. Toggle de expansion fica só na seta.
+  const handleClick = () => {
+    if (onLeadClick && group.leadId != null) {
+      onLeadClick(group.leadId);
+    } else {
+      onToggle();
+    }
+  };
   const latest = group.items[0];
   const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
@@ -323,7 +336,7 @@ function LeadGroupRow({
     <li className="rounded-2xl border border-border/40 overflow-hidden bg-background/40">
       <button
         type="button"
-        onClick={onToggle}
+        onClick={handleClick}
         className="w-full flex items-start gap-3 p-3 hover:bg-muted/30 transition-colors text-left"
       >
         <div className={`size-9 rounded-2xl grid place-items-center shrink-0 ${meta.tone}`}>
@@ -365,9 +378,18 @@ function LeadGroupRow({
           </div>
         </div>
         {count > 1 ? (
-          <ChevronDown
-            className={`size-4 text-muted-foreground shrink-0 mt-2 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-          />
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onToggle(); } }}
+            className="shrink-0 mt-1 p-1 -m-1 rounded hover:bg-muted/50 cursor-pointer"
+            title={isExpanded ? "Recolher eventos" : `Expandir ${count} eventos`}
+          >
+            <ChevronDown
+              className={`size-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`}
+            />
+          </span>
         ) : null}
       </button>
 

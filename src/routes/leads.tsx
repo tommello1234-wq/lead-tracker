@@ -213,6 +213,7 @@ export function LeadsPage() {
             ) : (
               <LiveActivityFeed
                 onToggleCollapsed={() => setActivityCollapsed(true)}
+                onLeadClick={setSelectedLeadId}
               />
             )}
           </div>

@@ -63,9 +63,11 @@ const TITLES: Record<DetailsKind, string> = {
 export function DetailsModal({
   kind,
   onClose,
+  onLeadClick,
 }: {
   kind: DetailsKind;
   onClose: () => void;
+  onLeadClick?: (id: number) => void;
 }) {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
@@ -318,7 +320,8 @@ export function DetailsModal({
                   return (
                     <tr
                       key={l.eventoId ?? l.subscriptionId ?? l.id}
-                      className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
+                      onClick={onLeadClick ? () => onLeadClick(l.id) : undefined}
+                      className={`border-b border-border/40 last:border-b-0 hover:bg-muted/20 ${onLeadClick ? "cursor-pointer" : ""}`}
                     >
                       <td className="px-5 py-2.5 font-medium truncate max-w-[200px]">{l.nome}</td>
                       <td className="px-3 py-2.5 text-muted-foreground tabular-nums">

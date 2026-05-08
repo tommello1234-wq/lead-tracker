@@ -34,9 +34,11 @@ const TYPE_LABELS: Record<MrrMovementType, string> = {
 export function MrrMovementsModal({
   type,
   onClose,
+  onLeadClick,
 }: {
   type: MrrMovementType;
   onClose: () => void;
+  onLeadClick?: (id: number) => void;
 }) {
   const { produtoId, period, customDate } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
@@ -203,7 +205,8 @@ export function MrrMovementsModal({
                   {filteredData.map((m) => (
                     <tr
                       key={m.movementId}
-                      className="border-b border-border/40 last:border-b-0 hover:bg-muted/20"
+                      onClick={onLeadClick ? () => onLeadClick(m.leadId) : undefined}
+                      className={`border-b border-border/40 last:border-b-0 hover:bg-muted/20 ${onLeadClick ? "cursor-pointer" : ""}`}
                     >
                       <td className="px-5 py-2.5 font-medium truncate max-w-[220px]">
                         <div>{m.nome}</div>
