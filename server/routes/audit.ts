@@ -622,6 +622,8 @@ auditRoutes.get("/ticto-list", async (c) => {
       const phone = phones[0] ?? customer.phone;
       const txs = (s.transactions as Array<Record<string, unknown>>) ?? [];
       const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+      const successfulCharges = Number(s.successful_charges ?? 0);
+      const failedCharges = Number(s.failed_charges ?? 0);
       return {
         status: realStatus(s),
         situation: s.situation,
@@ -632,6 +634,11 @@ auditRoutes.get("/ticto-list", async (c) => {
         valor: Number(s.price) / 100,
         ultimoPagamento: latest?.created_at,
         ultimoStatus: latest?.status,
+        successfulCharges,
+        failedCharges,
+        // jaFoiAtivo = true se pagou pelo menos 1x antes (renovação atrasou)
+        // false = nunca ativou (1ª cobrança falhou)
+        jaFoiAtivo: successfulCharges > 0,
       };
     })
     .filter((x) => !status || x.status === status);
