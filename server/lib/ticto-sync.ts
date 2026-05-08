@@ -105,24 +105,32 @@ function mapSubSituation(situation: string): {
     return { lead: "cliente_cancelado", sub: "cancelada" };
   if (s === "reembolsada" || s === "refunded")
     return { lead: "cliente_em_risco", sub: "reembolsada" };
+  // Checkout perdido: cliente tentou comprar mas 1ª cobrança falhou.
+  // Não é "atrasada" (nunca foi ativo). Marca como pix_expirado/nenhuma —
+  // é um lead quente pra remarketing, não assinante.
+  if (s === "checkout_perdido") return { lead: "pix_expirado", sub: "nenhuma" };
   return null;
 }
 
 /**
- * Status real da sub: a Ticto não atualiza `situation` quando refund de cobrança
- * ocorre. Olha a ÚLTIMA transação pra detectar reembolso/atraso real.
+ * Status real da sub. Distingue:
+ *   - "atrasada": já foi ativo (successful_charges>0) e renovação falhou
+ *   - "checkout_perdido": NUNCA ativou (1ª cobrança falhou — refused/pix expirou)
  *
- * Caso real: cliente Daniel — situation="Ativa" mas transactions[0].status="refunded".
- * Sem isso, próximo sync marcaria como ativa de novo.
+ * Sem essa distinção, todos checkouts perdidos virariam "atrasada" no MRR
+ * em risco, inflando contagem.
  */
 function realSubStatus(sub: TictoSubscription): string {
   const txs = (sub as { transactions?: Array<{ status?: string; is_latest_transaction?: boolean }> }).transactions ?? [];
   const latest = txs.find((t) => t.is_latest_transaction) ?? txs[0];
+  const successfulCharges = Number((sub as { successful_charges?: number }).successful_charges ?? 0);
+  const jaFoiAtivo = successfulCharges > 0;
   if (latest?.status) {
     const s = String(latest.status).toLowerCase();
     if (s === "refunded" || s === "chargeback") return "reembolsada";
-    if (s === "delayed") return "atrasada";
-    if (s === "refused") return "atrasada";
+    if (s === "delayed" || s === "refused" || s === "waiting_payment" || s === "processing") {
+      return jaFoiAtivo ? "atrasada" : "checkout_perdido";
+    }
   }
   return String(sub.situation ?? sub.status ?? "");
 }
