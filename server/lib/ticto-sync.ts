@@ -319,14 +319,59 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       const mapped = mapSubSituation(situation);
       if (!mapped) continue;
 
-      const lead = await db.query.leads.findFirst({
+      let lead = await db.query.leads.findFirst({
         where: or(
           cpf ? eq(leads.gatewayCustomerId, cpf) : undefined,
           email ? eq(leads.email, email) : undefined,
           phone ? eq(leads.contato, phone) : undefined,
         ),
       });
-      if (!lead) continue;
+
+      // Cria lead se não existe (assinante Ticto sem registro local)
+      if (!lead) {
+        if (!email && !phone && !cpf) continue;
+        // Plano da Ticto: product.name + offer.name
+        const offer = sub.offer as AnyObject | undefined;
+        const product = sub.product as AnyObject | undefined;
+        const planoNome = offer?.name
+          ? `${product?.name ?? ""} ${offer.name}`.trim()
+          : (product?.name as string | undefined) ?? "Sem plano";
+        const valor = sub.price ? Number(sub.price) / 100 : null;
+        const isAnnual = (sub as AnyObject).interval === 12;
+        const [createdLead] = await db
+          .insert(leads)
+          .values({
+            nome: String(customer?.name ?? "Cliente Ticto"),
+            email: email || null,
+            contato: phone,
+            tipo: "compra_aprovada",
+            status: mapped.lead,
+            subscriptionStatus: mapped.sub,
+            gateway: "ticto",
+            gatewayCustomerId: cpf || null,
+            produtoId: 1, // Gravyx por default (Ticto = só Gravyx hoje)
+            planoNome,
+            valorAssinatura: valor,
+            periodicidade: isAnnual ? "anual" : "mensal",
+            pagouEm: mapped.sub === "ativa" ? new Date() : null,
+            canceladoEm: mapped.sub === "cancelada" ? new Date() : null,
+            atualizadoEm: new Date(),
+          })
+          .returning();
+        lead = createdLead;
+        await upsertSubscription({
+          leadId: lead.id,
+          gateway: "ticto",
+          status: mapped.sub,
+          valor,
+          planoNome,
+          periodicidade: isAnnual ? "anual" : "mensal",
+          produtoId: 1,
+          gatewayCustomerId: cpf || null,
+        });
+        subsUpdated++;
+        continue;
+      }
 
       // Gateway-aware: se lead está em outro gateway (ex: migrou pra
       // Stripe/Asaas), sub Ticto cancelada NÃO sobrescreve. Mesma regra
