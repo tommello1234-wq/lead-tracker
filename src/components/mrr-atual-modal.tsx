@@ -249,7 +249,8 @@ export function MrrAtualModal({ onClose, onLeadClick }: { onClose: () => void; o
                     <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">Gateway</th>
                     <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">Plano</th>
                     <th className="text-right px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">MRR</th>
-                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">Pagou em</th>
+                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">Pagou em</th>
+                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">Próx. cobrança</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -281,8 +282,15 @@ export function MrrAtualModal({ onClose, onLeadClick }: { onClose: () => void; o
                       <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
                         {brl(leadMrr(l))}
                       </td>
-                      <td className="px-5 py-2.5 text-muted-foreground tabular-nums">
+                      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
                         {fmtDate(l.pagouEm)}
+                      </td>
+                      <td className="px-5 py-2.5 tabular-nums">
+                        {l.proximoPagamentoEm ? (
+                          <span className="text-foreground/85">{fmtDate(l.proximoPagamentoEm)}</span>
+                        ) : (
+                          <span className="text-muted-foreground/60">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}

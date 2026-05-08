@@ -252,6 +252,7 @@ export type DetailLead = {
   gateway: string | null;
   periodicidade: string;
   pagouEm: string | null;
+  proximoPagamentoEm?: string | null;
   canceladoEm: string | null;
   criadoEm: string;
   atualizadoEm: string;

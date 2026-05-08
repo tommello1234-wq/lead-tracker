@@ -33,6 +33,7 @@ export type DetailLead = {
   gateway: string | null;
   periodicidade: string;
   pagouEm: string | null;
+  proximoPagamentoEm?: string | null;
   canceladoEm: string | null;
   criadoEm: string;
   atualizadoEm: string;
@@ -80,6 +81,7 @@ export async function getDetails(
           subValor: subscriptions.valor,
           subPeriod: subscriptions.periodicidade,
           subPagouEm: subscriptions.pagouEm,
+          subProxPag: subscriptions.proximoPagamentoEm,
           subStatus: subscriptions.status,
           lead: leads,
         })
@@ -96,6 +98,7 @@ export async function getDetails(
         valorAssinatura: r.subValor,
         periodicidade: r.subPeriod,
         pagouEm: r.subPagouEm?.toISOString() ?? null,
+        proximoPagamentoEm: r.subProxPag?.toISOString() ?? null,
         subscriptionStatus: r.subStatus,
       }));
     }
