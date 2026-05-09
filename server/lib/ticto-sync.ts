@@ -88,6 +88,25 @@ function detectProdutoIdByName(productName: string | undefined | null): number {
   return 17; // Outros (legado) por default — não joga em Gravyx
 }
 
+/**
+ * Data real de cancelamento da sub Ticto. Tenta vários campos do payload
+ * antes de desistir. NUNCA retorna NEW Date() — preferimos NULL (lead
+ * sem data canônica) a uma data fake (sync rodou hoje ≠ cliente cancelou hoje).
+ */
+function canceledDate(sub: TictoSubscription): Date | null {
+  const o = sub as AnyObject;
+  const candidates = [o.canceled_at, o.cancelled_at, o.canceled_in, o.canceled_date];
+  for (const c of candidates) {
+    if (!c) continue;
+    const s = String(c);
+    const br = parseDateBR(s);
+    if (br) return br;
+    const iso = new Date(s.length === 10 ? `${s}T12:00:00-03:00` : s);
+    if (!Number.isNaN(iso.getTime())) return iso;
+  }
+  return null;
+}
+
 /** Próxima cobrança. Tenta sub.next_charge, fallback = lastPaid + interval meses. */
 function nextChargeDate(sub: TictoSubscription, lastPaid: Date | null): Date | null {
   const o = sub as AnyObject;
@@ -498,7 +517,10 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
             periodicidade: isAnnual ? "anual" : "mensal",
             pagouEm: firstPaid,
             ultimaRenovacaoEm: lastPaid,
-            canceladoEm: mapped.sub === "cancelada" ? new Date() : null,
+            // Data real do cancelamento se Ticto retornar; senão NULL.
+            // NUNCA new Date() — não polui o card "Cancelados hoje" com
+            // sync runs.
+            canceladoEm: mapped.sub === "cancelada" ? canceledDate(sub) : null,
             atualizadoEm: new Date(),
             criadoEm: firstPaid ?? new Date(),
           })
@@ -546,8 +568,11 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       if (lead.status !== mapped.lead || lead.subscriptionStatus !== mapped.sub) {
         updates.status = mapped.lead;
         updates.subscriptionStatus = mapped.sub;
+        // Cancelado: usa data real da Ticto se vier, senão NÃO seta
+        // (deixa NULL — não polui "Cancelados hoje" com sync runs).
         if (mapped.sub === "cancelada" && !lead.canceladoEm) {
-          updates.canceladoEm = new Date();
+          const realCanceled = canceledDate(sub);
+          if (realCanceled) updates.canceladoEm = realCanceled;
         }
       }
       // Reclassifica produto_id se sync detectou produto diferente

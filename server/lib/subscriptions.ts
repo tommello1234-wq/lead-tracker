@@ -56,7 +56,9 @@ export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
       pagouEm: args.pagouEm ?? (args.status === "ativa" ? now : null),
       proximoPagamentoEm: args.proximoPagamentoEm ?? null,
       ultimaRenovacaoEm: args.ultimaRenovacaoEm ?? null,
-      canceladoEm: args.canceladoEm ?? (args.status === "cancelada" ? now : null),
+      // Não usa NOW() como fallback: prefere NULL a data fake.
+      // Caller deve passar a data real do gateway quando souber.
+      canceladoEm: args.canceladoEm ?? null,
     });
     return;
   }
@@ -82,8 +84,10 @@ export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
   }
   if (args.proximoPagamentoEm) updates.proximoPagamentoEm = args.proximoPagamentoEm;
   if (args.ultimaRenovacaoEm) updates.ultimaRenovacaoEm = args.ultimaRenovacaoEm;
-  if (args.status === "cancelada" && !existing.canceladoEm) {
-    updates.canceladoEm = args.canceladoEm ?? now;
+  // Cancelado: só seta canceladoEm se caller passou data real do gateway.
+  // Sem NOW() de fallback — preferimos NULL a data fake (sync ≠ cancel).
+  if (args.status === "cancelada" && !existing.canceladoEm && args.canceladoEm) {
+    updates.canceladoEm = args.canceladoEm;
   }
 
   await db
