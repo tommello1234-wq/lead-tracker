@@ -672,7 +672,10 @@ auditRoutes.get("/ticto-cancels-day", async (c) => {
     return sit === "cancelada" || sit === "canceled" || sit === "cancelled";
   });
 
-  // Pra cada uma, lista todos campos de data candidatos a "cancelado em"
+  // Ticto distingue:
+  //  - cancellation_requested_at: cliente PEDIU cancelamento (data UI relevante)
+  //  - canceled_at: data fim do ciclo (sub vira inativa de fato)
+  // O card "Cancelados hoje" deve usar cancellation_requested_at.
   const list = canceladas.map((s) => {
     const o = s as Record<string, unknown>;
     const customer = (o.customer as Record<string, unknown>) ?? {};
@@ -684,22 +687,22 @@ auditRoutes.get("/ticto-cancels-day", async (c) => {
       email: customer.email,
       plano: `${product.name ?? ""} ${offer.name ?? ""}`.trim(),
       situation: o.situation,
-      // todos os campos de data candidatos
+      cancellation_requested_at: o.cancellation_requested_at ?? null,
       canceled_at: o.canceled_at ?? null,
-      cancelled_at: o.cancelled_at ?? null,
-      canceled_in: o.canceled_in ?? null,
-      canceled_date: o.canceled_date ?? null,
-      updated_at: o.updated_at ?? null,
-      created_at: o.created_at ?? null,
-      // pegar todas as chaves possíveis
-      __allKeys: Object.keys(o),
+      successful_charges: o.successful_charges ?? 0,
     };
   });
 
-  // Filtra pela data informada (tentando match em todos os campos)
+  // Filtra pelo dia BRT usando cancellation_requested_at.
+  // BRT 00:00 do `date` = UTC `date`T03:00:00Z
+  const sinceUtc = `${date}T03:00:00Z`;
+  const nextDay = new Date(`${date}T00:00:00Z`);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const untilUtc = `${nextDay.toISOString().slice(0, 10)}T03:00:00Z`;
   const filtered = list.filter((x) => {
-    const fields = [x.canceled_at, x.cancelled_at, x.canceled_in, x.canceled_date, x.updated_at];
-    return fields.some((f) => f && String(f).startsWith(date));
+    if (!x.cancellation_requested_at) return false;
+    const t = String(x.cancellation_requested_at);
+    return t >= sinceUtc && t < untilUtc;
   });
 
   return c.json({
