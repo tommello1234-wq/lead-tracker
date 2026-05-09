@@ -135,7 +135,9 @@ export async function runAsaasSync(): Promise<{
 
   // Cria evento pra cada payment confirmado/refunded — necessário pro
   // Faturamento aparecer no dashboard. Idempotente via order_hash = payment.id.
-  async function syncPaymentsAsEvents(leadId: number, produtoId: number, ps: AsaasPayment[]) {
+  // produtoId default é o do lead, mas DETECTA pelo description de cada
+  // payment (cliente pode ter comprado vários produtos — Gravyx + Web Designer).
+  async function syncPaymentsAsEvents(leadId: number, produtoIdLead: number, ps: AsaasPayment[]) {
     for (const p of ps) {
       const status = (p.status ?? "").toUpperCase();
       let eventType: string | null = null;
@@ -156,6 +158,10 @@ export async function runAsaasSync(): Promise<{
 
       const dateStr = p.confirmedDate ?? p.paymentDate ?? p.dueDate;
       const receivedAt = dateStr ? new Date(dateStr) : new Date();
+
+      // Cada payment pode ser de produto diferente. Detecta pela description
+      // do payment (não do lead). Fallback = produto do lead.
+      const produtoId = detectProdutoIdByPlano(p.description, p.value) || produtoIdLead;
 
       await db.insert(eventos).values({
         leadId,
