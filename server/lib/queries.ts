@@ -302,8 +302,11 @@ export async function getDashboardMetrics(
 
   // Métricas de ciclo de vida que respeitam período (se filtro aplicado).
   // Todas usam datas canônicas de transição (pagouEm/canceladoEm/reembolsadoEm),
-  // não atualizadoEm. Sem período (since=null && until=null), são lifetime.
-  const hasPeriod = since != null || until != null;
+  // não atualizadoEm. "Tudo histórico" do frontend manda since=null + until=now
+  // (não null) — então `since != null` é o sinal correto pra filtrar período.
+  // Usar `until` aqui escondia leads sem data canônica (canceladoEm=NULL) do
+  // total lifetime — 70+ cancelados sumiam do card por falta de data registrada.
+  const hasPeriod = since != null;
   const totalAssinantes = hasPeriod
     ? all.filter((l) => l.pagouEm && inPeriod(l.pagouEm)).length
     : all.filter((l) => l.pagouEm != null).length;
