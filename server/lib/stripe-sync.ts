@@ -9,6 +9,7 @@ import { db } from "../../db/client.js";
 import { leads, eventos, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
 import { eq, or, sql } from "drizzle-orm";
 import { upsertSubscription } from "./subscriptions.js";
+import { isExcludedAccount } from "./excluded-accounts.js";
 
 type StripeSubscription = {
   id: string;
@@ -234,6 +235,9 @@ export async function runStripeSync(): Promise<{
 
     const phone = normalizePhone(cust.phone);
     const email = cust.email?.toLowerCase() ?? null;
+
+    // Pula conta excluída (admin/teste) — sync recriaria lead toda noite
+    if (isExcludedAccount({ email, phone })) continue;
 
     // Match lead por email/phone/customer_id
     let lead = await db.query.leads.findFirst({

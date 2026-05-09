@@ -24,7 +24,8 @@ import {
 } from "../../db/schema.js";
 import { renderTemplate } from "./message-templates.js";
 import { upsertSubscription } from "./subscriptions.js";
-import { eq, and, inArray, asc, gte, isNull, sql } from "drizzle-orm";
+import { isExcludedAccount } from "./excluded-accounts.js";
+import { eq, and, or, inArray, asc, gte, isNull, sql } from "drizzle-orm";
 
 export type GatewayEvent =
   | "carrinho_abandonado"
@@ -492,6 +493,26 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   status: LeadStatus;
   ignored?: boolean;
 }> {
+  // Pula contas excluídas (admin/teste). Se for criar lead novo, ignora;
+  // se já existe (criado antes do filtro), continua processando normalmente.
+  if (
+    isExcludedAccount({
+      email: input.email,
+      phone: input.contato,
+      cpf: input.gatewayCustomerId,
+    })
+  ) {
+    const existing = await db.query.leads.findFirst({
+      where: or(
+        input.contato ? eq(leads.contato, input.contato) : undefined,
+        input.email ? eq(leads.email, input.email) : undefined,
+      ),
+    });
+    if (!existing) {
+      return { leadId: 0, scheduledMessages: 0, status: "lead_novo", ignored: true };
+    }
+  }
+
   const lead = await findOrCreateLead(input);
   const transition = STATUS_TRANSITIONS[input.eventType];
   const now = new Date();

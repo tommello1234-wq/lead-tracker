@@ -10,6 +10,7 @@ import { db } from "../../db/client.js";
 import { leads, eventos, type LeadStatus, type SubscriptionStatus } from "../../db/schema.js";
 import { eq, or, sql } from "drizzle-orm";
 import { upsertSubscription } from "./subscriptions.js";
+import { isExcludedAccount } from "./excluded-accounts.js";
 
 type AsaasCust = { id: string; name?: string; email?: string; phone?: string; mobilePhone?: string; cpfCnpj?: string };
 type AsaasSub = { id: string; status: string; value: number; cycle: string; description?: string; dateCreated?: string; nextDueDate?: string };
@@ -232,6 +233,9 @@ export async function runAsaasSync(): Promise<{
     const phone = normalizePhone(cust.mobilePhone ?? cust.phone);
     const email = normEmail(cust.email);
     const cpf = cust.cpfCnpj ?? null;
+
+    // Pula conta excluída (admin/teste) — sync recriaria lead toda noite
+    if (isExcludedAccount({ email, phone, cpf })) continue;
 
     // Match lead
     let lead = await db.query.leads.findFirst({

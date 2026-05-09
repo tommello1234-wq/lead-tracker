@@ -17,6 +17,7 @@ import {
   type TictoSubscription,
 } from "./ticto-api.js";
 import { upsertSubscription } from "./subscriptions.js";
+import { isExcludedAccount } from "./excluded-accounts.js";
 
 type AnyObject = Record<string, unknown>;
 
@@ -252,6 +253,9 @@ async function processOrder(order: TictoOrder): Promise<"created" | "updated" | 
     }
   }
 
+  // Pula conta excluída (admin/teste) — não cria lead nem evento
+  if (isExcludedAccount({ email, phone, cpf })) return "skipped";
+
   let lead = await db.query.leads.findFirst({
     where: or(
       cpf ? eq(leads.gatewayCustomerId, cpf) : undefined,
@@ -472,6 +476,10 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
       const situation = realSubStatus(sub);
       const mapped = mapSubSituation(situation);
       if (!mapped) continue;
+
+      // Pula contas excluídas (testes admin) ANTES de qualquer query.
+      // Sem isso, deletar lead resolve só por uma noite — sync recria.
+      if (isExcludedAccount({ email, phone, cpf })) continue;
 
       let lead = await db.query.leads.findFirst({
         where: or(
