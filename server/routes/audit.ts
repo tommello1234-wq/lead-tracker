@@ -646,6 +646,71 @@ auditRoutes.get("/ticto-list", async (c) => {
   return c.json({ count: list.length, list });
 });
 
+// Cancelamentos Ticto reais por dia BRT — consulta direta na API.
+// Lista TODAS as subs canceladas mostrando todos campos de data possíveis,
+// pra encontrar qual reflete o cancelamento real (Ticto não documenta).
+// Uso: /api/audit/ticto-cancels-day?date=2026-05-08
+auditRoutes.get("/ticto-cancels-day", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const date = c.req.query("date") ?? new Date().toISOString().slice(0, 10);
+
+  const tictoSubs: Array<Record<string, unknown>> = [];
+  let page = 1;
+  while (true) {
+    const r = await getSubscriptionsHistory(page);
+    const data = r.data ?? [];
+    if (data.length === 0) break;
+    tictoSubs.push(...data);
+    const last = r.meta?.last_page ?? page;
+    if (page >= last) break;
+    page++;
+  }
+
+  // Subs canceladas pelo painel Ticto (situation === 'cancelada' / status canceled)
+  const canceladas = tictoSubs.filter((s) => {
+    const sit = String(s.situation ?? s.status ?? "").toLowerCase();
+    return sit === "cancelada" || sit === "canceled" || sit === "cancelled";
+  });
+
+  // Pra cada uma, lista todos campos de data candidatos a "cancelado em"
+  const list = canceladas.map((s) => {
+    const o = s as Record<string, unknown>;
+    const customer = (o.customer as Record<string, unknown>) ?? {};
+    const product = (o.product as Record<string, unknown>) ?? {};
+    const offer = (o.offer as Record<string, unknown>) ?? {};
+    return {
+      id: o.id,
+      nome: customer.name,
+      email: customer.email,
+      plano: `${product.name ?? ""} ${offer.name ?? ""}`.trim(),
+      situation: o.situation,
+      // todos os campos de data candidatos
+      canceled_at: o.canceled_at ?? null,
+      cancelled_at: o.cancelled_at ?? null,
+      canceled_in: o.canceled_in ?? null,
+      canceled_date: o.canceled_date ?? null,
+      updated_at: o.updated_at ?? null,
+      created_at: o.created_at ?? null,
+      // pegar todas as chaves possíveis
+      __allKeys: Object.keys(o),
+    };
+  });
+
+  // Filtra pela data informada (tentando match em todos os campos)
+  const filtered = list.filter((x) => {
+    const fields = [x.canceled_at, x.cancelled_at, x.canceled_in, x.canceled_date, x.updated_at];
+    return fields.some((f) => f && String(f).startsWith(date));
+  });
+
+  return c.json({
+    date,
+    totalCanceladas: list.length,
+    matchedDay: filtered.length,
+    sampleAllCanceladas: list.slice(0, 3),
+    matchedList: filtered,
+  });
+});
+
 // Inspect 1 sub Ticto pelo email — debug profundo
 auditRoutes.get("/ticto-lead", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
