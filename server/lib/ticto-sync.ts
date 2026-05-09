@@ -89,9 +89,11 @@ function detectProdutoIdByName(productName: string | undefined | null): number {
 }
 
 /**
- * Data real de cancelamento da sub Ticto. Tenta vários campos do payload
- * antes de desistir. NUNCA retorna NEW Date() — preferimos NULL (lead
- * sem data canônica) a uma data fake (sync rodou hoje ≠ cliente cancelou hoje).
+ * Data real de cancelamento da sub Ticto. Tenta `canceled_at` (campo
+ * dedicado) — NÃO usa `status_date` porque a Ticto às vezes manda nele
+ * a data do pagamento original (ex: cancelamento 08/05 com status_date
+ * = 26/04 quando a sub foi paga 26/04). NUNCA retorna NEW Date() —
+ * preferimos NULL (lead sem data canônica) a uma data fake.
  */
 function canceledDate(sub: TictoSubscription): Date | null {
   const o = sub as AnyObject;
