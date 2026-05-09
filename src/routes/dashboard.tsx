@@ -23,9 +23,6 @@ import {
   PlanoBreakdownChart,
   TipoBreakdownChart,
 } from "@/components/dashboard-charts";
-import { SaasDashboard } from "@/components/saas-dashboard";
-import { MrrBreakdown } from "@/components/mrr-breakdown";
-import { MrrMovementsModal } from "@/components/mrr-movements-modal";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
 import type {
@@ -34,9 +31,6 @@ import type {
   DailyMetric,
   PlanoBreakdown,
   TipoBreakdown,
-  SaasMetricsResponse,
-  MrrMovementsBreakdown,
-  MrrMovementType,
   Produto,
   CacMetrics,
 } from "@shared/types";
@@ -66,7 +60,6 @@ const SHORT_LABELS: Record<Period, string> = {
 
 export function DashboardPage() {
   const [details, setDetails] = useState<DetailsKind | null>(null);
-  const [mrrType, setMrrType] = useState<MrrMovementType | null>(null);
   const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate } = useProdutoContext();
@@ -113,27 +106,12 @@ export function DashboardPage() {
   const produtoSel = produtos.data?.find((p) => p.id === produtoId);
   const isSaasView = produtoId == null || produtoSel?.tipo === "saas";
 
-  const saasMetrics = useQuery({
-    queryKey: ["dashboard", "saas", produtoParam, sinceParam, untilParam],
-    queryFn: () =>
-      api.get<SaasMetricsResponse>(`/api/dashboard/saas?${baseQs}`),
-    enabled: isSaasView,
-  });
-
   // CAC: só faz sentido pra "all" ou produtos saas (que têm Meta tracking)
   const cac = useQuery({
     queryKey: ["dashboard", "cac", produtoParam, sinceParam, untilParam],
     queryFn: () => api.get<CacMetrics>(`/api/dashboard/cac?${baseQs}`),
     enabled: isSaasView,
     retry: 0,
-  });
-
-  // Movimentação de MRR no período (New / Expansion / Churn / etc)
-  const mrr = useQuery({
-    queryKey: ["dashboard", "mrr-movements", produtoParam, sinceParam, untilParam],
-    queryFn: () =>
-      api.get<MrrMovementsBreakdown>(`/api/dashboard/mrr-movements?${baseQs}`),
-    enabled: isSaasView,
   });
 
   const m = metrics.data;
@@ -237,20 +215,6 @@ export function DashboardPage() {
         ) : null}
       </div>
 
-{/* Movimentação MRR — só pra produtos saas ou visão Todos */}
-      {isSaasView ? (
-        <MrrBreakdown
-          data={mrr.data}
-          isLoading={mrr.isLoading}
-          onSelectType={setMrrType}
-        />
-      ) : null}
-
-      {/* SaaS metrics — só pra produtos saas ou visão Todos */}
-      {isSaasView && saasMetrics.data ? (
-        <SaasDashboard data={saasMetrics.data} />
-      ) : null}
-
       {/* Charts */}
       {breakdowns.data && daily.data ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -267,9 +231,6 @@ export function DashboardPage() {
 
       {details ? (
         <DetailsModal kind={details} onClose={() => setDetails(null)} onLeadClick={(id) => { setSelectedLeadId(id); setDetails(null); }} />
-      ) : null}
-      {mrrType ? (
-        <MrrMovementsModal type={mrrType} onClose={() => setMrrType(null)} onLeadClick={(id) => { setSelectedLeadId(id); setMrrType(null); }} />
       ) : null}
       {mrrAtualOpen ? (
         <MrrAtualModal
