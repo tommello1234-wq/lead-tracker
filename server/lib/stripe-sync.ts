@@ -254,9 +254,11 @@ export async function runStripeSync(): Promise<{
     const planoNew = mapPlanoFromSlug(slugNew);
 
     // Cria lead se não existe (cliente Stripe sem registro local).
-    // Ignora subs sem email/phone/customer válido (evita lead lixo).
+    // Exige email OU phone — sem isso vira "Cliente Stripe" ghost (sem
+    // nome, sem contato, impossível agir). customer_id sozinho não basta
+    // — esses são restos de testes antigos que viraram lixo no painel.
     if (!lead) {
-      if (!email && !phone && !sub.customer) { notFound++; continue; }
+      if (!email && !phone) { notFound++; continue; }
       // Stripe = só Gravyx (id=1) atualmente — única conta com Stripe conectado.
       const PRODUTO_GRAVYX = 1;
       const [createdLead] = await db
