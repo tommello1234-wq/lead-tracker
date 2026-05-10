@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getInsights, getCampaigns } from "../lib/meta-ads.js";
+import { getInsights, getCampaigns, getAds } from "../lib/meta-ads.js";
 
 export const metaAdsRoutes = new Hono();
 
@@ -33,6 +33,27 @@ metaAdsRoutes.get("/campaigns", async (c) => {
   try {
     const { since, until } = parseRange(c);
     const data = await getCampaigns(since, until);
+    return c.json(data);
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : "Erro Meta API" },
+      500,
+    );
+  }
+});
+
+/* GET /api/meta-ads/ads?since=...&until=...&onlyWithSpend=1
+ * Lista ads-level com criativo, LP URL e métricas individuais.
+ * Por default últimos 90 dias. ?onlyWithSpend=1 esconde ads sem gasto.
+ */
+metaAdsRoutes.get("/ads", async (c) => {
+  try {
+    const { since, until } = parseRange(c);
+    const onlyWithSpend = c.req.query("onlyWithSpend") === "1";
+    const limitRaw = c.req.query("limit");
+    const limit =
+      limitRaw && !Number.isNaN(Number(limitRaw)) ? Number(limitRaw) : 200;
+    const data = await getAds(since, until, { onlyWithSpend, limit });
     return c.json(data);
   } catch (e) {
     return c.json(

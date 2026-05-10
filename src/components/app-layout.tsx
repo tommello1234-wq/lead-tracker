@@ -5,6 +5,7 @@ import {
   Users,
   Workflow,
   Megaphone,
+  Target,
   LogOut,
   Search,
   Bell,
@@ -87,6 +88,7 @@ function AppShell() {
             badge={counts?.filaMensagens && counts.filaMensagens > 0 ? counts.filaMensagens : undefined}
           />
           <SideIcon to="/ads" icon={Megaphone} label="Meta Ads" expanded={expanded} />
+          <SideIcon to="/personas" icon={Target} label="Personas" expanded={expanded} />
         </nav>
 
         {/* Logout */}

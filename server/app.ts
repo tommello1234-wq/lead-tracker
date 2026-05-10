@@ -11,6 +11,8 @@ import { dashboardRoutes } from "./routes/dashboard.js";
 import { automacoesRoutes } from "./routes/automacoes.js";
 import { activityRoutes } from "./routes/activity.js";
 import { metaAdsRoutes } from "./routes/meta-ads.js";
+import { personasRoutes } from "./routes/personas.js";
+import { angulosRoutes } from "./routes/angulos.js";
 import { requireAuth } from "./middleware/auth.js";
 
 /**
@@ -39,6 +41,8 @@ app.use("/dashboard/*", requireAuth);
 app.use("/automacoes/*", requireAuth);
 app.use("/activity/*", requireAuth);
 app.use("/meta-ads/*", requireAuth);
+app.use("/personas/*", requireAuth);
+app.use("/angulos/*", requireAuth);
 
 app.route("/produtos", produtosRoutes);
 app.route("/leads", leadsRoutes);
@@ -46,6 +50,8 @@ app.route("/dashboard", dashboardRoutes);
 app.route("/automacoes", automacoesRoutes);
 app.route("/activity", activityRoutes);
 app.route("/meta-ads", metaAdsRoutes);
+app.route("/personas", personasRoutes);
+app.route("/angulos", angulosRoutes);
 
 // 404 padrão JSON
 app.notFound((c) => c.json({ error: "Not found" }, 404));

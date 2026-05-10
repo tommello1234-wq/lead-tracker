@@ -5,6 +5,7 @@ import { DashboardPage } from "./routes/dashboard";
 import { LeadsPage } from "./routes/leads";
 import { AutomacoesPage } from "./routes/automacoes";
 import { AdsPage } from "./routes/ads";
+import { PersonasPage } from "./routes/personas";
 import { RequireAuth } from "./components/require-auth";
 
 export function App() {
@@ -16,6 +17,7 @@ export function App() {
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/automacoes" element={<AutomacoesPage />} />
         <Route path="/ads" element={<AdsPage />} />
+        <Route path="/personas" element={<PersonasPage />} />
         <Route index element={<Navigate to="/dashboard" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

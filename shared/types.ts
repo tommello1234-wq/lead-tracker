@@ -237,6 +237,28 @@ export type MetaCampaign = {
   sampleAdId: string | null;
 };
 
+export type MetaAd = {
+  adId: string;
+  adName: string;
+  status: CampaignStatus;
+  campaignId: string;
+  campaignName: string;
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  videoId: string | null;
+  headline: string | null;
+  body: string | null;
+  landingPageUrl: string | null;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpa: number | null;
+  roas: number;
+  purchases: number;
+  initiateCheckout: number;
+};
+
 export type DetailLead = {
   id: number;
   subscriptionId?: number;
@@ -265,4 +287,91 @@ export type Produto = {
   cor: string | null;
   gatewayMatch: string[];
   ativo: boolean;
+};
+
+export type PersonaPrioridade =
+  | "primaria"
+  | "secundaria"
+  | "terciaria"
+  | "descartada"
+  | "explorando";
+
+export type PersonaVolume = "baixo" | "medio" | "alto" | "muito_alto";
+export type PersonaRisco = "baixo" | "medio" | "alto";
+
+export type Persona = {
+  id: number;
+  produtoId: number | null;
+  nome: string;
+  slug: string | null;
+  cor: string | null;
+  descricao: string | null;
+  demografia: string | null;
+  dor: string | null;
+  desejo: string | null;
+  objecoes: string[];
+  mensagemChave: string | null;
+  volumeMensal: PersonaVolume | null;
+  wtpEstimado: PersonaVolume | null;
+  churnRisk: PersonaRisco | null;
+  pctPublicoAtual: number | null;
+  prioridade: PersonaPrioridade;
+  lps: string[];
+  canais: string[];
+  notas: string | null;
+  ativo: boolean;
+  criadoEm: string;
+  atualizadoEm: string;
+};
+
+export type AnguloStatus =
+  | "ideia"
+  | "producao"
+  | "rodando"
+  | "vencedor"
+  | "perdedor"
+  | "pausado";
+
+export type CriativoTipo = "imagem" | "video" | "carrossel";
+export type CriativoStatus = "ativo" | "pausado" | "morto";
+
+export type Criativo = {
+  id: number;
+  anguloId: number | null;
+  tipo: CriativoTipo;
+  url: string | null;
+  thumbUrl: string | null;
+  headlineOverlay: string | null;
+  metaAdsId: string | null;
+  status: CriativoStatus;
+  ctr: number | null;
+  cpa: number | null;
+  impressoes: number | null;
+  notas: string | null;
+  criadoEm: string;
+  atualizadoEm: string;
+};
+
+export type Angulo = {
+  id: number;
+  personaId: number | null;
+  produtoId: number | null;
+  nome: string;
+  promessa: string | null;
+  hook: string | null;
+  cta: string | null;
+  status: AnguloStatus;
+  lpUrl: string | null;
+  lpScreenshot: string | null;
+  ctr: number | null;
+  cpa: number | null;
+  roas: number | null;
+  diasRodando: number | null;
+  budgetMensal: number | null;
+  notas: string | null;
+  ativo: boolean;
+  criadoEm: string;
+  atualizadoEm: string;
+  /** Vem populado em GET /api/angulos */
+  criativos?: Criativo[];
 };

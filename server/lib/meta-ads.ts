@@ -380,3 +380,234 @@ export async function getCampaigns(
     };
   });
 }
+
+/* ========================================================
+ * Ads (nível mais granular — pra importar como ângulos)
+ * ======================================================== */
+export type MetaAd = {
+  adId: string;
+  adName: string;
+  status: CampaignStatus;
+  campaignId: string;
+  campaignName: string;
+  /** URL da imagem ou frame do vídeo do criativo */
+  thumbnailUrl: string | null;
+  /** URL da imagem (se ad de imagem) ou null pra vídeo puro */
+  imageUrl: string | null;
+  /** ID do vídeo no Meta (se ad de vídeo) */
+  videoId: string | null;
+  /** Headline / título do ad */
+  headline: string | null;
+  /** Body / mensagem do ad */
+  body: string | null;
+  /** URL de destino (LP) */
+  landingPageUrl: string | null;
+  // Métricas
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number; // %
+  cpa: number | null;
+  roas: number;
+  purchases: number;
+  initiateCheckout: number;
+};
+
+/**
+ * Extrai headline/body/imageUrl de um creative.
+ */
+function extractCreativeMeta(creative: AnyObject | undefined): {
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  videoId: string | null;
+  headline: string | null;
+  body: string | null;
+} {
+  if (!creative) {
+    return {
+      thumbnailUrl: null,
+      imageUrl: null,
+      videoId: null,
+      headline: null,
+      body: null,
+    };
+  }
+
+  const directThumb = (creative.thumbnail_url as string | undefined) ?? null;
+  const directImage = (creative.image_url as string | undefined) ?? null;
+  const directVideoId = (creative.video_id as string | undefined) ?? null;
+
+  let headline: string | null = null;
+  let body: string | null = null;
+  let imageUrl: string | null = directImage;
+  let videoId: string | null = directVideoId;
+
+  const oss = creative.object_story_spec as AnyObject | undefined;
+  if (oss) {
+    const linkData = oss.link_data as
+      | { name?: string; message?: string; description?: string; picture?: string }
+      | undefined;
+    if (linkData) {
+      headline = linkData.name ?? linkData.description ?? null;
+      body = linkData.message ?? null;
+      if (!imageUrl && linkData.picture) imageUrl = linkData.picture;
+    }
+    const videoData = oss.video_data as
+      | {
+          title?: string;
+          message?: string;
+          link_description?: string;
+          image_url?: string;
+          video_id?: string;
+        }
+      | undefined;
+    if (videoData) {
+      headline = headline ?? videoData.title ?? videoData.link_description ?? null;
+      body = body ?? videoData.message ?? null;
+      if (!videoId && videoData.video_id) videoId = videoData.video_id;
+      if (!imageUrl && videoData.image_url) imageUrl = videoData.image_url;
+    }
+  }
+
+  // Advantage+ creative
+  const afs = creative.asset_feed_spec as AnyObject | undefined;
+  if (afs) {
+    const titles = afs.titles as Array<{ text?: string }> | undefined;
+    if (!headline && titles?.[0]?.text) headline = titles[0].text;
+    const bodies = afs.bodies as Array<{ text?: string }> | undefined;
+    if (!body && bodies?.[0]?.text) body = bodies[0].text;
+    const images = afs.images as Array<{ url?: string }> | undefined;
+    if (!imageUrl && images?.[0]?.url) imageUrl = images[0].url;
+    const videos = afs.videos as Array<{ video_id?: string; thumbnail_url?: string }> | undefined;
+    if (!videoId && videos?.[0]?.video_id) videoId = videos[0].video_id;
+    if (!directThumb && videos?.[0]?.thumbnail_url) {
+      // só usa se não tinha thumb direto
+      return {
+        thumbnailUrl: videos[0].thumbnail_url ?? null,
+        imageUrl,
+        videoId,
+        headline,
+        body,
+      };
+    }
+  }
+
+  return {
+    thumbnailUrl: directThumb ?? imageUrl,
+    imageUrl,
+    videoId,
+    headline,
+    body,
+  };
+}
+
+/**
+ * Lista ads do ad account com criativo + LP + insights.
+ *
+ * Filtra por status: por default só ACTIVE/PAUSED (esconde DELETED/ARCHIVED).
+ */
+export async function getAds(
+  since: Date | null,
+  until: Date | null,
+  options?: { onlyWithSpend?: boolean; limit?: number },
+): Promise<MetaAd[]> {
+  const account = getAdAccountId();
+  const adsLimit = String(options?.limit ?? 200);
+
+  // 2 chamadas em paralelo: ads (com criativo) e insights (com métricas).
+  const params: Record<string, string> = {
+    fields:
+      "spend,impressions,inline_link_clicks,inline_link_click_ctr,actions,action_values,ad_id,ad_name,campaign_id,campaign_name",
+    level: "ad",
+    limit: adsLimit,
+  };
+  if (since && until) {
+    params.time_range = buildTimeRange(since, until);
+  } else {
+    params.date_preset = "last_90d";
+  }
+
+  const [insightsResp, adsResp] = await Promise.all([
+    metaFetch<{ data: AnyObject[] }>(`/${account}/insights`, params),
+    metaFetch<{ data: AnyObject[] }>(`/${account}/ads`, {
+      fields:
+        "id,name,effective_status,campaign_id,creative{id,object_url,effective_object_story_id,thumbnail_url,image_url,video_id,object_story_spec{link_data{name,message,description,picture,link},template_data{link},video_data{title,message,link_description,image_url,video_id,call_to_action{value{link}}},photo_data{url}},asset_feed_spec{link_urls,titles,bodies,images,videos}}",
+      limit: adsLimit,
+    }),
+  ]);
+
+  // Map ad meta (creative + status) por ad ID
+  type AdCreativeMeta = ReturnType<typeof extractCreativeMeta> & {
+    status: CampaignStatus;
+    lpUrl: string | null;
+    storyId: string | null;
+    name: string;
+    campaignId: string;
+  };
+  const metaById = new Map<string, AdCreativeMeta>();
+  for (const ad of adsResp.data ?? []) {
+    const id = String(ad.id ?? "");
+    if (!id) continue;
+    const creative = ad.creative as AnyObject | undefined;
+    const cmeta = extractCreativeMeta(creative);
+    metaById.set(id, {
+      ...cmeta,
+      status: (ad.effective_status as CampaignStatus) ?? "UNKNOWN",
+      lpUrl: extractLpUrl(creative),
+      storyId: (creative?.effective_object_story_id as string | undefined) ?? null,
+      name: String(ad.name ?? "—"),
+      campaignId: String(ad.campaign_id ?? ""),
+    });
+  }
+
+  // Dark post fallback pra LPs vazias
+  const darkPostFetches = Array.from(metaById.entries())
+    .filter(([, m]) => !m.lpUrl && m.storyId)
+    .map(async ([id, m]) => {
+      const link = await fetchDarkPostLink(m.storyId!);
+      if (link) metaById.set(id, { ...m, lpUrl: link });
+    });
+  await Promise.all(darkPostFetches);
+
+  // Combina insights + meta
+  const out: MetaAd[] = [];
+  for (const ins of insightsResp.data ?? []) {
+    const adId = String(ins.ad_id ?? "");
+    if (!adId) continue;
+    const meta = metaById.get(adId);
+    const actions = ins.actions as
+      | Array<{ action_type: string; value: string }>
+      | undefined;
+    const actionValues = ins.action_values as
+      | Array<{ action_type: string; value: string }>
+      | undefined;
+    const spend = Number(ins.spend ?? 0);
+    const purchases = pickAction(actions, "omni_purchase");
+    const purchaseValue = pickActionValue(actionValues, "omni_purchase");
+    if (options?.onlyWithSpend && spend === 0) continue;
+    out.push({
+      adId,
+      adName: meta?.name ?? String(ins.ad_name ?? "—"),
+      status: meta?.status ?? "UNKNOWN",
+      campaignId: meta?.campaignId ?? String(ins.campaign_id ?? ""),
+      campaignName: String(ins.campaign_name ?? "—"),
+      thumbnailUrl: meta?.thumbnailUrl ?? null,
+      imageUrl: meta?.imageUrl ?? null,
+      videoId: meta?.videoId ?? null,
+      headline: meta?.headline ?? null,
+      body: meta?.body ?? null,
+      landingPageUrl: meta?.lpUrl ?? null,
+      spend,
+      impressions: Number(ins.impressions ?? 0),
+      clicks: Number(ins.inline_link_clicks ?? 0),
+      ctr: Number(ins.inline_link_click_ctr ?? 0),
+      cpa: purchases > 0 ? spend / purchases : null,
+      roas: spend > 0 ? purchaseValue / spend : 0,
+      purchases,
+      initiateCheckout: pickAction(actions, "initiate_checkout"),
+    });
+  }
+  // Sort por spend desc (maior gasto primeiro)
+  out.sort((a, b) => b.spend - a.spend);
+  return out;
+}

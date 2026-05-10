@@ -327,3 +327,164 @@ export const mrrMovements = pgTable("mrr_movements", {
 
 export type MrrMovement = typeof mrrMovements.$inferSelect;
 export type NovoMrrMovement = typeof mrrMovements.$inferInsert;
+
+/**
+ * Personas — mapeamento de ICPs do produto.
+ *
+ * Cada persona é um sub-público com dor/desejo/mensagem própria. Conecta com
+ * LPs (lista de paths) e canais (instagram, meta ads, etc.) pra dar visão
+ * estratégica de quem o produto atende e como cada peça de copy/criativo
+ * deve falar.
+ *
+ * `prioridade` define o foco de budget e atenção:
+ * - primaria: ICP foco — maior parte do investimento de tráfego
+ * - secundaria: LPs e ads próprios, mas budget menor
+ * - terciaria: cobertura via canal genérico (home, /comparativo)
+ * - descartada: identificada mas não vale perseguir (custo/benefício ruim)
+ * - explorando: ainda testando se é ICP de verdade
+ */
+export const PERSONA_PRIORIDADES = [
+  "primaria",
+  "secundaria",
+  "terciaria",
+  "descartada",
+  "explorando",
+] as const;
+export type PersonaPrioridade = (typeof PERSONA_PRIORIDADES)[number];
+
+export const PERSONA_VOLUMES = ["baixo", "medio", "alto", "muito_alto"] as const;
+export type PersonaVolume = (typeof PERSONA_VOLUMES)[number];
+
+export const PERSONA_RISCOS = ["baixo", "medio", "alto"] as const;
+export type PersonaRisco = (typeof PERSONA_RISCOS)[number];
+
+export const personas = pgTable("personas", {
+  id: serial("id").primaryKey(),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "cascade",
+  }),
+  nome: text("nome").notNull(),
+  slug: text("slug"),
+  cor: text("cor"),
+
+  // Identificação do ICP
+  descricao: text("descricao"), // 1-2 linhas — quem é essa pessoa
+  demografia: text("demografia"), // idade, localização, faturamento
+
+  // Estratégia
+  dor: text("dor"), // dor principal que Gravyx resolve
+  desejo: text("desejo"), // o que ela quer alcançar
+  objecoes: jsonb("objecoes").$type<string[]>().notNull().default([]),
+  mensagemChave: text("mensagem_chave"), // promessa-mestre da copy
+
+  // Métricas / fit
+  volumeMensal: text("volume_mensal").$type<PersonaVolume>(),
+  wtpEstimado: text("wtp_estimado").$type<PersonaVolume>(),
+  churnRisk: text("churn_risk").$type<PersonaRisco>(),
+  pctPublicoAtual: real("pct_publico_atual"), // 0-100
+
+  prioridade: text("prioridade")
+    .$type<PersonaPrioridade>()
+    .notNull()
+    .default("explorando"),
+
+  // Conexões
+  lps: jsonb("lps").$type<string[]>().notNull().default([]), // paths/URLs
+  canais: jsonb("canais").$type<string[]>().notNull().default([]), // meta_ads, instagram, etc.
+
+  notas: text("notas"),
+  ativo: boolean("ativo").notNull().default(true),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type Persona = typeof personas.$inferSelect;
+export type NovaPersona = typeof personas.$inferInsert;
+
+/**
+ * Ângulos — promessas/hipóteses de copy que você testa por persona.
+ *
+ * Uma persona tem N ângulos. Cada ângulo tem 1 LP de destino e 1+ criativos
+ * que o materializam. O ângulo é a unidade de teste — você sobe ad+LP, mede
+ * CTR/CPA/ROAS, e promove pra "vencedor" ou mata pra "perdedor".
+ *
+ * Status flow: ideia → producao → rodando → (vencedor | perdedor)
+ */
+export const ANGULO_STATUS = [
+  "ideia",
+  "producao",
+  "rodando",
+  "vencedor",
+  "perdedor",
+  "pausado",
+] as const;
+export type AnguloStatus = (typeof ANGULO_STATUS)[number];
+
+export const angulos = pgTable("angulos", {
+  id: serial("id").primaryKey(),
+  personaId: integer("persona_id").references(() => personas.id, {
+    onDelete: "cascade",
+  }),
+  produtoId: integer("produto_id").references(() => produtos.id, {
+    onDelete: "cascade",
+  }),
+  nome: text("nome").notNull(), // ex: "Velocidade", "Custo"
+  promessa: text("promessa"), // a frase principal do ângulo
+  hook: text("hook"), // headline/gancho do criativo
+  cta: text("cta"), // call-to-action específico desse ângulo
+  status: text("status").$type<AnguloStatus>().notNull().default("ideia"),
+  // LP de destino — pode ser path interno ("/emp-v1") ou URL externa.
+  lpUrl: text("lp_url"),
+  lpScreenshot: text("lp_screenshot"), // URL/caminho da screenshot da LP
+
+  // Métricas observadas (snapshot — atualizadas manualmente ou via /ads)
+  ctr: real("ctr"), // %
+  cpa: real("cpa"), // R$
+  roas: real("roas"),
+
+  diasRodando: integer("dias_rodando"),
+  budgetMensal: real("budget_mensal"), // R$
+  notas: text("notas"),
+  ativo: boolean("ativo").notNull().default(true),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type Angulo = typeof angulos.$inferSelect;
+export type NovoAngulo = typeof angulos.$inferInsert;
+
+/**
+ * Criativos — os ads que materializam um ângulo (1 ângulo pode ter N criativos
+ * pra testar variações de imagem/vídeo/copy).
+ */
+export const CRIATIVO_TIPOS = ["imagem", "video", "carrossel"] as const;
+export type CriativoTipo = (typeof CRIATIVO_TIPOS)[number];
+
+export const CRIATIVO_STATUS = ["ativo", "pausado", "morto"] as const;
+export type CriativoStatus = (typeof CRIATIVO_STATUS)[number];
+
+export const criativos = pgTable("criativos", {
+  id: serial("id").primaryKey(),
+  anguloId: integer("angulo_id").references(() => angulos.id, {
+    onDelete: "cascade",
+  }),
+  tipo: text("tipo").$type<CriativoTipo>().notNull().default("imagem"),
+  // URL pro arquivo (mídia hospedada externamente — meta CDN, S3, drive...).
+  url: text("url"),
+  thumbUrl: text("thumb_url"),
+  headlineOverlay: text("headline_overlay"), // o texto que aparece no ad
+  metaAdsId: text("meta_ads_id"), // FK opcional pro Meta Ads
+
+  status: text("status").$type<CriativoStatus>().notNull().default("ativo"),
+  // Métricas snapshot do criativo individual
+  ctr: real("ctr"),
+  cpa: real("cpa"),
+  impressoes: integer("impressoes"),
+
+  notas: text("notas"),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type Criativo = typeof criativos.$inferSelect;
+export type NovoCriativo = typeof criativos.$inferInsert;
