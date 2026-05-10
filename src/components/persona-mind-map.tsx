@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   Handle,
   Position,
   useReactFlow,
@@ -794,17 +793,6 @@ function MindMapInner({
         <Controls
           showInteractive={false}
           className="!bg-card !border !border-border [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground/70"
-        />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(n) => {
-            const d = n.data as MindNodeData;
-            return d.cor ?? KIND_DEFAULT_COR[d.kind] ?? "#71717a";
-          }}
-          nodeStrokeWidth={1}
-          maskColor="rgba(0,0,0,0.7)"
-          className="!bg-card !border !border-border"
         />
       </ReactFlow>
       <MindmapPickerDialog
