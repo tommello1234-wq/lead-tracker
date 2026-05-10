@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { MindmapPickerDialog } from "@/components/mindmap-picker-dialog";
 import type { Angulo, Persona, PersonaPrioridade } from "@shared/types";
 
 // ====================== Types ======================
@@ -290,13 +291,23 @@ function shortLpLabel(url: string): string {
   }
 }
 
+type ManualPicks = {
+  /** slotId -> criativo.id (number como string) */
+  criativos: Record<string, string>;
+  /** slotId -> lpUrl */
+  paginas: Record<string, string>;
+};
+
 function buildBlueprintTree(
   personas: Persona[],
   angulos: Angulo[],
   expanded: Set<string>,
   toggle: (id: string) => void,
+  picks: ManualPicks,
   onSelectPersona: (p: Persona) => void,
   onSelectAngulo: (a: Angulo) => void,
+  onPickCriativo: (slotId: string) => void,
+  onPickPagina: (slotId: string) => void,
 ): RawTree {
   const nodes: MindNode[] = [];
   const edges: Edge[] = [];
@@ -414,16 +425,27 @@ function buildBlueprintTree(
 
       if (!anguloExpanded) continue;
 
+      // Slot IDs estáveis baseados em posição (não no criativo.id)
+      // pra que pick manual + auto possam co-existir.
       const anguloCriativos = a?.criativos ?? [];
+      // Indexa criativos GLOBALMENTE pra resolver pick manual
+      const allCriativos = angulos.flatMap((ag) => ag.criativos ?? []);
+      const criativoById = new Map<string, (typeof allCriativos)[number]>();
+      for (const cc of allCriativos) criativoById.set(String(cc.id), cc);
+
       for (let k = 0; k < CRIATIVOS_LIMIT; k++) {
-        const c = anguloCriativos[k];
-        const criativoId = c ? `c-${c.id}` : `${anguloId}-c-ph-${k}`;
+        const slotId = `${anguloId}-criativo-slot-${k}`;
+        const manualPick = picks.criativos[slotId];
+        // Resolver: 1) pick manual; 2) auto (criativo[k] do ângulo)
+        const c =
+          (manualPick ? criativoById.get(manualPick) : null) ??
+          anguloCriativos[k];
         const criativoCor = KIND_DEFAULT_COR.criativo;
         const isCriativoPlaceholder = !c;
-        const criativoExpanded = expanded.has(criativoId);
+        const criativoExpanded = expanded.has(slotId);
 
         nodes.push({
-          id: criativoId,
+          id: slotId,
           type: "mind",
           position: { x: 0, y: 0 },
           data: {
@@ -435,14 +457,15 @@ function buildBlueprintTree(
             isPlaceholder: isCriativoPlaceholder,
             hasChildren: true,
             expanded: criativoExpanded,
-            childCount: 2, // 2 planos
-            onToggle: () => toggle(criativoId),
+            childCount: 2,
+            onToggle: () => toggle(slotId),
+            onClick: () => onPickCriativo(slotId),
           },
         });
         edges.push({
-          id: `e-${anguloId}-${criativoId}`,
+          id: `e-${anguloId}-${slotId}`,
           source: anguloId,
-          target: criativoId,
+          target: slotId,
           type: "smoothstep",
           style: {
             stroke: criativoCor,
@@ -460,13 +483,13 @@ function buildBlueprintTree(
           cor: string;
         }> = [
           {
-            id: `${criativoId}-pcom`,
+            id: `${slotId}-pcom`,
             label: "Com Créditos",
             kind: "plano-com",
             cor: KIND_DEFAULT_COR["plano-com"],
           },
           {
-            id: `${criativoId}-psem`,
+            id: `${slotId}-psem`,
             label: "Sem Créditos",
             kind: "plano-sem",
             cor: KIND_DEFAULT_COR["plano-sem"],
@@ -491,8 +514,8 @@ function buildBlueprintTree(
             },
           });
           edges.push({
-            id: `e-${criativoId}-${plano.id}`,
-            source: criativoId,
+            id: `e-${slotId}-${plano.id}`,
+            source: slotId,
             target: plano.id,
             type: "smoothstep",
             style: {
@@ -504,27 +527,31 @@ function buildBlueprintTree(
 
           if (!planoExpanded) continue;
 
-          // Página real = lpUrl do ângulo (primeiro slot). Outras 2 ficam
-          // placeholder pra variações que ainda não foram criadas.
-          const realLp = a?.lpUrl ?? null;
+          // Página: pick manual > LP do ângulo (slot 0) > placeholder
+          const angloLp = a?.lpUrl ?? null;
           for (let q = 0; q < PAGINAS_LIMIT; q++) {
-            const pageId = `${plano.id}-pg-${q}`;
-            const isRealPage = q === 0 && !!realLp;
+            const pageSlotId = `${plano.id}-pagina-slot-${q}`;
+            const manualLp = picks.paginas[pageSlotId];
+            const lpResolved = manualLp ?? (q === 0 ? angloLp : null);
+            const isRealPage = !!lpResolved;
             nodes.push({
-              id: pageId,
+              id: pageSlotId,
               type: "mind",
               position: { x: 0, y: 0 },
               data: {
-                label: isRealPage ? shortLpLabel(realLp!) : `Variação ${q + 1}`,
+                label: isRealPage
+                  ? shortLpLabel(lpResolved!)
+                  : `Variação ${q + 1}`,
                 kind: "pagina",
                 cor: KIND_DEFAULT_COR.pagina,
                 isPlaceholder: !isRealPage,
+                onClick: () => onPickPagina(pageSlotId),
               },
             });
             edges.push({
-              id: `e-${plano.id}-${pageId}`,
+              id: `e-${plano.id}-${pageSlotId}`,
               source: plano.id,
-              target: pageId,
+              target: pageSlotId,
               type: "smoothstep",
               style: {
                 stroke: KIND_DEFAULT_COR.pagina,
@@ -583,6 +610,9 @@ function layoutTree(
 // ====================== Main component ======================
 
 const STORAGE_KEY = "personas:mindmap:expanded";
+const PICKS_KEY = "personas:mindmap:picks";
+
+const EMPTY_PICKS: ManualPicks = { criativos: {}, paginas: {} };
 
 function MindMapInner({
   personas,
@@ -661,20 +691,61 @@ function MindMapInner({
     fitViewRef.current = fitView;
   });
 
+  // Picks manuais (slot ID → criativo.id ou lpUrl). Persiste em localStorage.
+  const [picks, setPicks] = useState<ManualPicks>(() => {
+    if (typeof window === "undefined") return EMPTY_PICKS;
+    try {
+      const v = localStorage.getItem(PICKS_KEY);
+      if (v) return { ...EMPTY_PICKS, ...JSON.parse(v) };
+    } catch {
+      // ignore
+    }
+    return EMPTY_PICKS;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(PICKS_KEY, JSON.stringify(picks));
+    } catch {
+      // ignore
+    }
+  }, [picks]);
+
+  // Picker state (qual dialog tá aberto + pra qual slot)
+  const [pickerOpen, setPickerOpen] = useState<{
+    kind: "criativo" | "pagina";
+    slotId: string;
+  } | null>(null);
+
+  const onPickCriativoSlot = useCallback((slotId: string) => {
+    setPickerOpen({ kind: "criativo", slotId });
+  }, []);
+  const onPickPaginaSlot = useCallback((slotId: string) => {
+    setPickerOpen({ kind: "pagina", slotId });
+  }, []);
+
+  const onPickCriativoSlotRef = useRef(onPickCriativoSlot);
+  const onPickPaginaSlotRef = useRef(onPickPaginaSlot);
+  useEffect(() => {
+    onPickCriativoSlotRef.current = onPickCriativoSlot;
+    onPickPaginaSlotRef.current = onPickPaginaSlot;
+  });
+
   // Computa árvore + layout via useMemo. Sem useState pra nodes/edges =
-  // sem loop com ReactFlow internal state. Trade-off: arrastar nó não
-  // persiste posição (dagre recalcula). É OK pra blueprint visual.
+  // sem loop com ReactFlow internal state.
   const { nodes, edges } = useMemo(() => {
     const tree = buildBlueprintTree(
       personas,
       angulos,
       expanded,
       toggle,
+      picks,
       (p) => onSelectPersonaRef.current(p),
       (a) => onSelectAnguloRef.current(a),
+      (slotId) => onPickCriativoSlotRef.current(slotId),
+      (slotId) => onPickPaginaSlotRef.current(slotId),
     );
     return layoutTree(tree.nodes, tree.edges);
-  }, [personas, angulos, expanded, toggle]);
+  }, [personas, angulos, expanded, toggle, picks]);
 
   // Aplica fitView quando layout muda (após render)
   useEffect(() => {
@@ -736,6 +807,34 @@ function MindMapInner({
           className="!bg-card !border !border-border"
         />
       </ReactFlow>
+      <MindmapPickerDialog
+        open={!!pickerOpen}
+        mode={pickerOpen?.kind ?? "criativo"}
+        angulos={angulos}
+        personas={personas}
+        onClose={() => setPickerOpen(null)}
+        onPick={(value) => {
+          if (!pickerOpen) return;
+          const { kind, slotId } = pickerOpen;
+          setPicks((prev) => ({
+            ...prev,
+            [kind === "criativo" ? "criativos" : "paginas"]: {
+              ...prev[kind === "criativo" ? "criativos" : "paginas"],
+              [slotId]: value,
+            },
+          }));
+        }}
+        onClear={() => {
+          if (!pickerOpen) return;
+          const { kind, slotId } = pickerOpen;
+          setPicks((prev) => {
+            const key = kind === "criativo" ? "criativos" : "paginas";
+            const next = { ...prev[key] };
+            delete next[slotId];
+            return { ...prev, [key]: next };
+          });
+        }}
+      />
     </>
   );
 }
