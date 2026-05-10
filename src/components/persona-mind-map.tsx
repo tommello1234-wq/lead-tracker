@@ -102,10 +102,10 @@ const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
   root: { w: 360, h: 80 },
   persona: { w: 360, h: 86 },
   angulo: { w: 330, h: 76 },
-  criativo: { w: 300, h: 70 },
+  criativo: { w: 310, h: 88 },
   "plano-com": { w: 270, h: 60 },
   "plano-sem": { w: 270, h: 60 },
-  pagina: { w: 240, h: 52 },
+  pagina: { w: 270, h: 70 },
 };
 
 // ====================== Node component ======================
@@ -290,6 +290,61 @@ function shortLpLabel(url: string): string {
   }
 }
 
+function fmtPct(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `${v.toFixed(2)}%`;
+}
+
+function fmtBRL(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v >= 1000) return `R$${(v / 1000).toFixed(1)}k`;
+  return `R$${v.toFixed(0)}`;
+}
+
+function fmtImp(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M imp`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k imp`;
+  return `${v} imp`;
+}
+
+/** Stats agregados de criativos que apontam pra mesma LP */
+function aggregateLpStats(criativos: Array<{
+  lpUrl: string | null;
+  ctr: number | null;
+  cpa: number | null;
+  impressoes: number | null;
+}>, lpUrl: string): {
+  count: number;
+  ctr: number | null;
+  cpa: number | null;
+  impressoes: number | null;
+} {
+  const matches = criativos.filter((c) => c.lpUrl === lpUrl);
+  let totalImp = 0;
+  let weightedCtr = 0;
+  let weightedCpa = 0;
+  let ctrWeight = 0;
+  let cpaWeight = 0;
+  for (const c of matches) {
+    if (c.impressoes != null) totalImp += c.impressoes;
+    if (c.ctr != null && c.impressoes != null && c.impressoes > 0) {
+      weightedCtr += c.ctr * c.impressoes;
+      ctrWeight += c.impressoes;
+    }
+    if (c.cpa != null && c.impressoes != null && c.impressoes > 0) {
+      weightedCpa += c.cpa * c.impressoes;
+      cpaWeight += c.impressoes;
+    }
+  }
+  return {
+    count: matches.length,
+    ctr: ctrWeight > 0 ? weightedCtr / ctrWeight : null,
+    cpa: cpaWeight > 0 ? weightedCpa / cpaWeight : null,
+    impressoes: totalImp || null,
+  };
+}
+
 type ManualPicks = {
   /** slotId -> criativo.id (number como string) */
   criativos: Record<string, string>;
@@ -456,6 +511,17 @@ function buildBlueprintTree(
         const isCriativoPlaceholder = !c;
         const criativoExpanded = expanded.has(slotId);
 
+        const criativoMeta = c
+          ? [
+              c.status,
+              fmtPct(c.ctr),
+              fmtBRL(c.cpa),
+              fmtImp(c.impressoes),
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : null;
+
         nodes.push({
           id: slotId,
           type: "mind",
@@ -467,6 +533,7 @@ function buildBlueprintTree(
             kind: "criativo",
             cor: criativoCor,
             isPlaceholder: isCriativoPlaceholder,
+            meta: criativoMeta,
             hasChildren: true,
             expanded: criativoExpanded,
             childCount: 2,
@@ -549,6 +616,19 @@ function buildBlueprintTree(
             const manualLp = picks.paginas[pageSlotId];
             const lpResolved = manualLp ?? (q === 0 ? autoLp : null);
             const isRealPage = !!lpResolved;
+            const lpStats = isRealPage
+              ? aggregateLpStats(allCriativos, lpResolved!)
+              : null;
+            const paginaMeta = lpStats
+              ? [
+                  lpStats.count > 1 ? `${lpStats.count} ads` : null,
+                  fmtPct(lpStats.ctr),
+                  fmtBRL(lpStats.cpa),
+                  fmtImp(lpStats.impressoes),
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || null
+              : null;
             nodes.push({
               id: pageSlotId,
               type: "mind",
@@ -560,6 +640,7 @@ function buildBlueprintTree(
                 kind: "pagina",
                 cor: KIND_DEFAULT_COR.pagina,
                 isPlaceholder: !isRealPage,
+                meta: paginaMeta,
                 onClick: () => onPickPagina(pageSlotId),
               },
             });
