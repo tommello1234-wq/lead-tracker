@@ -192,6 +192,9 @@ type CriativoInput = {
   ctr?: number | null;
   cpa?: number | null;
   impressoes?: number | null;
+  lpViews?: number | null;
+  checkouts?: number | null;
+  compras?: number | null;
   notas?: string | null;
 };
 
@@ -216,6 +219,9 @@ angulosRoutes.post("/:id/criativos", async (c) => {
     ctr: body.ctr ?? null,
     cpa: body.cpa ?? null,
     impressoes: body.impressoes ?? null,
+    lpViews: body.lpViews ?? null,
+    checkouts: body.checkouts ?? null,
+    compras: body.compras ?? null,
     notas: trimOrNull(body.notas),
   };
   const [row] = await db.insert(criativos).values(data).returning();
@@ -241,6 +247,9 @@ angulosRoutes.patch("/criativos/:id", async (c) => {
   if (body.ctr !== undefined) patch.ctr = body.ctr;
   if (body.cpa !== undefined) patch.cpa = body.cpa;
   if (body.impressoes !== undefined) patch.impressoes = body.impressoes;
+  if (body.lpViews !== undefined) patch.lpViews = body.lpViews;
+  if (body.checkouts !== undefined) patch.checkouts = body.checkouts;
+  if (body.compras !== undefined) patch.compras = body.compras;
   if (body.notas !== undefined) patch.notas = trimOrNull(body.notas);
   const [row] = await db
     .update(criativos)
@@ -287,6 +296,10 @@ type ImportPayload = {
       ctr?: number | null;
       cpa?: number | null;
       impressoes?: number | null;
+      /** Funil de conversão da LP (Meta Ads) */
+      lpViews?: number | null;
+      checkouts?: number | null;
+      compras?: number | null;
     } | null;
   }>;
 };
@@ -348,6 +361,9 @@ angulosRoutes.post("/import-from-meta", async (c) => {
           ctr: cr.ctr ?? null,
           cpa: cr.cpa ?? null,
           impressoes: cr.impressoes ?? null,
+          lpViews: cr.lpViews ?? null,
+          checkouts: cr.checkouts ?? null,
+          compras: cr.compras ?? null,
         })
         .returning();
       criativoId = crRow.id;

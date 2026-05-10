@@ -257,6 +257,7 @@ export type MetaAd = {
   roas: number;
   purchases: number;
   initiateCheckout: number;
+  landingPageViews: number;
 };
 
 export type DetailLead = {
@@ -349,6 +350,9 @@ export type Criativo = {
   ctr: number | null;
   cpa: number | null;
   impressoes: number | null;
+  lpViews: number | null;
+  checkouts: number | null;
+  compras: number | null;
   notas: string | null;
   criadoEm: string;
   atualizadoEm: string;

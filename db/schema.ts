@@ -486,6 +486,12 @@ export const criativos = pgTable("criativos", {
   cpa: real("cpa"),
   impressoes: integer("impressoes"),
 
+  // Funil da LP (Meta Ads): pra calcular CTC = checkouts/lpViews e
+  // CR = compras/lpViews agregando criativos por LP.
+  lpViews: integer("lp_views"),
+  checkouts: integer("checkouts"),
+  compras: integer("compras"),
+
   notas: text("notas"),
   criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
   atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),

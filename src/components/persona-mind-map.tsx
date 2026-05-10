@@ -318,40 +318,61 @@ function fmtStatus(s: string | null | undefined): string | null {
   return s.toUpperCase();
 }
 
-/** Stats agregados de criativos que apontam pra mesma LP */
+function fmtCtc(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `CTC ${v.toFixed(1)}%`;
+}
+
+function fmtCr(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `CR ${v.toFixed(2)}%`;
+}
+
+function fmtViews(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M views`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k views`;
+  return `${v} views`;
+}
+
+/**
+ * Stats agregados de criativos que apontam pra mesma LP.
+ *
+ * Foco em métricas DA LP, não dos ads:
+ * - CTC (Click-To-Checkout) = checkouts / lpViews — mede a copy/oferta
+ * - CR  (Conversion Rate)   = compras   / lpViews — conversão final
+ *
+ * Agrega somando os funis dos criativos (totais brutos do Meta).
+ */
 function aggregateLpStats(criativos: Array<{
   lpUrl: string | null;
-  ctr: number | null;
-  cpa: number | null;
-  impressoes: number | null;
+  lpViews: number | null;
+  checkouts: number | null;
+  compras: number | null;
 }>, lpUrl: string): {
   count: number;
-  ctr: number | null;
-  cpa: number | null;
-  impressoes: number | null;
+  lpViews: number | null;
+  checkouts: number | null;
+  compras: number | null;
+  ctc: number | null;
+  cr: number | null;
 } {
   const matches = criativos.filter((c) => c.lpUrl === lpUrl);
-  let totalImp = 0;
-  let weightedCtr = 0;
-  let weightedCpa = 0;
-  let ctrWeight = 0;
-  let cpaWeight = 0;
+  let totalViews = 0;
+  let totalCheckouts = 0;
+  let totalCompras = 0;
   for (const c of matches) {
-    if (c.impressoes != null) totalImp += c.impressoes;
-    if (c.ctr != null && c.impressoes != null && c.impressoes > 0) {
-      weightedCtr += c.ctr * c.impressoes;
-      ctrWeight += c.impressoes;
-    }
-    if (c.cpa != null && c.impressoes != null && c.impressoes > 0) {
-      weightedCpa += c.cpa * c.impressoes;
-      cpaWeight += c.impressoes;
-    }
+    if (c.lpViews != null) totalViews += c.lpViews;
+    if (c.checkouts != null) totalCheckouts += c.checkouts;
+    if (c.compras != null) totalCompras += c.compras;
   }
   return {
     count: matches.length,
-    ctr: ctrWeight > 0 ? weightedCtr / ctrWeight : null,
-    cpa: cpaWeight > 0 ? weightedCpa / cpaWeight : null,
-    impressoes: totalImp || null,
+    lpViews: totalViews || null,
+    checkouts: totalCheckouts || null,
+    compras: totalCompras || null,
+    ctc: totalViews > 0 ? (totalCheckouts / totalViews) * 100 : null,
+    cr: totalViews > 0 ? (totalCompras / totalViews) * 100 : null,
   };
 }
 
@@ -631,12 +652,9 @@ function buildBlueprintTree(
               : null;
             const paginaMeta = lpStats
               ? [
-                  lpStats.count > 0
-                    ? `${lpStats.count} ${lpStats.count === 1 ? "AD" : "ADS"}`
-                    : null,
-                  fmtCtr(lpStats.ctr),
-                  fmtCpa(lpStats.cpa),
-                  fmtImp(lpStats.impressoes),
+                  fmtCtc(lpStats.ctc),
+                  fmtCr(lpStats.cr),
+                  fmtViews(lpStats.lpViews),
                 ]
                   .filter(Boolean)
                   .join(" · ") || null

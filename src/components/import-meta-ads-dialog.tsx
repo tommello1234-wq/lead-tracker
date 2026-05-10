@@ -126,6 +126,9 @@ export function ImportMetaAdsDialog({
               ctr: ad.ctr || null,
               cpa: ad.cpa,
               impressoes: ad.impressions,
+              lpViews: ad.landingPageViews || null,
+              checkouts: ad.initiateCheckout || null,
+              compras: ad.purchases || null,
             },
           };
         });

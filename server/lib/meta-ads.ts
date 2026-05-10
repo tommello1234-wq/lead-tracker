@@ -411,6 +411,7 @@ export type MetaAd = {
   roas: number;
   purchases: number;
   initiateCheckout: number;
+  landingPageViews: number;
 };
 
 /**
@@ -605,6 +606,7 @@ export async function getAds(
       roas: spend > 0 ? purchaseValue / spend : 0,
       purchases,
       initiateCheckout: pickAction(actions, "initiate_checkout"),
+      landingPageViews: pickAction(actions, "landing_page_view"),
     });
   }
   // Sort por spend desc (maior gasto primeiro)
