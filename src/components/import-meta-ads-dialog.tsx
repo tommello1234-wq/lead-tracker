@@ -330,30 +330,63 @@ export function ImportMetaAdsDialog({
                           </div>
                         </td>
                         <td className="px-2 py-2 align-top">
-                          <Select
-                            value={
-                              sel?.personaId == null
-                                ? "_"
-                                : String(sel.personaId)
-                            }
-                            onValueChange={(v) =>
-                              updateSelection(ad.adId, {
-                                personaId: v === "_" ? null : Number(v),
-                              })
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_">— sem persona —</SelectItem>
-                              {personas.map((p) => (
-                                <SelectItem key={p.id} value={String(p.id)}>
-                                  {p.nome}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {(() => {
+                            const personaSelecionada =
+                              sel?.personaId != null
+                                ? personas.find((p) => p.id === sel.personaId)
+                                : null;
+                            return (
+                              <Select
+                                value={
+                                  sel?.personaId == null
+                                    ? "_"
+                                    : String(sel.personaId)
+                                }
+                                onValueChange={(v) =>
+                                  updateSelection(ad.adId, {
+                                    personaId: v === "_" ? null : Number(v),
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  {personaSelecionada ? (
+                                    <span className="flex items-center gap-1.5 truncate">
+                                      <span
+                                        className="size-2 rounded-full shrink-0"
+                                        style={{
+                                          background:
+                                            personaSelecionada.cor ?? "#71717a",
+                                        }}
+                                      />
+                                      <span className="truncate">
+                                        {personaSelecionada.nome}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-foreground/50">
+                                      — sem persona —
+                                    </span>
+                                  )}
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_">
+                                    — sem persona —
+                                  </SelectItem>
+                                  {personas.map((p) => (
+                                    <SelectItem key={p.id} value={String(p.id)}>
+                                      <span className="flex items-center gap-1.5">
+                                        <span
+                                          className="size-2 rounded-full shrink-0"
+                                          style={{ background: p.cor ?? "#71717a" }}
+                                        />
+                                        {p.nome}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
                         </td>
                         <td className="px-2 py-2 align-top">
                           <Input
