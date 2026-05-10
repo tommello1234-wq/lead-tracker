@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -642,32 +642,35 @@ function MindMapInner({
     enabled: produtoId != null,
   });
 
+  // Refs pra callbacks instáveis (props inline do parent re-criam toda render).
+  // Evita loop infinito no useEffect que monta o tree.
+  const onSelectPersonaRef = useRef(onSelectPersona);
+  const onSelectAnguloRef = useRef(onSelectAngulo);
+  const fitViewRef = useRef(fitView);
+  useEffect(() => {
+    onSelectPersonaRef.current = onSelectPersona;
+    onSelectAnguloRef.current = onSelectAngulo;
+    fitViewRef.current = fitView;
+  });
+
   useEffect(() => {
     const tree = buildBlueprintTree(
       personas,
       angulos,
       expanded,
       toggle,
-      onSelectPersona,
-      onSelectAngulo,
+      (p) => onSelectPersonaRef.current(p),
+      (a) => onSelectAnguloRef.current(a),
     );
     const laid = layoutTree(tree.nodes, tree.edges);
     setNodes(laid.nodes);
     setEdges(laid.edges);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        fitView({ padding: 0.15, duration: 350 });
+        fitViewRef.current({ padding: 0.15, duration: 350 });
       });
     });
-  }, [
-    personas,
-    angulos,
-    expanded,
-    toggle,
-    onSelectPersona,
-    onSelectAngulo,
-    fitView,
-  ]);
+  }, [personas, angulos, expanded, toggle]);
 
   const onNodesChange = useCallback((changes: NodeChange<MindNode>[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds));
