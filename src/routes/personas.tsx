@@ -632,7 +632,7 @@ function PersonaDialog({
         if (!o) onClose();
       }}
     >
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="!max-w-[min(1100px,94vw)] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEdit ? <Pencil className="size-4" /> : <Plus className="size-4" />}
