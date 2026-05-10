@@ -290,15 +290,15 @@ function shortLpLabel(url: string): string {
   }
 }
 
-function fmtPct(v: number | null | undefined): string | null {
+function fmtCtr(v: number | null | undefined): string | null {
   if (v == null) return null;
-  return `${v.toFixed(2)}%`;
+  return `CTR ${v.toFixed(2)}%`;
 }
 
-function fmtBRL(v: number | null | undefined): string | null {
+function fmtCpa(v: number | null | undefined): string | null {
   if (v == null) return null;
-  if (v >= 1000) return `R$${(v / 1000).toFixed(1)}k`;
-  return `R$${v.toFixed(0)}`;
+  if (v >= 1000) return `CPA R$${(v / 1000).toFixed(1)}k`;
+  return `CPA R$${v.toFixed(0)}`;
 }
 
 function fmtImp(v: number | null | undefined): string | null {
@@ -306,6 +306,16 @@ function fmtImp(v: number | null | undefined): string | null {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M imp`;
   if (v >= 1000) return `${(v / 1000).toFixed(1)}k imp`;
   return `${v} imp`;
+}
+
+function fmtRoas(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `ROAS ${v.toFixed(1)}x`;
+}
+
+function fmtStatus(s: string | null | undefined): string | null {
+  if (!s) return null;
+  return s.toUpperCase();
 }
 
 /** Stats agregados de criativos que apontam pra mesma LP */
@@ -455,7 +465,7 @@ function buildBlueprintTree(
       const isAnguloPlaceholder = !a;
       const anguloExpanded = expanded.has(anguloId);
       const anguloMeta = a
-        ? [a.status, a.roas != null ? `${a.roas.toFixed(1)}x ROAS` : null]
+        ? [fmtStatus(a.status), fmtRoas(a.roas), fmtCtr(a.ctr), fmtCpa(a.cpa)]
             .filter(Boolean)
             .join(" · ")
         : null;
@@ -513,9 +523,9 @@ function buildBlueprintTree(
 
         const criativoMeta = c
           ? [
-              c.status,
-              fmtPct(c.ctr),
-              fmtBRL(c.cpa),
+              fmtStatus(c.status),
+              fmtCtr(c.ctr),
+              fmtCpa(c.cpa),
               fmtImp(c.impressoes),
             ]
               .filter(Boolean)
@@ -621,9 +631,11 @@ function buildBlueprintTree(
               : null;
             const paginaMeta = lpStats
               ? [
-                  lpStats.count > 1 ? `${lpStats.count} ads` : null,
-                  fmtPct(lpStats.ctr),
-                  fmtBRL(lpStats.cpa),
+                  lpStats.count > 0
+                    ? `${lpStats.count} ${lpStats.count === 1 ? "AD" : "ADS"}`
+                    : null,
+                  fmtCtr(lpStats.ctr),
+                  fmtCpa(lpStats.cpa),
                   fmtImp(lpStats.impressoes),
                 ]
                   .filter(Boolean)
