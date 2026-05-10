@@ -380,8 +380,16 @@ function buildBlueprintTree(
 
     if (!personaExpanded) continue;
 
+    // Esconde perdedores e descartados do mapa — são histórico, não estratégia ativa
     const personaAngulos = p
-      ? angulos.filter((a) => a.personaId === p.id).sort((a, b) => a.id - b.id)
+      ? angulos
+          .filter(
+            (a) =>
+              a.personaId === p.id &&
+              a.status !== "perdedor" &&
+              a.ativo !== false,
+          )
+          .sort((a, b) => a.id - b.id)
       : [];
 
     // Reverso: compensar LIFO do dagre (mesma lógica das personas)
