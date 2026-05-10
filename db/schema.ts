@@ -475,6 +475,11 @@ export const criativos = pgTable("criativos", {
   headlineOverlay: text("headline_overlay"), // o texto que aparece no ad
   metaAdsId: text("meta_ads_id"), // FK opcional pro Meta Ads
 
+  // LP de destino do ad. Cada ad no Meta tem URL própria — herdar do
+  // ângulo é simplificação errada. Fallback p/ angulos.lpUrl na UI.
+  lpUrl: text("lp_url"),
+  lpScreenshot: text("lp_screenshot"),
+
   status: text("status").$type<CriativoStatus>().notNull().default("ativo"),
   // Métricas snapshot do criativo individual
   ctr: real("ctr"),

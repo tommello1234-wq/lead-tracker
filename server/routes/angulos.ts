@@ -186,6 +186,8 @@ type CriativoInput = {
   thumbUrl?: string | null;
   headlineOverlay?: string | null;
   metaAdsId?: string | null;
+  lpUrl?: string | null;
+  lpScreenshot?: string | null;
   status?: CriativoStatus;
   ctr?: number | null;
   cpa?: number | null;
@@ -208,6 +210,8 @@ angulosRoutes.post("/:id/criativos", async (c) => {
     thumbUrl: trimOrNull(body.thumbUrl),
     headlineOverlay: trimOrNull(body.headlineOverlay),
     metaAdsId: trimOrNull(body.metaAdsId),
+    lpUrl: trimOrNull(body.lpUrl),
+    lpScreenshot: trimOrNull(body.lpScreenshot),
     status: body.status ?? ("ativo" as CriativoStatus),
     ctr: body.ctr ?? null,
     cpa: body.cpa ?? null,
@@ -230,6 +234,9 @@ angulosRoutes.patch("/criativos/:id", async (c) => {
     patch.headlineOverlay = trimOrNull(body.headlineOverlay);
   if (body.metaAdsId !== undefined)
     patch.metaAdsId = trimOrNull(body.metaAdsId);
+  if (body.lpUrl !== undefined) patch.lpUrl = trimOrNull(body.lpUrl);
+  if (body.lpScreenshot !== undefined)
+    patch.lpScreenshot = trimOrNull(body.lpScreenshot);
   if (body.status !== undefined) patch.status = body.status;
   if (body.ctr !== undefined) patch.ctr = body.ctr;
   if (body.cpa !== undefined) patch.cpa = body.cpa;
@@ -275,6 +282,8 @@ type ImportPayload = {
       url?: string | null;
       thumbUrl?: string | null;
       headlineOverlay?: string | null;
+      /** LP de destino do ad — se omitido, herda de item.lpUrl */
+      lpUrl?: string | null;
       ctr?: number | null;
       cpa?: number | null;
       impressoes?: number | null;
@@ -332,6 +341,9 @@ angulosRoutes.post("/import-from-meta", async (c) => {
           thumbUrl: trimOrNull(cr.thumbUrl),
           headlineOverlay: trimOrNull(cr.headlineOverlay),
           metaAdsId: item.metaAdsId,
+          // LP é propriedade do criativo (cada ad tem URL própria no Meta).
+          // Fallback p/ item.lpUrl se Meta enviou só no nível do ângulo.
+          lpUrl: trimOrNull(cr.lpUrl ?? item.lpUrl),
           status: "ativo",
           ctr: cr.ctr ?? null,
           cpa: cr.cpa ?? null,

@@ -343,6 +343,8 @@ export type Criativo = {
   thumbUrl: string | null;
   headlineOverlay: string | null;
   metaAdsId: string | null;
+  lpUrl: string | null;
+  lpScreenshot: string | null;
   status: CriativoStatus;
   ctr: number | null;
   cpa: number | null;

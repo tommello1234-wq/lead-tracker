@@ -67,7 +67,7 @@ export function MindmapPickerDialog({
       }
       return out;
     } else {
-      // LPs únicas extraídas dos angulos.lpUrl
+      // LPs únicas — agrega criativos.lpUrl + angulos.lpUrl (fallback legado)
       const seen = new Set<string>();
       const out: Array<{
         key: string;
@@ -78,17 +78,30 @@ export function MindmapPickerDialog({
         cor: string;
       }> = [];
       for (const a of angulos) {
-        if (!a.lpUrl || seen.has(a.lpUrl)) continue;
-        seen.add(a.lpUrl);
         const persona = a.personaId ? personaById.get(a.personaId) : null;
-        out.push({
-          key: a.lpUrl,
-          thumb: a.lpScreenshot ?? null,
-          label: shortLp(a.lpUrl),
-          sub: a.lpUrl,
-          meta: persona ? `Usada por ${persona.nome}` : null,
-          cor: persona?.cor ?? "#3b82f6",
-        });
+        for (const c of a.criativos ?? []) {
+          if (!c.lpUrl || seen.has(c.lpUrl)) continue;
+          seen.add(c.lpUrl);
+          out.push({
+            key: c.lpUrl,
+            thumb: c.lpScreenshot ?? null,
+            label: shortLp(c.lpUrl),
+            sub: c.lpUrl,
+            meta: persona ? `Usada por ${persona.nome}` : null,
+            cor: persona?.cor ?? "#3b82f6",
+          });
+        }
+        if (a.lpUrl && !seen.has(a.lpUrl)) {
+          seen.add(a.lpUrl);
+          out.push({
+            key: a.lpUrl,
+            thumb: a.lpScreenshot ?? null,
+            label: shortLp(a.lpUrl),
+            sub: a.lpUrl,
+            meta: persona ? `Usada por ${persona.nome}` : null,
+            cor: persona?.cor ?? "#3b82f6",
+          });
+        }
       }
       return out;
     }

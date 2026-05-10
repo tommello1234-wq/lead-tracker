@@ -539,13 +539,15 @@ function buildBlueprintTree(
 
           if (!planoExpanded) continue;
 
-          // Página: pick manual > LP do ângulo (slot 0) > placeholder
-          const angloLp = a?.lpUrl ?? null;
+          // Página: pick manual > LP do criativo > LP do ângulo (slot 0) > placeholder
+          // LP é propriedade do criativo (cada ad tem URL própria no Meta);
+          // angulo.lpUrl é fallback p/ criativos legados sem lp_url.
+          const autoLp = c?.lpUrl ?? a?.lpUrl ?? null;
           // Reverso: compensar LIFO do dagre
           for (let q = PAGINAS_LIMIT - 1; q >= 0; q--) {
             const pageSlotId = `${plano.id}-pagina-slot-${q}`;
             const manualLp = picks.paginas[pageSlotId];
-            const lpResolved = manualLp ?? (q === 0 ? angloLp : null);
+            const lpResolved = manualLp ?? (q === 0 ? autoLp : null);
             const isRealPage = !!lpResolved;
             nodes.push({
               id: pageSlotId,
