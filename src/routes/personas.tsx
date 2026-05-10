@@ -322,7 +322,9 @@ export function PersonasPage() {
       ) : (
         <PersonaMindMap
           personas={filtered}
+          produtoId={produtoId ?? null}
           onSelect={(p) => setEditing(p)}
+          onSelectAngulo={(a) => setMatrixEditingAngulo(a)}
         />
       )}
 
