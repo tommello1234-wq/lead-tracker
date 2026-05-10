@@ -503,12 +503,13 @@ function anguloToForm(a: Angulo): FormState {
   };
 }
 
-function AnguloDialog({
+export function AnguloDialog({
   open,
   onClose,
   angulo,
   persona,
   produtoId,
+  nomeSugerido,
   onSaved,
 }: {
   open: boolean;
@@ -516,6 +517,8 @@ function AnguloDialog({
   angulo?: Angulo;
   persona: Persona | null;
   produtoId: number | null;
+  /** Pré-preenche o nome quando abrir vazio (vindo da matriz). */
+  nomeSugerido?: string;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -524,9 +527,12 @@ function AnguloDialog({
 
   useMemo(() => {
     if (open) {
-      setForm(angulo ? anguloToForm(angulo) : EMPTY_FORM);
+      if (angulo) setForm(anguloToForm(angulo));
+      else if (nomeSugerido)
+        setForm({ ...EMPTY_FORM, nome: nomeSugerido });
+      else setForm(EMPTY_FORM);
     }
-  }, [open, angulo]);
+  }, [open, angulo, nomeSugerido]);
 
   const save = useMutation({
     mutationFn: async () => {

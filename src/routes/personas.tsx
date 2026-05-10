@@ -14,6 +14,7 @@ import {
   ChevronRight,
   LayoutGrid,
   Network,
+  Grid3x3,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,8 +38,10 @@ import {
 } from "@/components/ui/select";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { PersonaMindMap } from "@/components/persona-mind-map";
-import { PersonaAnglesBoard } from "@/components/persona-angles-board";
+import { PersonaAnglesBoard, AnguloDialog } from "@/components/persona-angles-board";
+import { PersonaAngleMatrix } from "@/components/persona-angle-matrix";
 import type {
+  Angulo,
   Persona,
   PersonaPrioridade,
   PersonaVolume,
@@ -86,7 +89,7 @@ const CORES_PADRAO = [
 ];
 
 type FilterPrioridade = PersonaPrioridade | "todas";
-type ViewMode = "board" | "cards" | "mapa";
+type ViewMode = "matriz" | "board" | "cards" | "mapa";
 
 const VIEW_KEY = "personas:view";
 
@@ -95,12 +98,18 @@ export function PersonasPage() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterPrioridade>("todas");
   const [view, setView] = useState<ViewMode>(() => {
-    if (typeof window === "undefined") return "board";
+    if (typeof window === "undefined") return "matriz";
     const v = localStorage.getItem(VIEW_KEY) as ViewMode | null;
-    return v && ["board", "cards", "mapa"].includes(v) ? v : "board";
+    return v && ["matriz", "board", "cards", "mapa"].includes(v) ? v : "matriz";
   });
   const [editing, setEditing] = useState<Persona | null>(null);
   const [creating, setCreating] = useState(false);
+  // Estado pra abrir AnguloDialog a partir da Matriz (Board já gerencia o seu)
+  const [matrixEditingAngulo, setMatrixEditingAngulo] = useState<Angulo | null>(null);
+  const [matrixCreating, setMatrixCreating] = useState<{
+    persona: Persona;
+    nomeSugerido?: string;
+  } | null>(null);
 
   const { data: personas = [] } = useQuery({
     queryKey: ["personas", produtoId],
@@ -217,6 +226,20 @@ export function PersonasPage() {
         <div className="flex gap-1 bg-card border border-border rounded-md p-1">
           <button
             onClick={() => {
+              setView("matriz");
+              localStorage.setItem(VIEW_KEY, "matriz");
+            }}
+            className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              view === "matriz"
+                ? "bg-muted text-foreground"
+                : "text-foreground/60 hover:text-foreground"
+            }`}
+            title="Matriz Persona × Ângulo"
+          >
+            <Grid3x3 className="size-3.5" /> Matriz
+          </button>
+          <button
+            onClick={() => {
               setView("board");
               localStorage.setItem(VIEW_KEY, "board");
             }}
@@ -260,7 +283,7 @@ export function PersonasPage() {
         </div>
       </div>
 
-      {/* Conteúdo — board (default), cards ou mapa */}
+      {/* Conteúdo — matriz (default), board, cards ou mapa */}
       {!produtoId ? (
         <EmptyState text="Selecione um produto pra ver suas personas." />
       ) : filtered.length === 0 ? (
@@ -269,6 +292,15 @@ export function PersonasPage() {
             personas.length === 0
               ? "Nenhuma persona criada ainda."
               : "Nenhuma persona nesse filtro."
+          }
+        />
+      ) : view === "matriz" ? (
+        <PersonaAngleMatrix
+          personas={filtered}
+          produtoId={produtoId ?? null}
+          onSelectAngulo={(a) => setMatrixEditingAngulo(a)}
+          onCreateAngulo={(p, nomeSugerido) =>
+            setMatrixCreating({ persona: p, nomeSugerido })
           }
         />
       ) : view === "board" ? (
@@ -293,6 +325,35 @@ export function PersonasPage() {
           onSelect={(p) => setEditing(p)}
         />
       )}
+
+      {/* AnguloDialog acionado a partir da Matriz */}
+      <AnguloDialog
+        open={!!matrixEditingAngulo}
+        angulo={matrixEditingAngulo ?? undefined}
+        persona={
+          matrixEditingAngulo && matrixEditingAngulo.personaId != null
+            ? personas.find((p) => p.id === matrixEditingAngulo.personaId) ?? null
+            : null
+        }
+        produtoId={produtoId ?? null}
+        onClose={() => setMatrixEditingAngulo(null)}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["angulos"] });
+          setMatrixEditingAngulo(null);
+        }}
+      />
+      <AnguloDialog
+        open={!!matrixCreating}
+        persona={matrixCreating?.persona ?? null}
+        nomeSugerido={matrixCreating?.nomeSugerido}
+        produtoId={produtoId ?? null}
+        onClose={() => setMatrixCreating(null)}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["angulos"] });
+          setMatrixCreating(null);
+        }}
+      />
+
 
       {/* Dialog edicao/criacao */}
       <PersonaDialog
