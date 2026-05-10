@@ -6,12 +6,10 @@ import {
   MiniMap,
   Handle,
   Position,
-  applyNodeChanges,
   useReactFlow,
   type Node,
   type Edge,
   type NodeProps,
-  type NodeChange,
   type NodeTypes,
   ReactFlowProvider,
 } from "@xyflow/react";
@@ -585,8 +583,6 @@ function MindMapInner({
   onSelectAngulo: (a: Angulo) => void;
 }) {
   const { fitView } = useReactFlow();
-  const [nodes, setNodes] = useState<MindNode[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
 
   // Default: só ROOT expandido
   const [expanded, setExpanded] = useState<Set<string>>(() => {
@@ -642,8 +638,7 @@ function MindMapInner({
     enabled: produtoId != null,
   });
 
-  // Refs pra callbacks instáveis (props inline do parent re-criam toda render).
-  // Evita loop infinito no useEffect que monta o tree.
+  // Refs pra callbacks instáveis (props inline do parent recriam toda render).
   const onSelectPersonaRef = useRef(onSelectPersona);
   const onSelectAnguloRef = useRef(onSelectAngulo);
   const fitViewRef = useRef(fitView);
@@ -653,7 +648,10 @@ function MindMapInner({
     fitViewRef.current = fitView;
   });
 
-  useEffect(() => {
+  // Computa árvore + layout via useMemo. Sem useState pra nodes/edges =
+  // sem loop com ReactFlow internal state. Trade-off: arrastar nó não
+  // persiste posição (dagre recalcula). É OK pra blueprint visual.
+  const { nodes, edges } = useMemo(() => {
     const tree = buildBlueprintTree(
       personas,
       angulos,
@@ -662,26 +660,17 @@ function MindMapInner({
       (p) => onSelectPersonaRef.current(p),
       (a) => onSelectAnguloRef.current(a),
     );
-    const laid = layoutTree(tree.nodes, tree.edges);
-    setNodes(laid.nodes);
-    setEdges(laid.edges);
+    return layoutTree(tree.nodes, tree.edges);
+  }, [personas, angulos, expanded, toggle]);
+
+  // Aplica fitView quando layout muda (após render)
+  useEffect(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         fitViewRef.current({ padding: 0.15, duration: 350 });
       });
     });
-  }, [personas, angulos, expanded, toggle]);
-
-  const onNodesChange = useCallback((changes: NodeChange<MindNode>[]) => {
-    // Filtra changes de 'dimensions' — React Flow as dispara medindo DOM,
-    // e quando combinado com layout dagre que reseta posições, gera loop
-    // infinito (medição → setNodes → re-render → medição diferente → ...).
-    const filtered = changes.filter((c) => c.type !== "dimensions");
-    if (filtered.length === 0) return;
-    setNodes((nds) => applyNodeChanges(filtered, nds));
-  }, []);
-
-  const flowNodes = useMemo(() => nodes, [nodes]);
+  }, [nodes]);
 
   return (
     <>
@@ -703,9 +692,8 @@ function MindMapInner({
         </button>
       </div>
       <ReactFlow
-        nodes={flowNodes}
+        nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.15 }}
@@ -713,7 +701,7 @@ function MindMapInner({
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         colorMode="dark"
-        nodesDraggable
+        nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
         defaultEdgeOptions={{ type: "smoothstep" }}
