@@ -673,7 +673,12 @@ function MindMapInner({
   }, [personas, angulos, expanded, toggle]);
 
   const onNodesChange = useCallback((changes: NodeChange<MindNode>[]) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
+    // Filtra changes de 'dimensions' — React Flow as dispara medindo DOM,
+    // e quando combinado com layout dagre que reseta posições, gera loop
+    // infinito (medição → setNodes → re-render → medição diferente → ...).
+    const filtered = changes.filter((c) => c.type !== "dimensions");
+    if (filtered.length === 0) return;
+    setNodes((nds) => applyNodeChanges(filtered, nds));
   }, []);
 
   const flowNodes = useMemo(() => nodes, [nodes]);
