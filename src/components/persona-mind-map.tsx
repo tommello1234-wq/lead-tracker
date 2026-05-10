@@ -99,13 +99,13 @@ const KIND_DEFAULT_COR: Record<NodeKind, string> = {
 };
 
 const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
-  root: { w: 240, h: 80 },
-  persona: { w: 240, h: 86 },
-  angulo: { w: 220, h: 76 },
-  criativo: { w: 200, h: 70 },
-  "plano-com": { w: 180, h: 60 },
-  "plano-sem": { w: 180, h: 60 },
-  pagina: { w: 160, h: 52 },
+  root: { w: 360, h: 80 },
+  persona: { w: 360, h: 86 },
+  angulo: { w: 330, h: 76 },
+  criativo: { w: 300, h: 70 },
+  "plano-com": { w: 270, h: 60 },
+  "plano-sem": { w: 270, h: 60 },
+  pagina: { w: 240, h: 52 },
 };
 
 // ====================== Node component ======================
