@@ -10,7 +10,7 @@ import {
   type CriativoTipo,
   type CriativoStatus,
 } from "../../db/schema.js";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 
 export const angulosRoutes = new Hono();
 
@@ -59,7 +59,7 @@ angulosRoutes.get("/", async (c) => {
     ? await db
         .select()
         .from(criativos)
-        .where(eq(criativos.status, "ativo"))
+        .where(ne(criativos.status, "morto"))
         .orderBy(desc(criativos.criadoEm))
     : [];
   const byAngulo = new Map<number, typeof criatList>();
