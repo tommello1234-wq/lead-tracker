@@ -335,46 +335,6 @@ function fmtViews(v: number | null | undefined): string | null {
   return `${v} views`;
 }
 
-/**
- * Stats agregados de criativos que apontam pra mesma LP.
- *
- * Foco em métricas DA LP, não dos ads:
- * - CTC (Click-To-Checkout) = checkouts / lpViews — mede a copy/oferta
- * - CR  (Conversion Rate)   = compras   / lpViews — conversão final
- *
- * Agrega somando os funis dos criativos (totais brutos do Meta).
- */
-function aggregateLpStats(criativos: Array<{
-  lpUrl: string | null;
-  lpViews: number | null;
-  checkouts: number | null;
-  compras: number | null;
-}>, lpUrl: string): {
-  count: number;
-  lpViews: number | null;
-  checkouts: number | null;
-  compras: number | null;
-  ctc: number | null;
-  cr: number | null;
-} {
-  const matches = criativos.filter((c) => c.lpUrl === lpUrl);
-  let totalViews = 0;
-  let totalCheckouts = 0;
-  let totalCompras = 0;
-  for (const c of matches) {
-    if (c.lpViews != null) totalViews += c.lpViews;
-    if (c.checkouts != null) totalCheckouts += c.checkouts;
-    if (c.compras != null) totalCompras += c.compras;
-  }
-  return {
-    count: matches.length,
-    lpViews: totalViews || null,
-    checkouts: totalCheckouts || null,
-    compras: totalCompras || null,
-    ctc: totalViews > 0 ? (totalCheckouts / totalViews) * 100 : null,
-    cr: totalViews > 0 ? (totalCompras / totalViews) * 100 : null,
-  };
-}
 
 type ManualPicks = {
   /** slotId -> criativo.id (number como string) */
@@ -647,8 +607,26 @@ function buildBlueprintTree(
             const manualLp = picks.paginas[pageSlotId];
             const lpResolved = manualLp ?? (q === 0 ? autoLp : null);
             const isRealPage = !!lpResolved;
-            const lpStats = isRealPage
-              ? aggregateLpStats(allCriativos, lpResolved!)
+            // Métricas da página = do CRIATIVO PAI desse ramo. A LP pode
+            // estar em N campanhas, mas aqui a árvore representa "essa LP
+            // rodando com esse criativo específico" — só o funil dele
+            // importa. Se o user picou uma LP diferente da do criativo,
+            // não há dados (é uma intenção, não medição).
+            const lpMatchesCriativo = !!c && c.lpUrl === lpResolved;
+            const lpStats = lpMatchesCriativo
+              ? {
+                  lpViews: c.lpViews,
+                  checkouts: c.checkouts,
+                  compras: c.compras,
+                  ctc:
+                    c.lpViews && c.lpViews > 0 && c.checkouts != null
+                      ? (c.checkouts / c.lpViews) * 100
+                      : null,
+                  cr:
+                    c.lpViews && c.lpViews > 0 && c.compras != null
+                      ? (c.compras / c.lpViews) * 100
+                      : null,
+                }
               : null;
             const paginaMeta = lpStats
               ? [
