@@ -74,7 +74,8 @@ export function ImportMetaAdsDialog({
 
   const ads = adsQuery.data ?? [];
 
-  // Inicializa seleção quando recebe ads novos
+  // Inicializa seleção quando recebe ads novos — auto-sugere persona baseado em
+  // palavras-chave do criativo (headline, LP URL, nome do ad, campanha).
   useMemo(() => {
     if (!ads.length) return;
     setSelection((prev) => {
@@ -83,14 +84,14 @@ export function ImportMetaAdsDialog({
         if (!next.has(ad.adId)) {
           next.set(ad.adId, {
             selected: false,
-            personaId: null,
+            personaId: suggestPersonaId(ad, personas),
             nome: defaultAnguloName(ad),
           });
         }
       }
       return next;
     });
-  }, [ads]);
+  }, [ads, personas]);
 
   const selectedCount = Array.from(selection.values()).filter((s) => s.selected).length;
 
@@ -411,6 +412,70 @@ function defaultAnguloName(ad: MetaAd): string {
   if (parts.length >= 3) return parts[parts.length - 2] || parts[parts.length - 1] || ad.adName;
   if (ad.headline) return ad.headline.slice(0, 40);
   return ad.adName.slice(0, 40);
+}
+
+/**
+ * Sugere persona pra um ad baseado em pistas no criativo:
+ * - LP URL (`/designer`, `/emp-v1`, `/plano-custom`, etc.)
+ * - Palavras-chave no ad name, headline, body, campaign name
+ *
+ * Não tem ranking — primeira regra que matchar ganha. Ordem por especificidade.
+ */
+function suggestPersonaId(ad: MetaAd, personas: Persona[]): number | null {
+  if (personas.length === 0) return null;
+  const haystack = [
+    ad.adName,
+    ad.headline,
+    ad.body,
+    ad.landingPageUrl,
+    ad.campaignName,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const findByName = (re: RegExp) =>
+    personas.find((p) => re.test(p.nome.toLowerCase()))?.id ?? null;
+
+  // Designer — LP /designer ou texto explícito
+  if (/\/designer|\bdesigner\b/.test(haystack)) {
+    const id = findByName(/designer/);
+    if (id) return id;
+  }
+  // Agência — LPs emp-v1/v2 com tag "agência" OU texto explícito
+  if (/agencia|agência|\bag[eê]ncia\b/.test(haystack)) {
+    const id = findByName(/ag[eê]ncia/);
+    if (id) return id;
+  }
+  // Tráfego — gestor de tráfego, gestor de mídia
+  if (/\bg(estor|estora) de (tr[áa]fego|m[íi]dia)\b|\btr[áa]fego\b/.test(haystack)) {
+    const id = findByName(/tr[áa]fego/);
+    if (id) return id;
+  }
+  // Social Media
+  if (/\bsocial media\b|\bcommunity\b|\bsocial\s*midia\b/.test(haystack)) {
+    const id = findByName(/social/);
+    if (id) return id;
+  }
+  // Criador de conteúdo
+  if (/\bcriador\b|\bcontentcreator\b|\binfluenc/.test(haystack)) {
+    const id = findByName(/criador|conte[úu]do/);
+    if (id) return id;
+  }
+  // LP /emp-v1 ou /emp-v2 sem keyword específica → Agência (LP é orientada agência)
+  if (/\/emp-v[12]\b/.test(haystack)) {
+    const id = findByName(/ag[eê]ncia/);
+    if (id) return id;
+  }
+  // /plano-custom, /vsl, /captura → Empreendedor solo (foco custo/escala)
+  if (
+    /\/plano-custom|\/vsl|\/captura|centavos|\beconom/.test(haystack) ||
+    /empreendedor/.test(haystack)
+  ) {
+    const id = findByName(/empreendedor/);
+    if (id) return id;
+  }
+  return null;
 }
 
 function shortLp(url: string): string {
