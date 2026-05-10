@@ -281,6 +281,15 @@ const PAGINAS_LIMIT = 3;
 
 type RawTree = { nodes: MindNode[]; edges: Edge[] };
 
+function shortLpLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname && u.pathname !== "/" ? u.pathname : u.hostname;
+  } catch {
+    return url.length > 24 ? url.slice(0, 24) + "…" : url;
+  }
+}
+
 function buildBlueprintTree(
   personas: Persona[],
   angulos: Angulo[],
@@ -495,17 +504,21 @@ function buildBlueprintTree(
 
           if (!planoExpanded) continue;
 
+          // Página real = lpUrl do ângulo (primeiro slot). Outras 2 ficam
+          // placeholder pra variações que ainda não foram criadas.
+          const realLp = a?.lpUrl ?? null;
           for (let q = 0; q < PAGINAS_LIMIT; q++) {
             const pageId = `${plano.id}-pg-${q}`;
+            const isRealPage = q === 0 && !!realLp;
             nodes.push({
               id: pageId,
               type: "mind",
               position: { x: 0, y: 0 },
               data: {
-                label: `Página ${q + 1}`,
+                label: isRealPage ? shortLpLabel(realLp!) : `Variação ${q + 1}`,
                 kind: "pagina",
                 cor: KIND_DEFAULT_COR.pagina,
-                isPlaceholder: true,
+                isPlaceholder: !isRealPage,
               },
             });
             edges.push({
@@ -515,8 +528,8 @@ function buildBlueprintTree(
               type: "smoothstep",
               style: {
                 stroke: KIND_DEFAULT_COR.pagina,
-                strokeWidth: 1,
-                strokeOpacity: 0.4,
+                strokeWidth: isRealPage ? 1.2 : 1,
+                strokeOpacity: isRealPage ? 0.7 : 0.35,
               },
             });
           }
