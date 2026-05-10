@@ -337,7 +337,10 @@ function buildBlueprintTree(
     return a.nome.localeCompare(b.nome);
   });
 
-  for (let i = 0; i < PERSONAS_LIMIT; i++) {
+  // Itera REVERSO porque dagre LR ordena nodes dentro do rank em LIFO
+  // (último inserido = topo). Inserindo de trás pra frente, sortedPersonas[0]
+  // (maior prioridade) acaba inserido por último → topo do mapa.
+  for (let i = PERSONAS_LIMIT - 1; i >= 0; i--) {
     const p = sortedPersonas[i];
     const personaId = p ? `p-${p.id}` : `p-ph-${i}`;
     const personaCor = p?.cor ?? KIND_DEFAULT_COR.persona;
@@ -381,7 +384,8 @@ function buildBlueprintTree(
       ? angulos.filter((a) => a.personaId === p.id).sort((a, b) => a.id - b.id)
       : [];
 
-    for (let j = 0; j < ANGULOS_LIMIT; j++) {
+    // Reverso: compensar LIFO do dagre (mesma lógica das personas)
+    for (let j = ANGULOS_LIMIT - 1; j >= 0; j--) {
       const a = personaAngulos[j];
       const anguloId = a ? `a-${a.id}` : `${personaId}-a-ph-${j}`;
       const anguloCor = KIND_DEFAULT_COR.angulo;
@@ -432,7 +436,8 @@ function buildBlueprintTree(
       const criativoById = new Map<string, (typeof allCriativos)[number]>();
       for (const cc of allCriativos) criativoById.set(String(cc.id), cc);
 
-      for (let k = 0; k < CRIATIVOS_LIMIT; k++) {
+      // Reverso: compensar LIFO do dagre
+      for (let k = CRIATIVOS_LIMIT - 1; k >= 0; k--) {
         const slotId = `${anguloId}-criativo-slot-${k}`;
         const manualPick = picks.criativos[slotId];
         // Resolver: 1) pick manual; 2) auto (criativo[k] do ângulo)
@@ -528,7 +533,8 @@ function buildBlueprintTree(
 
           // Página: pick manual > LP do ângulo (slot 0) > placeholder
           const angloLp = a?.lpUrl ?? null;
-          for (let q = 0; q < PAGINAS_LIMIT; q++) {
+          // Reverso: compensar LIFO do dagre
+          for (let q = PAGINAS_LIMIT - 1; q >= 0; q--) {
             const pageSlotId = `${plano.id}-pagina-slot-${q}`;
             const manualLp = picks.paginas[pageSlotId];
             const lpResolved = manualLp ?? (q === 0 ? angloLp : null);
