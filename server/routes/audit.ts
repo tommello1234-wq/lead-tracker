@@ -401,6 +401,48 @@ auditRoutes.get("/asaas-revenue", async (c) => {
  * resumo agregado (sem mexer no banco). Pra ver o que vai entrar antes
  * de aplicar.
  */
+/** GET /api/audit/asaas-debug-next?customer=cus_XXX
+ *  Dump de payments de um customer Asaas + cálculo do nextPaymentDate
+ *  igual o sync faz. Pra debugar por que proximo_pagamento_em fica errado. */
+auditRoutes.get("/asaas-debug-next", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const customerId = c.req.query("customer");
+  if (!customerId) return c.json({ error: "customer query param required" }, 400);
+  const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+  const key = process.env.ASAAS_API_KEY;
+  if (!key) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
+
+  // Lista subs + payments do customer (sem paginação — customers individuais têm poucos)
+  const [subsR, paysR] = await Promise.all([
+    fetch(`${url}/subscriptions?customer=${customerId}&limit=10`, { headers: { access_token: key } }),
+    fetch(`${url}/payments?customer=${customerId}&limit=50`, { headers: { access_token: key } }),
+  ]);
+  const subs = (await subsR.json()).data ?? [];
+  const pays = (await paysR.json()).data ?? [];
+  const lastSub = subs.sort((a: { dateCreated?: string }, b: { dateCreated?: string }) => (b.dateCreated ?? "").localeCompare(a.dateCreated ?? ""))[0];
+
+  // Replica lógica do asaas-sync
+  const PENDING_RE = /^(PENDING|AWAITING_RISK_ANALYSIS|AWAITING_PAYMENT|OVERDUE)$/i;
+  const pendingOfCurrentSub = lastSub
+    ? pays
+        .filter((p: { subscription?: string }) => p.subscription === lastSub.id)
+        .filter((p: { status?: string }) => PENDING_RE.test(p.status ?? ""))
+        .map((p: { dueDate: string }) => p.dueDate)
+        .sort()
+    : [];
+
+  return c.json({
+    lastSubId: lastSub?.id,
+    lastSubNextDueDate: lastSub?.nextDueDate,
+    totalPays: pays.length,
+    paysSummary: pays.map((p: { dueDate: string; status: string; subscription?: string }) => ({
+      due: p.dueDate, status: p.status, sub: p.subscription,
+    })),
+    pendingOfCurrentSub,
+    nextPaymentDateCalculado: pendingOfCurrentSub[0] ?? lastSub?.nextDueDate,
+  });
+});
+
 auditRoutes.get("/asaas", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   const url = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
