@@ -322,9 +322,24 @@ export async function runAsaasSync(): Promise<{
         lead.ultimaRenovacaoEm == null ||
         lastPaidDate.getTime() !== lead.ultimaRenovacaoEm.getTime()
       ));
-    // Mesmo se lead não mudou, sincroniza eventos de payments (pode ter
-    // novos payments desde o último sync — ou faltou criar pra leads antigos)
+    // Mesmo se lead não mudou, sincroniza sub + eventos: a sub pode ter
+    // proximo_pagamento_em / valor mudados independente do lead, e podem
+    // ter novos payments desde o último sync.
     if (!needsUpdate) {
+      await upsertSubscription({
+        leadId: lead.id,
+        gateway: "asaas",
+        status: mapped.sub,
+        valor: valor > 0 ? valor : (lead.valorAssinatura ?? null),
+        planoNome: planoNome ?? lead.planoNome ?? null,
+        periodicidade: lead.periodicidade,
+        produtoId: detectedProdutoId,
+        gatewaySubscriptionId: lastSub?.id ?? null,
+        gatewayCustomerId: cpf ?? null,
+        pagouEm: firstPaidDate,
+        ultimaRenovacaoEm: lastPaidDate,
+        proximoPagamentoEm: nextPaymentDate,
+      });
       await syncPaymentsAsEvents(lead.id, lead.produtoId ?? detectedProdutoId, pays);
       unchanged++;
       continue;
