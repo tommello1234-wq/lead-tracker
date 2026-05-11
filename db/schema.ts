@@ -499,3 +499,51 @@ export const criativos = pgTable("criativos", {
 
 export type Criativo = typeof criativos.$inferSelect;
 export type NovoCriativo = typeof criativos.$inferInsert;
+
+/**
+ * Quiz funnel — rastreia cada passo de uma LP de quiz pra ver onde
+ * cada lead para e o que respondeu até ali. Permite calcular drop-off
+ * por step + lead scoring real-time + remarketing por resposta.
+ *
+ * 1 quiz_session = 1 visitante anônimo (sessionId em uuid client-side).
+ * N quiz_answers por session (1 por step respondido).
+ */
+export const quizSessions = pgTable("quiz_sessions", {
+  id: text("id").primaryKey(), // uuid gerado no client
+  // Atribuição
+  persona: text("persona"), // ex "ag", "df", ...
+  angulo: text("angulo"), // ex "escala", "margem"
+  lpUrl: text("lp_url"), // ex "/ag-escala-v1-byok-quiz"
+  utmSource: text("utm_source"),
+  utmCampaign: text("utm_campaign"),
+  utmMedium: text("utm_medium"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  // Resultado
+  leadScore: integer("lead_score"), // 0-100 — calculado quando completa
+  email: text("email"), // opcional, capturado no fim
+  // Contexto técnico
+  userAgent: text("user_agent"),
+  ip: text("ip"), // pode ser hash pra LGPD
+  // Timestamps
+  startedAt: timestamp("started_at", { mode: "date" }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { mode: "date" }), // null = abandonou
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type QuizSession = typeof quizSessions.$inferSelect;
+export type NovaQuizSession = typeof quizSessions.$inferInsert;
+
+export const quizAnswers = pgTable("quiz_answers", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => quizSessions.id, { onDelete: "cascade" }),
+  step: integer("step").notNull(), // 1, 2, 3, ...
+  question: text("question").notNull(), // ex "tamanho_agencia"
+  answer: text("answer").notNull(), // ex "6-15"
+  answeredAt: timestamp("answered_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type QuizAnswer = typeof quizAnswers.$inferSelect;
+export type NovaQuizAnswer = typeof quizAnswers.$inferInsert;

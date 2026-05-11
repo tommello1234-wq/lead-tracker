@@ -384,3 +384,77 @@ export type Angulo = {
   /** Vem populado em GET /api/angulos */
   criativos?: Criativo[];
 };
+
+/* Quiz funnel — tracking de cada step de uma LP de quiz */
+export type QuizSession = {
+  id: string;
+  persona: string | null;
+  angulo: string | null;
+  lpUrl: string | null;
+  utmSource: string | null;
+  utmCampaign: string | null;
+  utmMedium: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  leadScore: number | null;
+  email: string | null;
+  userAgent: string | null;
+  ip: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  atualizadoEm: string;
+};
+
+export type QuizAnswer = {
+  id: number;
+  sessionId: string;
+  step: number;
+  question: string;
+  answer: string;
+  answeredAt: string;
+};
+
+/* Payloads dos endpoints públicos do quiz (CORS no gravyx.com.br) */
+export type QuizStartPayload = {
+  sessionId: string;
+  persona?: string | null;
+  angulo?: string | null;
+  lpUrl?: string | null;
+  utm?: {
+    source?: string | null;
+    campaign?: string | null;
+    medium?: string | null;
+    content?: string | null;
+    term?: string | null;
+  };
+};
+
+export type QuizAnswerPayload = {
+  sessionId: string;
+  step: number;
+  question: string;
+  answer: string;
+};
+
+export type QuizCompletePayload = {
+  sessionId: string;
+  leadScore: number;
+  email?: string | null;
+};
+
+/* Funnel agregado por LP (dashboard) */
+export type QuizFunnelStep = {
+  step: number;
+  reached: number;       // quantas sessions chegaram nesse step
+  answered: number;      // quantas responderam
+  dropOffRate: number;   // % que parou aqui (0-100)
+};
+
+export type QuizFunnel = {
+  lpUrl: string;
+  totalSessions: number;
+  completed: number;
+  completionRate: number; // %
+  avgLeadScore: number | null;
+  steps: QuizFunnelStep[];
+};

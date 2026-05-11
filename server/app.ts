@@ -13,6 +13,7 @@ import { activityRoutes } from "./routes/activity.js";
 import { metaAdsRoutes } from "./routes/meta-ads.js";
 import { personasRoutes } from "./routes/personas.js";
 import { angulosRoutes } from "./routes/angulos.js";
+import { quizRoutes } from "./routes/quiz.js";
 import { requireAuth } from "./middleware/auth.js";
 
 /**
@@ -33,6 +34,11 @@ app.route("/auth", authRoutes);
 app.route("/webhooks", webhookRoutes);
 app.route("/cron", cronRoutes);
 app.route("/audit", auditRoutes);
+
+// Quiz: start/answer/complete publicas (LP no gravyx.com.br), funnel/sessions protegidas
+app.use("/quiz/funnel", requireAuth);
+app.use("/quiz/sessions", requireAuth);
+app.route("/quiz", quizRoutes);
 
 // Protegidas (cookie de sessão)
 app.use("/produtos/*", requireAuth);
