@@ -23,6 +23,8 @@ import {
   ChevronRight,
   ChevronDown,
   Layers,
+  Maximize2,
+  X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -944,13 +946,43 @@ export function PersonaMindMap({
   onSelectAngulo?: (a: Angulo) => void;
 }) {
   const handleAngulo = onSelectAngulo ?? (() => {});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ESC fecha o modo tela cheia
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isFullscreen]);
+
+  // Wrapper muda: inline normal vs fixed cobrindo viewport
+  const wrapperClass = isFullscreen
+    ? "fixed inset-0 z-50 bg-background flex flex-col"
+    : "rounded-lg border border-border bg-card overflow-hidden";
+  const flowHeight = isFullscreen ? "flex-1" : "";
+  const flowStyle: React.CSSProperties = isFullscreen
+    ? { width: "100%", flex: 1, position: "relative" }
+    : { width: "100%", height: 720, position: "relative" };
+
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div className={wrapperClass}>
       <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between gap-3 flex-wrap">
         <div className="text-xs text-foreground/70">
           <span className="font-bold">Hierarquia:</span> Produto → 3 Personas →
           3 Ângulos → 3 Criativos → 2 Planos → 3 Páginas
         </div>
+        <button
+          type="button"
+          onClick={() => setIsFullscreen((v) => !v)}
+          className="px-2 py-1 rounded-md bg-card border border-border text-[11px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors flex items-center gap-1"
+          title={isFullscreen ? "Fechar (ESC)" : "Tela cheia"}
+        >
+          {isFullscreen ? <X className="size-3" /> : <Maximize2 className="size-3" />}
+          {isFullscreen ? "Fechar" : "Tela cheia"}
+        </button>
         <div className="flex items-center gap-3 text-[10px] text-foreground/50 font-mono">
           <span className="flex items-center gap-1">
             <span
@@ -972,7 +1004,7 @@ export function PersonaMindMap({
           </span>
         </div>
       </div>
-      <div style={{ width: "100%", height: 720, position: "relative" }}>
+      <div style={flowStyle} className={flowHeight}>
         <ReactFlowProvider>
           <MindMapInner
             personas={personas}
