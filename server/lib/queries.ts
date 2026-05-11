@@ -25,15 +25,19 @@ export async function getAllLeads(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  origem: string | null = null,
+  limit: number | null = null,
 ): Promise<Lead[]> {
   const cond = produtoCondition(produtoId);
   if (since != null) cond.push(gte(leads.criadoEm, since));
   if (until != null) cond.push(lte(leads.criadoEm, until));
-  return db
+  if (origem != null) cond.push(eq(leads.origem, origem));
+  const q = db
     .select()
     .from(leads)
     .where(and(...cond))
     .orderBy(desc(leads.criadoEm));
+  return limit != null ? q.limit(limit) : q;
 }
 
 /**

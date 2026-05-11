@@ -321,6 +321,19 @@ quizRoutes.get("/funnel", async (c) => {
   });
 });
 
+// ============ GET /sessions/:id/answers ============
+// Lista respostas de 1 session específica (auth-protected via app.ts).
+quizRoutes.get("/sessions/:id/answers", async (c) => {
+  const sessionId = c.req.param("id");
+  if (!sessionId) return c.json({ error: "session id obrigatorio" }, 400);
+  const rows = await db
+    .select()
+    .from(quizAnswers)
+    .where(eq(quizAnswers.sessionId, sessionId))
+    .orderBy(quizAnswers.step);
+  return c.json(rows);
+});
+
 // ============ GET /sessions?lpUrl=...&completed=true ============
 // Lista de sessions (pro dashboard). Auth-protected.
 quizRoutes.get("/sessions", async (c) => {

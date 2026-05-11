@@ -38,6 +38,7 @@ app.route("/audit", auditRoutes);
 // Quiz: start/answer/complete publicas (LP no gravyx.com.br), funnel/sessions protegidas
 app.use("/quiz/funnel", requireAuth);
 app.use("/quiz/sessions", requireAuth);
+app.use("/quiz/sessions/*", requireAuth); // /sessions/:id/answers
 app.route("/quiz", quizRoutes);
 
 // Protegidas (cookie de sessão)
