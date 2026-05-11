@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "/Users/washingtonmelodesouza/Documents/PROJETO BACKUP/Planilha de leads/lead-tracker",
       "port": 5173
+    },
+    {
+      "name": "quiz",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8000"],
+      "cwd": "/Users/washingtonmelodesouza/Documents/PROJETO BACKUP/Planilha de leads/quiz-criador-ia",
+      "port": 8000
     }
   ]
 }

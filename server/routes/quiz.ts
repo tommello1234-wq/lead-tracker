@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { db } from "../../db/client.js";
-import { quizSessions, quizAnswers } from "../../db/schema.js";
-import { eq, sql as drizzleSql, and, isNotNull, isNull } from "drizzle-orm";
+import { quizSessions, quizAnswers, leads } from "../../db/schema.js";
+import { eq, sql as drizzleSql, and, isNotNull, isNull, or } from "drizzle-orm";
+import { isExcludedAccount } from "../lib/excluded-accounts.js";
 
 /**
  * Quiz funnel — endpoints PÚBLICOS (sem requireAuth) chamados pelas LPs
@@ -143,11 +144,18 @@ quizRoutes.post("/answer", async (c) => {
 });
 
 // ============ POST /complete ============
+// Recebe payload final do quiz. Se vier nome+contato (WhatsApp), cria
+// ou atualiza um lead em `leads` com origem='quiz' (pra LP de pré-vendas
+// que captura contato pra retomada via WhatsApp/checkout).
 quizRoutes.post("/complete", async (c) => {
   const body = (await c.req.json()) as {
     sessionId?: string;
     leadScore?: number;
     email?: string | null;
+    nome?: string | null;
+    contato?: string | null; // WhatsApp E.164 ex "5511999999999"
+    planoRecomendado?: string | null; // "starter" | "creator" | "studio"
+    produtoId?: number | null; // default 1 (Gravyx)
   };
 
   if (!body?.sessionId) {
@@ -157,22 +165,102 @@ quizRoutes.post("/complete", async (c) => {
     typeof body.leadScore === "number"
       ? Math.max(0, Math.min(100, Math.round(body.leadScore)))
       : null;
+  const email = trimOrNull(body.email);
+  const nome = trimOrNull(body.nome);
+  // Contato: aceita só dígitos (5511999999999)
+  const contatoRaw = trimOrNull(body.contato);
+  const contato = contatoRaw ? contatoRaw.replace(/\D/g, "") : null;
+  const planoRecomendado = trimOrNull(body.planoRecomendado);
 
-  const [row] = await db
+  // Atualiza session com resultado final
+  const [session] = await db
     .update(quizSessions)
     .set({
       leadScore: score,
-      email: trimOrNull(body.email),
+      email,
       completedAt: new Date(),
       atualizadoEm: new Date(),
     })
     .where(eq(quizSessions.id, body.sessionId))
     .returning();
 
-  if (!row) {
+  if (!session) {
     return c.json({ error: "session nao encontrada" }, 404);
   }
-  return c.json({ ok: true, session: row });
+
+  // Cria/atualiza lead se vier nome + contato (WhatsApp).
+  // Sem contato/email: não cria lead — quiz pode ter sido completado anônimo.
+  let leadId: number | null = null;
+  if (nome && (contato || email)) {
+    if (isExcludedAccount({ email, phone: contato })) {
+      // Conta excluída (admin/teste) — não cria lead, mas marca session ok
+      return c.json({ ok: true, session, leadId: null, excluded: true });
+    }
+
+    // Dedup por contato OU email (mesma regra do flows.findOrCreateLead)
+    const existing = await db.query.leads.findFirst({
+      where: or(
+        contato ? eq(leads.contato, contato) : undefined,
+        email ? eq(leads.email, email) : undefined,
+      ),
+    });
+
+    // Busca respostas do quiz pra guardar em observacoes
+    const answers = await db
+      .select({ step: quizAnswers.step, question: quizAnswers.question, answer: quizAnswers.answer })
+      .from(quizAnswers)
+      .where(eq(quizAnswers.sessionId, body.sessionId))
+      .orderBy(quizAnswers.step);
+
+    const observacoes = JSON.stringify({
+      quizSessionId: body.sessionId,
+      leadScore: score,
+      planoRecomendado,
+      utm: {
+        source: session.utmSource,
+        campaign: session.utmCampaign,
+        medium: session.utmMedium,
+        content: session.utmContent,
+        term: session.utmTerm,
+      },
+      lpUrl: session.lpUrl,
+      persona: session.persona,
+      angulo: session.angulo,
+      respostas: answers,
+    });
+
+    if (existing) {
+      // Atualiza dados mais recentes (preserva o tipo/status que outras
+      // automações possam ter setado — só completa info que faltava).
+      const updates: Record<string, unknown> = { atualizadoEm: new Date() };
+      if (!existing.nome || existing.nome === "Cliente Ticto") updates.nome = nome;
+      if (!existing.email && email) updates.email = email;
+      if (!existing.contato && contato) updates.contato = contato;
+      if (!existing.observacoes) updates.observacoes = observacoes;
+      if (!existing.origem || existing.origem === "site" || existing.origem === "outro") {
+        updates.origem = "quiz";
+      }
+      await db.update(leads).set(updates).where(eq(leads.id, existing.id));
+      leadId = existing.id;
+    } else {
+      const [created] = await db
+        .insert(leads)
+        .values({
+          nome,
+          contato,
+          email,
+          tipo: "compra_aprovada", // entra no funil de pré-venda
+          status: "lead_novo",
+          origem: "quiz",
+          observacoes,
+          produtoId: body.produtoId ?? 1, // Gravyx default
+        })
+        .returning({ id: leads.id });
+      leadId = created.id;
+    }
+  }
+
+  return c.json({ ok: true, session, leadId });
 });
 
 // ============ GET /funnel?lpUrl=... ============

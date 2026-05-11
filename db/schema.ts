@@ -61,6 +61,7 @@ export const LEAD_ORIGINS = [
   "email",
   "site",
   "indicacao",
+  "quiz",
   "outro",
 ] as const;
 
