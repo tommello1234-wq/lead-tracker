@@ -469,8 +469,7 @@ export async function getTipoBreakdown(
 export async function getRenewalCalendar(
   produtoId: number | null = null,
   referenceDate: Date | null = null,
-): Promise<Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }>> {
-  // Agora conta cada SUB ativa mensal (1 lead pode ter N subs).
+): Promise<Array<{ dia: number; count: number; paidCount: number; valorEsperado: number; valorRecebido: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null; pago: boolean }> }>> {
   const conds = [
     eq(subscriptions.status, "ativa"),
     eq(subscriptions.periodicidade, "mensal"),
@@ -490,6 +489,7 @@ export async function getRenewalCalendar(
       leadId: subscriptions.leadId,
       pagouEm: subscriptions.pagouEm,
       proximoPagamentoEm: subscriptions.proximoPagamentoEm,
+      ultimaRenovacaoEm: subscriptions.ultimaRenovacaoEm,
       valor: subscriptions.valor,
       planoNome: subscriptions.planoNome,
       nome: leads.nome,
@@ -498,12 +498,22 @@ export async function getRenewalCalendar(
     .innerJoin(leads, eq(leads.id, subscriptions.leadId))
     .where(and(...conds));
 
+  // Mês/ano de referência do calendário — usa referenceDate ou agora.
+  // Define "pago neste mês" = ultima_renovacao_em (ou pagou_em, se nunca renovou)
+  // cai no mesmo mês+ano do calendário.
+  const refDate = referenceDate ?? new Date();
+  const refMonth = refDate.getUTCMonth();
+  const refYear = refDate.getUTCFullYear();
+  function paidThisMonth(s: { ultimaRenovacaoEm: Date | null; pagouEm: Date | null }): boolean {
+    const d = s.ultimaRenovacaoEm ?? s.pagouEm;
+    if (!d) return false;
+    return d.getUTCMonth() === refMonth && d.getUTCFullYear() === refYear;
+  }
+
   // Agrupa por dia do mês — prioriza proximoPagamentoEm (próxima cobrança real)
   // sobre pagouEm (data de entrada). Se nenhum, ignora.
-  const byDay = new Map<
-    number,
-    Array<{ id: number; nome: string; valor: number; plano: string | null }>
-  >();
+  type LeadEntry = { id: number; nome: string; valor: number; plano: string | null; pago: boolean };
+  const byDay = new Map<number, LeadEntry[]>();
   for (const s of subRows) {
     const ref = s.proximoPagamentoEm ?? s.pagouEm;
     if (!ref) continue;
@@ -514,18 +524,22 @@ export async function getRenewalCalendar(
       nome: s.nome,
       valor: s.valor ?? 0,
       plano: s.planoNome,
+      pago: paidThisMonth(s),
     });
     byDay.set(dia, list);
   }
 
   // Retorna 31 dias (mesmo que vazios) — frontend cuida do calendário visual
-  const out: Array<{ dia: number; count: number; valorEsperado: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null }> }> = [];
+  const out: Array<{ dia: number; count: number; paidCount: number; valorEsperado: number; valorRecebido: number; leads: LeadEntry[] }> = [];
   for (let d = 1; d <= 31; d++) {
     const list = byDay.get(d) ?? [];
+    const paid = list.filter((l) => l.pago);
     out.push({
       dia: d,
       count: list.length,
+      paidCount: paid.length,
       valorEsperado: list.reduce((acc, x) => acc + x.valor, 0),
+      valorRecebido: paid.reduce((acc, x) => acc + x.valor, 0),
       leads: list,
     });
   }

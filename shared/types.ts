@@ -67,11 +67,14 @@ export type RenewalDayLead = {
   nome: string;
   valor: number;
   plano: string | null;
+  pago: boolean; // true se sub.ultima_renovacao_em (ou pagou_em) cai no mês do calendário
 };
 export type RenewalDay = {
   dia: number;
   count: number;
-  valorEsperado: number;
+  paidCount: number; // quantos dos `count` já renovaram nesse mês
+  valorEsperado: number; // soma total prevista pro dia
+  valorRecebido: number; // soma já recebida pro dia
   leads: RenewalDayLead[];
 };
 

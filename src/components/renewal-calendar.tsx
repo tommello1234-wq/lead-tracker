@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar as CalendarIcon, X } from "lucide-react";
+import { Calendar as CalendarIcon, X, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import type { RenewalDay } from "@shared/types";
 
@@ -232,7 +232,7 @@ export function RenewalCalendar({
                   {has && r ? (
                     <div className="flex items-baseline gap-1 justify-end">
                       <span className="text-[14px] font-bold tabular-nums leading-none">
-                        {r.count}
+                        {r.paidCount}/{r.count}
                       </span>
                       <span className="text-[8px] uppercase tracking-wider opacity-60 leading-none">
                         {r.count === 1 ? "renov" : "renovs"}
@@ -273,7 +273,8 @@ export function RenewalCalendar({
                   Renovações — dia {selectedDay.dia}
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  {selectedDay.count} leads · {brl(selectedDay.valorEsperado)} esperado
+                  {selectedDay.paidCount}/{selectedDay.count} pagos ·{" "}
+                  {brl(selectedDay.valorRecebido)} recebido / {brl(selectedDay.valorEsperado)} previsto
                 </p>
               </div>
               <button
@@ -288,7 +289,10 @@ export function RenewalCalendar({
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card/95 backdrop-blur">
                   <tr className="border-b border-border">
-                    <th className="text-left px-5 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
+                    <th className="text-center px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider w-12">
+                      Pago
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
                       Lead
                     </th>
                     <th className="text-left px-3 py-3 font-medium text-foreground/70 text-xs uppercase tracking-wider">
@@ -300,13 +304,30 @@ export function RenewalCalendar({
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedDay.leads.map((l) => (
+                  {[...selectedDay.leads]
+                    .sort((a, b) => Number(b.pago) - Number(a.pago))
+                    .map((l) => (
                     <tr
                       key={l.id}
                       onClick={onLeadClick ? () => { onLeadClick(l.id); setSelectedDay(null); } : undefined}
-                      className={`border-b border-border/40 last:border-b-0 hover:bg-muted/20 ${onLeadClick ? "cursor-pointer" : ""}`}
+                      className={`border-b border-border/40 last:border-b-0 hover:bg-muted/20 ${onLeadClick ? "cursor-pointer" : ""} ${l.pago ? "" : "opacity-70"}`}
                     >
-                      <td className="px-5 py-2.5 font-medium truncate max-w-[260px]">
+                      <td className="px-3 py-2.5 text-center">
+                        {l.pago ? (
+                          <span
+                            className="inline-flex items-center justify-center size-5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            title="Pago este mês"
+                          >
+                            <Check className="size-3.5 stroke-[3]" />
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center justify-center size-5 rounded-full border border-border bg-muted/30"
+                            title="Aguardando pagamento"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium truncate max-w-[260px]">
                         {l.nome}
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[200px]">
