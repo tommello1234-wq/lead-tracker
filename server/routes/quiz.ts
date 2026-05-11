@@ -31,6 +31,10 @@ quizRoutes.post("/start", async (c) => {
     persona?: string | null;
     angulo?: string | null;
     lpUrl?: string | null;
+    nome?: string | null;
+    contato?: string | null;
+    email?: string | null;
+    produtoId?: number | null;
     utm?: {
       source?: string | null;
       campaign?: string | null;
@@ -55,6 +59,11 @@ quizRoutes.post("/start", async (c) => {
     "";
   const ip = ipRaw.split(",")[0]?.trim() || null;
 
+  const nome = trimOrNull(body.nome);
+  const email = trimOrNull(body.email);
+  const contatoRaw = trimOrNull(body.contato);
+  const contato = contatoRaw ? contatoRaw.replace(/\D/g, "") : null;
+
   // Upsert: se a session já existe (reload), só retorna o estado atual
   const existing = await db
     .select()
@@ -65,6 +74,7 @@ quizRoutes.post("/start", async (c) => {
     return c.json({ ok: true, existed: true, session: existing[0] });
   }
 
+  // Insere session
   const [row] = await db
     .insert(quizSessions)
     .values({
@@ -77,12 +87,68 @@ quizRoutes.post("/start", async (c) => {
       utmMedium: trimOrNull(body.utm?.medium),
       utmContent: trimOrNull(body.utm?.content),
       utmTerm: trimOrNull(body.utm?.term),
+      email,
       userAgent: userAgent?.slice(0, 500) ?? null,
       ip,
     })
     .returning();
 
-  return c.json({ ok: true, existed: false, session: row }, 201);
+  // Cria/atualiza lead JÁ AGORA se vier nome+contato (UX captura no início):
+  // assim a gente fica com lead mesmo se a pessoa abandonar o quiz no meio.
+  let leadId: number | null = null;
+  if (nome && (contato || email)) {
+    if (!isExcludedAccount({ email, phone: contato })) {
+      const existingLead = await db.query.leads.findFirst({
+        where: or(
+          contato ? eq(leads.contato, contato) : undefined,
+          email ? eq(leads.email, email) : undefined,
+        ),
+      });
+      const observacoes = JSON.stringify({
+        quizSessionId: body.sessionId,
+        capturadoNoInicio: true,
+        utm: {
+          source: row.utmSource,
+          campaign: row.utmCampaign,
+          medium: row.utmMedium,
+          content: row.utmContent,
+          term: row.utmTerm,
+        },
+        lpUrl: row.lpUrl,
+        persona: row.persona,
+        angulo: row.angulo,
+      });
+      if (existingLead) {
+        const updates: Record<string, unknown> = { atualizadoEm: new Date() };
+        if (!existingLead.nome || existingLead.nome === "Cliente Ticto") updates.nome = nome;
+        if (!existingLead.email && email) updates.email = email;
+        if (!existingLead.contato && contato) updates.contato = contato;
+        if (!existingLead.observacoes) updates.observacoes = observacoes;
+        if (!existingLead.origem || existingLead.origem === "site" || existingLead.origem === "outro") {
+          updates.origem = "quiz";
+        }
+        await db.update(leads).set(updates).where(eq(leads.id, existingLead.id));
+        leadId = existingLead.id;
+      } else {
+        const [created] = await db
+          .insert(leads)
+          .values({
+            nome,
+            contato,
+            email,
+            tipo: "compra_aprovada",
+            status: "lead_novo",
+            origem: "quiz",
+            observacoes,
+            produtoId: body.produtoId ?? 1,
+          })
+          .returning({ id: leads.id });
+        leadId = created.id;
+      }
+    }
+  }
+
+  return c.json({ ok: true, existed: false, session: row, leadId }, 201);
 });
 
 // ============ POST /answer ============
