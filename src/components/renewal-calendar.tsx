@@ -44,21 +44,26 @@ export function RenewalCalendar({
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDay, setSelectedDay] = useState<RenewalDay | null>(null);
 
-  // Pra meses passados, passa referenceDate = último dia do mês visualizado
-  // (backend filtra leads que JÁ existiam até lá). Pra atual/futuro, sem ref
-  // = snapshot atual.
-  const isPast =
-    viewYear < today.getFullYear() ||
-    (viewYear === today.getFullYear() && viewMonth < today.getMonth());
-  const referenceDate = isPast
-    ? new Date(viewYear, viewMonth + 1, 0, 23, 59, 59).toISOString()
-    : "";
+  // Sempre passa referenceDate = último dia do mês visualizado.
+  // Backend usa pra: (a) filtrar leads que JÁ existiam até lá (passado);
+  // (b) calcular paidCount no MÊS DO CALENDÁRIO, não no mês atual real
+  // (sem isso, mês futuro/passado mostraria pagos baseados em maio).
+  const referenceDate = new Date(
+    viewYear,
+    viewMonth + 1,
+    0,
+    23,
+    59,
+    59,
+  ).toISOString();
 
   const { data, isLoading } = useQuery({
     queryKey: ["leads", "renewal-calendar", produtoParam, referenceDate],
     queryFn: () => {
-      const qs = new URLSearchParams({ produtoId: String(produtoParam) });
-      if (referenceDate) qs.set("referenceDate", referenceDate);
+      const qs = new URLSearchParams({
+        produtoId: String(produtoParam),
+        referenceDate,
+      });
       return api.get<RenewalDay[]>(`/api/leads/renewal-calendar?${qs}`);
     },
     staleTime: 5 * 60 * 1000,
