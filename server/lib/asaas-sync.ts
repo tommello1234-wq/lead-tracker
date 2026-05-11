@@ -226,8 +226,24 @@ export async function runAsaasSync(): Promise<{
       .map((p) => parseBrt(p.dueDate))
       .filter((d): d is Date => d !== null)
       .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    // proximoPagamentoEm = próxima cobrança Asaas (futuro), pra calendário
-    const nextPaymentDate = subNextDue;
+    // proximoPagamentoEm = próxima cobrança Asaas (futuro), pra calendário.
+    // Asaas gera cobranças adiantadas (sempre 2 pendentes — N+1 e N+2). O
+    // sub.nextDueDate da API às vezes retorna a MAIS FUTURA (N+2) em vez
+    // da próxima a vencer (N+1). Pra corrigir: pega a PENDING mais antiga
+    // dentre as desta sub. Fallback = subNextDue.
+    const pendingOfCurrentSub = lastSub
+      ? pays
+          .filter((p) => p.subscription === lastSub.id)
+          .filter((p) =>
+            /^(PENDING|AWAITING_RISK_ANALYSIS|AWAITING_PAYMENT|OVERDUE)$/i.test(
+              p.status ?? "",
+            ),
+          )
+          .map((p) => parseBrt(p.dueDate))
+          .filter((d): d is Date => d !== null)
+          .sort((a, b) => a.getTime() - b.getTime())
+      : [];
+    const nextPaymentDate = pendingOfCurrentSub[0] ?? subNextDue;
     const onlyRefund = pays.length > 0 && pays.every((p) => /^REFUNDED$/i.test(p.status ?? ""));
 
     const mapped = mapStatus(lastSub?.status, recentPaid, onlyRefund);
