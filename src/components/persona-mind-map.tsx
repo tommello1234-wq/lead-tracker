@@ -993,8 +993,11 @@ function CriativoPreviewModal({
   }, [onClose]);
 
   if (!criativo) return null;
+  // Pra imagem: prefere url (full size) sobre thumb (Meta serve thumb tiny).
+  // Pra vídeo: usa url como source + thumbUrl como poster.
   const isVideo = criativo.tipo === "video";
-  const previewUrl = criativo.thumbUrl ?? criativo.url;
+  const imgUrl = !isVideo ? (criativo.url ?? criativo.thumbUrl) : null;
+  const previewUrl = imgUrl ?? criativo.thumbUrl;
   const metaAdsLink = criativo.metaAdsId
     ? `https://www.facebook.com/adsmanager/manage/ads?act=918344584462338&selected_ad_ids=${criativo.metaAdsId}`
     : null;
@@ -1028,21 +1031,21 @@ function CriativoPreviewModal({
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Mídia */}
-          <div className="bg-black grid place-items-center min-h-[280px] max-h-[55vh]">
+          {/* Mídia — ocupa altura proporcional ao formato (1:1 social, 9:16 video) */}
+          <div className="bg-black grid place-items-center w-full" style={{ aspectRatio: isVideo ? "9 / 16" : "1 / 1", maxHeight: "70vh" }}>
             {previewUrl ? (
               isVideo && criativo.url ? (
                 <video
                   src={criativo.url}
                   poster={criativo.thumbUrl ?? undefined}
                   controls
-                  className="max-h-[55vh] max-w-full"
+                  className="h-full w-full object-contain"
                 />
               ) : (
                 <img
                   src={previewUrl}
                   alt={criativo.headlineOverlay ?? `Criativo ${criativo.id}`}
-                  className="max-h-[55vh] max-w-full object-contain"
+                  className="h-full w-full object-contain"
                 />
               )
             ) : (
