@@ -98,17 +98,28 @@ export function PersonaAnglesBoard({
 
   // Sincroniza só os status dos criativos (ativo/pausado) consultando Meta API
   // — bem mais rápido que re-importar tudo, pra refletir ads pausados no painel.
+  type StatusDetail = {
+    metaAdsId: string;
+    statusBanco: string;
+    effectiveStatusMeta: string | null;
+    statusFinal: string;
+    mudou: boolean;
+  };
+  const [statusReport, setStatusReport] = useState<{
+    updated: number;
+    total: number;
+    details: StatusDetail[];
+  } | null>(null);
   const refreshStatusMut = useMutation({
     mutationFn: () =>
-      api.post<{ updated: number; total: number }>(
-        "/api/angulos/refresh-statuses",
-        {},
-      ),
+      api.post<{
+        updated: number;
+        total: number;
+        details: StatusDetail[];
+      }>("/api/angulos/refresh-statuses", {}),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["angulos"] });
-      alert(
-        `Status atualizados: ${r.updated} de ${r.total} criativos refletem o Meta agora.`,
-      );
+      setStatusReport(r);
     },
     onError: (e: unknown) => {
       alert(e instanceof Error ? e.message : "Erro ao sincronizar status");
@@ -326,6 +337,76 @@ export function PersonaAnglesBoard({
           setImporting(false);
         }}
       />
+
+      {/* Relatório de sync de status — mostra o que veio do Meta pra cada ad */}
+      {statusReport ? (
+        <Dialog open onOpenChange={() => setStatusReport(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                Sync de status: {statusReport.updated} atualizado(s) de{" "}
+                {statusReport.total}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="text-xs text-foreground/60 mb-2">
+              Coluna <strong>Meta</strong> = effective_status raw retornado pela
+              API. Se um ad mostra ACTIVE aqui, é porque o Meta retorna ACTIVE —
+              pause o ad individualmente (não só a campanha) pra refletir aqui.
+            </div>
+            <div className="rounded-md border border-border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted">
+                  <tr className="text-foreground/60 text-[10px] uppercase tracking-wider">
+                    <th className="text-left px-2 py-2">Meta Ad ID</th>
+                    <th className="text-left px-2 py-2">Banco</th>
+                    <th className="text-left px-2 py-2">Meta (raw)</th>
+                    <th className="text-left px-2 py-2">Final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statusReport.details.map((d) => (
+                    <tr
+                      key={d.metaAdsId}
+                      className={`border-t border-border ${d.mudou ? "bg-amber-500/5" : ""}`}
+                    >
+                      <td className="px-2 py-1.5 font-mono">
+                        …{d.metaAdsId.slice(-10)}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className="font-semibold uppercase">
+                          {d.statusBanco}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 font-mono">
+                        {d.effectiveStatusMeta ?? "—"}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span
+                          className={
+                            d.statusFinal === "ativo"
+                              ? "text-emerald-400 font-bold"
+                              : "text-amber-400 font-bold"
+                          }
+                        >
+                          {d.statusFinal.toUpperCase()}
+                        </span>
+                        {d.mudou ? (
+                          <span className="ml-1 text-[10px] text-amber-500">
+                            ← mudou
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setStatusReport(null)}>Fechar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

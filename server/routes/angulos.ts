@@ -310,36 +310,74 @@ type ImportPayload = {
 
 /**
  * Refresh status only (light sync): pega todos criativos com metaAdsId,
- * busca status atual no Meta, atualiza no banco. Útil quando user pausou
- * ads no painel Meta e quer sincronizar sem re-importar tudo.
+ * busca effective_status atual no Meta diretamente (sem passar por insights —
+ * isso evita perder ads que zeraram spend e fica mais rápido), atualiza
+ * status no banco. Retorna detalhes pra debug.
  */
 angulosRoutes.post("/refresh-statuses", async (c) => {
-  const { getAds } = await import("../lib/meta-ads.js");
   // Pega todos criativos com metaAdsId
   const all = await db.select().from(criativos);
   const withMetaId = all.filter((c) => c.metaAdsId);
-  if (withMetaId.length === 0) return c.json({ updated: 0 });
-
-  // Busca status atual no Meta (1 chamada, traz tudo). Sem filtro de spend
-  // pra pegar até os ads pausados que zeraram. Sem time range = padrão 90d.
-  const ads = await getAds(null, null, { onlyWithSpend: false }).catch(() => []);
-  const statusByMetaId = new Map<string, string>();
-  for (const ad of ads) {
-    // ACTIVE → ativo; resto (PAUSED, CAMPAIGN_PAUSED, ADSET_PAUSED, etc.) → pausado
-    statusByMetaId.set(ad.adId, ad.status === "ACTIVE" ? "ativo" : "pausado");
+  if (withMetaId.length === 0) {
+    return c.json({ updated: 0, total: 0, details: [] });
   }
+
+  // Busca effective_status DIRETO da Meta API (1 chamada batch).
+  // Evita usar getAds() que filtra por insights — ads zerados não retornavam.
+  const token = process.env.META_ACCESS_TOKEN;
+  const account = process.env.META_AD_ACCOUNT_ID;
+  if (!token || !account) {
+    return c.json({ error: "Meta API não configurada (token/account)" }, 500);
+  }
+  const acct = account.startsWith("act_") ? account : `act_${account}`;
+
+  // Pega TODOS ads do account (até 500). Status real, sem filtro.
+  const url = new URL(`https://graph.facebook.com/v23.0/${acct}/ads`);
+  url.searchParams.set("fields", "id,effective_status,name");
+  url.searchParams.set("limit", "500");
+  url.searchParams.set("access_token", token);
+
+  type MetaAdsResp = {
+    data?: Array<{ id: string; effective_status: string; name: string }>;
+    error?: { message: string };
+  };
+  const resp = (await fetch(url).then((r) => r.json())) as MetaAdsResp;
+  if (resp?.error) {
+    return c.json({ error: `Meta API: ${resp.error.message}` }, 502);
+  }
+  const adsRaw = resp?.data ?? [];
+  const statusByMetaId = new Map<string, string>();
+  for (const ad of adsRaw) statusByMetaId.set(String(ad.id), ad.effective_status);
 
   let updated = 0;
+  const details: Array<{
+    metaAdsId: string;
+    statusBanco: string;
+    effectiveStatusMeta: string | null;
+    statusFinal: string;
+    mudou: boolean;
+  }> = [];
   for (const cr of withMetaId) {
-    const newStatus = statusByMetaId.get(cr.metaAdsId!);
-    if (!newStatus || newStatus === cr.status) continue;
-    await db
-      .update(criativos)
-      .set({ status: newStatus as CriativoStatus, atualizadoEm: new Date() })
-      .where(eq(criativos.id, cr.id));
-    updated++;
+    const metaStatus = statusByMetaId.get(cr.metaAdsId!) ?? null;
+    // ACTIVE → ativo; resto → pausado (PAUSED, CAMPAIGN_PAUSED, ADSET_PAUSED, etc.)
+    const newStatus = metaStatus === "ACTIVE" ? "ativo" : "pausado";
+    const mudou = metaStatus != null && newStatus !== cr.status;
+    if (mudou) {
+      await db
+        .update(criativos)
+        .set({ status: newStatus as CriativoStatus, atualizadoEm: new Date() })
+        .where(eq(criativos.id, cr.id));
+      updated++;
+    }
+    details.push({
+      metaAdsId: cr.metaAdsId!,
+      statusBanco: cr.status,
+      effectiveStatusMeta: metaStatus,
+      statusFinal: newStatus,
+      mudou,
+    });
   }
-  return c.json({ updated, total: withMetaId.length });
+  return c.json({ updated, total: withMetaId.length, details });
 });
 
 /**
