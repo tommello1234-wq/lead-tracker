@@ -546,6 +546,12 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
           produtoId,
           gatewayCustomerId: cpf || null,
           pagouEm: firstPaid,
+          // Se sub renovou alguma vez (lastPaid > firstPaid), grava isso —
+          // calendário usa esse campo pra contar renovações no mês.
+          ultimaRenovacaoEm:
+            lastPaid && firstPaid && lastPaid.getTime() > firstPaid.getTime()
+              ? lastPaid
+              : null,
           proximoPagamentoEm: nextCharge,
         });
         await syncTictoTransactions(lead.id, sub);
@@ -626,6 +632,12 @@ export async function runTictoSync(daysOrdersBack = 2): Promise<{
         produtoId: detectedProdutoId,
         gatewayCustomerId: cpf || null,
         pagouEm: firstPaid,
+        // Renovações: lastPaid > firstPaid significa que sub já renovou pelo
+        // menos uma vez. Sem isso, calendário ficava 0/X até webhook chegar.
+        ultimaRenovacaoEm:
+          lastPaid && firstPaid && lastPaid.getTime() > firstPaid.getTime()
+            ? lastPaid
+            : null,
         proximoPagamentoEm: nextCharge,
       });
       // Cria eventos históricos das transações da sub (compras + reembolsos).

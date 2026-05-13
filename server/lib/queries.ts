@@ -505,6 +505,11 @@ export async function getRenewalCalendar(
   // Mês/ano de referência do calendário — usa referenceDate ou agora.
   // Define "pago neste mês" = ultima_renovacao_em (ou pagou_em, se nunca renovou)
   // cai no mesmo mês+ano do calendário.
+  //
+  // CRÍTICO: Frontend manda referenceDate como `Date.UTC(year, month+1, 0, ...)`
+  // — último dia do mês em UTC, 23:59:59. Aqui usamos getUTCMonth/getUTCFullYear
+  // pra ficar no mesmo plano. Comparações com pagou_em/ultima_renovacao_em
+  // também em UTC (datas no Postgres são timezone-aware mas retornadas como UTC).
   const refDate = referenceDate ?? new Date();
   const refMonth = refDate.getUTCMonth();
   const refYear = refDate.getUTCFullYear();

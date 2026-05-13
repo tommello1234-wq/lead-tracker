@@ -44,17 +44,14 @@ export function RenewalCalendar({
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDay, setSelectedDay] = useState<RenewalDay | null>(null);
 
-  // Sempre passa referenceDate = último dia do mês visualizado.
-  // Backend usa pra: (a) filtrar leads que JÁ existiam até lá (passado);
-  // (b) calcular paidCount no MÊS DO CALENDÁRIO, não no mês atual real
-  // (sem isso, mês futuro/passado mostraria pagos baseados em maio).
+  // Sempre passa referenceDate = último dia do mês visualizado EM UTC.
+  // Bug histórico: `new Date(year, month+1, 0, 23, 59, 59)` cria a data no
+  // timezone LOCAL. .toISOString() converte pra UTC e em fusos negativos
+  // (UTC-3 do Brasil) o "31/5 23:59 BRT" vira "1/6 02:59 UTC" — o backend
+  // ao chamar `.getUTCMonth()` retornava Junho em vez de Maio, e o paidCount
+  // do calendário ficava 0/X pros dias do mês visualizado. Fix: usar Date.UTC.
   const referenceDate = new Date(
-    viewYear,
-    viewMonth + 1,
-    0,
-    23,
-    59,
-    59,
+    Date.UTC(viewYear, viewMonth + 1, 0, 23, 59, 59),
   ).toISOString();
 
   const { data, isLoading } = useQuery({
