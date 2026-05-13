@@ -64,6 +64,10 @@ type MindNodeData = {
   funilMeta?: string | null;
   /** LP URL pra mostrar no card e abrir no click direto */
   lpUrl?: string | null;
+  /** Status do criativo como badge no header (ATIVO/PAUSADO/MORTO) */
+  statusBadge?: string | null;
+  /** Stats individuais pra renderizar em grid de cards (criativo) */
+  stats?: Array<{ label: string; value: string | null }>;
 };
 
 type MindNode = Node<MindNodeData>;
@@ -112,8 +116,8 @@ const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
   root: { w: 360, h: 80 },
   persona: { w: 360, h: 86 },
   angulo: { w: 330, h: 76 },
-  // Criativo (= campanha) horizontal: thumb 140 à esquerda + infos à direita
-  criativo: { w: 440, h: 180 },
+  // Criativo (= campanha) horizontal: thumb 180 à esquerda + grid de métricas à direita
+  criativo: { w: 540, h: 240 },
   "plano-com": { w: 270, h: 60 },
   "plano-sem": { w: 270, h: 60 },
   pagina: { w: 270, h: 70 },
@@ -245,62 +249,88 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
         <div
           className={
             data.kind === "criativo" && data.thumbUrl && !placeholder
-              ? "flex-1 px-3 py-2.5 min-w-0 flex flex-col justify-between"
+              ? "flex-1 px-4 py-3 min-w-0 flex flex-col gap-2"
               : ""
           }
         >
-        {/* Header tag */}
-        <div
-          className="text-[8px] font-bold tracking-[1.5px] uppercase mb-1 leading-tight flex items-center gap-1.5"
-          style={{
-            color: isRoot ? "rgba(0,0,0,0.7)" : cor,
-            opacity: isRoot ? 1 : placeholder ? 0.55 : 0.9,
-          }}
-        >
-          <span>// {KIND_LABEL[data.kind]}</span>
-          {data.childCount && data.childCount > 0 && !data.expanded ? (
-            <span
-              className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold"
-              style={{
-                background: isRoot ? "rgba(0,0,0,0.18)" : `${cor}25`,
-                color: isRoot ? "#000" : cor,
-              }}
-            >
-              <Layers className="size-2.5" strokeWidth={2.5} />
-              {data.childCount}
-            </span>
-          ) : null}
-        </div>
-
-        {/* Body */}
-        <div
-          className="font-sans text-[13px] font-bold leading-tight"
-          style={{
-            color: isRoot
-              ? "#000"
-              : placeholder
-                ? "#a1a1aa"
-                : "#fafafa",
-          }}
-        >
-          <div className="flex items-start gap-1.5">
-            {Icon ? (
+          {/* Header: tag + (status badge pra criativo) + childCount badge */}
+          <div
+            className="text-[8px] font-bold tracking-[1.5px] uppercase leading-tight flex items-center justify-between gap-2"
+            style={{
+              color: isRoot ? "rgba(0,0,0,0.7)" : cor,
+              opacity: isRoot ? 1 : placeholder ? 0.55 : 0.9,
+            }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="truncate">// {KIND_LABEL[data.kind]}</span>
+              {data.childCount && data.childCount > 0 && !data.expanded ? (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold flex-shrink-0"
+                  style={{
+                    background: isRoot ? "rgba(0,0,0,0.18)" : `${cor}25`,
+                    color: isRoot ? "#000" : cor,
+                  }}
+                >
+                  <Layers className="size-2.5" strokeWidth={2.5} />
+                  {data.childCount}
+                </span>
+              ) : null}
+            </div>
+            {/* Status badge (criativo) */}
+            {data.statusBadge && !placeholder ? (
               <span
-                className="shrink-0 mt-0.5"
+                className="px-1.5 py-0.5 rounded font-bold text-[9px] flex-shrink-0"
                 style={{
-                  color: isRoot ? "rgba(0,0,0,0.7)" : cor,
-                  opacity: placeholder ? 0.6 : 1,
+                  background:
+                    data.statusBadge === "ATIVO"
+                      ? "rgba(132,204,22,0.18)"
+                      : data.statusBadge === "PAUSADO"
+                        ? "rgba(245,158,11,0.18)"
+                        : "rgba(239,68,68,0.18)",
+                  color:
+                    data.statusBadge === "ATIVO"
+                      ? "#84cc16"
+                      : data.statusBadge === "PAUSADO"
+                        ? "#f59e0b"
+                        : "#ef4444",
                 }}
               >
-                <Icon className="size-3.5" />
+                {data.statusBadge}
               </span>
             ) : null}
-            <span className="break-words leading-snug flex-1">{data.label}</span>
           </div>
+
+          {/* Headline */}
+          <div
+            className="font-sans text-[13px] font-bold leading-snug"
+            style={{
+              color: isRoot
+                ? "#000"
+                : placeholder
+                  ? "#a1a1aa"
+                  : "#fafafa",
+            }}
+          >
+            <div className="flex items-start gap-1.5">
+              {Icon ? (
+                <span
+                  className="shrink-0 mt-0.5"
+                  style={{
+                    color: isRoot ? "rgba(0,0,0,0.7)" : cor,
+                    opacity: placeholder ? 0.6 : 1,
+                  }}
+                >
+                  <Icon className="size-3.5" />
+                </span>
+              ) : null}
+              <span className="break-words flex-1 line-clamp-2">{data.label}</span>
+            </div>
+          </div>
+
           {/* Persona meta */}
           {isPersona && (data.pct != null || data.prioridade) && !placeholder ? (
             <div
-              className="mt-1 text-[10px] font-medium font-mono"
+              className="text-[10px] font-medium font-mono"
               style={{ color: cor, opacity: 0.85 }}
             >
               {data.prioridade ? data.prioridade.toUpperCase() : ""}
@@ -308,27 +338,43 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
               {data.pct != null ? `${Math.round(data.pct)}%` : ""}
             </div>
           ) : null}
-          {/* Meta extra */}
-          {data.meta && !placeholder ? (
+
+          {/* Grid de métricas (pra criativo com stats) */}
+          {data.stats && data.stats.length > 0 && !placeholder ? (
+            <div className="grid grid-cols-3 gap-1.5 mt-auto">
+              {data.stats.map((s) => (
+                <div
+                  key={s.label}
+                  className="rounded-md px-2 py-1 flex flex-col gap-0.5"
+                  style={{ background: `${cor}12`, border: `1px solid ${cor}20` }}
+                >
+                  <div
+                    className="text-[8px] uppercase tracking-wider font-bold leading-none"
+                    style={{ color: cor, opacity: 0.7 }}
+                  >
+                    {s.label}
+                  </div>
+                  <div className="text-[12px] font-bold tabular-nums leading-tight text-foreground">
+                    {s.value ?? "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Meta inline (pra outros tipos — angulo, persona) */}
+          {data.meta && !placeholder && !data.stats?.length ? (
             <div
-              className="mt-1 text-[10px] font-mono truncate"
+              className="text-[10px] font-mono truncate"
               style={{ color: cor, opacity: 0.85 }}
             >
               {data.meta}
             </div>
           ) : null}
-          {/* Funil LP (segunda linha de métricas — pra criativos) */}
-          {data.funilMeta && !placeholder ? (
-            <div
-              className="mt-0.5 text-[10px] font-mono truncate"
-              style={{ color: cor, opacity: 0.7 }}
-            >
-              📄 {data.funilMeta}
-            </div>
-          ) : null}
-          {/* LP URL (pra criativos com LP atribuída) */}
+
+          {/* LP URL (rodapé do criativo) */}
           {data.lpUrl && !placeholder ? (
-            <div className="mt-1.5 text-[10px] font-mono truncate flex items-center gap-1" style={{ opacity: 0.65 }}>
+            <div className="text-[10px] font-mono truncate flex items-center gap-1 pt-1 border-t border-white/5">
               <span style={{ color: cor }}>↗</span>
               <span className="text-foreground/70 truncate">
                 {shortLpLabel(data.lpUrl)}
@@ -336,7 +382,6 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
             </div>
           ) : null}
         </div>
-        </div>{/* fecha wrapper do conteúdo direito (criativo horizontal) */}
       </div>
     </div>
   );
@@ -405,6 +450,14 @@ function fmtViews(v: number | null | undefined): string | null {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M views`;
   if (v >= 1000) return `${(v / 1000).toFixed(1)}k views`;
   return `${v} views`;
+}
+
+// Igual fmtViews mas sem o sufixo "views" — pra grid de stats
+function fmtImpVal(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return `${v}`;
 }
 
 
@@ -576,17 +629,6 @@ function buildBlueprintTree(
         const isCriativoPlaceholder = !c;
         const criativoExpanded = expanded.has(slotId);
 
-        const criativoMeta = c
-          ? [
-              fmtStatus(c.status),
-              fmtCtr(c.ctr),
-              fmtCpa(c.cpa),
-              fmtImp(c.impressoes),
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : null;
-
         // Pra imagem: prefere url full size. Pra vídeo: usa thumbUrl (frame).
         const criativoThumb = c
           ? c.tipo === "video"
@@ -594,7 +636,7 @@ function buildBlueprintTree(
             : (c.url ?? c.thumbUrl)
           : null;
 
-        // Métricas detalhadas: ctc (LP views → checkout), cr (LP views → compra)
+        // Métricas individuais — pra renderizar em grid de cards
         const ctcPct =
           c?.lpViews && c.lpViews > 0 && c.checkouts != null
             ? (c.checkouts / c.lpViews) * 100
@@ -603,12 +645,16 @@ function buildBlueprintTree(
           c?.lpViews && c.lpViews > 0 && c.compras != null
             ? (c.compras / c.lpViews) * 100
             : null;
-        // Linha extra com funil de LP (se tiver dado)
-        const funilMeta = c
-          ? [fmtViews(c.lpViews), fmtCtc(ctcPct), fmtCr(crPct)]
-              .filter(Boolean)
-              .join(" · ") || null
-          : null;
+        const stats: Array<{ label: string; value: string | null }> = c
+          ? [
+              { label: "CTR", value: c.ctr != null ? `${c.ctr.toFixed(2)}%` : null },
+              { label: "CPA", value: c.cpa != null ? `R$ ${c.cpa.toFixed(0)}` : null },
+              { label: "Impressões", value: fmtImpVal(c.impressoes) },
+              { label: "LP Views", value: fmtImpVal(c.lpViews) },
+              { label: "CTC", value: ctcPct != null ? `${ctcPct.toFixed(1)}%` : null },
+              { label: "CR", value: crPct != null ? `${crPct.toFixed(2)}%` : null },
+            ]
+          : [];
 
         nodes.push({
           id: slotId,
@@ -616,14 +662,14 @@ function buildBlueprintTree(
           position: { x: 0, y: 0 },
           data: {
             label:
-              c?.headlineOverlay?.slice(0, 36) ??
+              c?.headlineOverlay?.slice(0, 80) ??
               (c ? `Criativo ${c.id}` : `Criativo ${k + 1}`),
             kind: "criativo",
             cor: criativoCor,
             isPlaceholder: isCriativoPlaceholder,
-            meta: criativoMeta,
-            // Sub-meta opcional pra mostrar funil quando disponível
-            funilMeta,
+            // Status como badge separado (não na linha meta)
+            statusBadge: c?.status?.toUpperCase() ?? null,
+            stats,
             lpUrl: c?.lpUrl ?? null,
             thumbUrl: criativoThumb,
             isVideo: c?.tipo === "video",
