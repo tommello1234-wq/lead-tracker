@@ -579,14 +579,16 @@ function buildBlueprintTree(
     return a.nome.localeCompare(b.nome);
   });
 
-  // Itera REVERSO porque dagre LR ordena nodes dentro do rank em LIFO
-  // (último inserido = topo). Inserindo de trás pra frente, sortedPersonas[0]
-  // (maior prioridade) acaba inserido por último → topo do mapa.
-  for (let i = PERSONAS_LIMIT - 1; i >= 0; i--) {
+  // Itera só pelas personas REAIS — sem placeholders.
+  // Pra adicionar: botão "➕ Adicionar persona" no hover do nó root.
+  // REVERSO mantido pra ordem LIFO do dagre (sortedPersonas[0] → topo).
+  const personasLimit = Math.max(sortedPersonas.length, 0);
+  for (let i = personasLimit - 1; i >= 0; i--) {
     const p = sortedPersonas[i];
-    const personaId = p ? `p-${p.id}` : `p-ph-${i}`;
-    const personaCor = p?.cor ?? KIND_DEFAULT_COR.persona;
-    const isPersonaPlaceholder = !p;
+    if (!p) continue;
+    const personaId = `p-${p.id}`;
+    const personaCor = p.cor ?? KIND_DEFAULT_COR.persona;
+    const isPersonaPlaceholder = false;
     const personaExpanded = expanded.has(personaId);
 
     nodes.push({
@@ -641,18 +643,25 @@ function buildBlueprintTree(
           .sort((a, b) => a.id - b.id)
       : [];
 
-    // Reverso: compensar LIFO do dagre (mesma lógica das personas)
-    for (let j = ANGULOS_LIMIT - 1; j >= 0; j--) {
+    // Itera só pelos ângulos REAIS dessa persona — sem placeholders vazios.
+    // Pra adicionar ângulo novo, user usa o botão "➕ Adicionar ângulo" no
+    // hover do card da persona.
+    const limit = Math.max(personaAngulos.length, 0);
+    for (let j = limit - 1; j >= 0; j--) {
       const a = personaAngulos[j];
-      const anguloId = a ? `a-${a.id}` : `${personaId}-a-ph-${j}`;
+      if (!a) continue;
+      const anguloId = `a-${a.id}`;
       const anguloCor = KIND_DEFAULT_COR.angulo;
-      const isAnguloPlaceholder = !a;
+      const isAnguloPlaceholder = false;
       const anguloExpanded = expanded.has(anguloId);
-      const anguloMeta = a
-        ? [fmtStatus(a.status), fmtRoas(a.roas), fmtCtr(a.ctr), fmtCpa(a.cpa)]
-            .filter(Boolean)
-            .join(" · ")
-        : null;
+      const anguloMeta = [
+        fmtStatus(a.status),
+        fmtRoas(a.roas),
+        fmtCtr(a.ctr),
+        fmtCpa(a.cpa),
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
       nodes.push({
         id: anguloId,
@@ -697,24 +706,24 @@ function buildBlueprintTree(
 
       if (!anguloExpanded) continue;
 
-      // Slot IDs estáveis baseados em posição (não no criativo.id)
-      // pra que pick manual + auto possam co-existir.
+      // Renderiza só criativos REAIS atribuídos a esse ângulo — sem
+      // placeholders. Pra adicionar criativo, user clica no ângulo (abre
+      // AnguloAttachModal pra escolher um criativo da lista).
       const anguloCriativos = a?.criativos ?? [];
-      // Indexa criativos GLOBALMENTE pra resolver pick manual
       const allCriativos = angulos.flatMap((ag) => ag.criativos ?? []);
       const criativoById = new Map<string, (typeof allCriativos)[number]>();
       for (const cc of allCriativos) criativoById.set(String(cc.id), cc);
 
-      // Reverso: compensar LIFO do dagre
-      for (let k = CRIATIVOS_LIMIT - 1; k >= 0; k--) {
+      const criativosLimit = Math.max(anguloCriativos.length, 0);
+      for (let k = criativosLimit - 1; k >= 0; k--) {
         const slotId = `${anguloId}-criativo-slot-${k}`;
         const manualPick = picks.criativos[slotId];
-        // Resolver: 1) pick manual; 2) auto (criativo[k] do ângulo)
         const c =
           (manualPick ? criativoById.get(manualPick) : null) ??
           anguloCriativos[k];
+        if (!c) continue;
         const criativoCor = KIND_DEFAULT_COR.criativo;
-        const isCriativoPlaceholder = !c;
+        const isCriativoPlaceholder = false;
         const criativoExpanded = expanded.has(slotId);
 
         // Pra imagem: prefere url full size. Pra vídeo: usa thumbUrl (frame).
