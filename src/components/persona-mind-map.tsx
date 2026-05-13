@@ -70,6 +70,8 @@ type MindNodeData = {
   lpUrl?: string | null;
   /** Status do criativo como badge no header (ATIVO/PAUSADO/MORTO) */
   statusBadge?: string | null;
+  /** Sub-label sutil no header (ex: ID Meta · tipo) */
+  subLabel?: string | null;
   /** Stats individuais pra renderizar em grid de cards (criativo) */
   stats?: Array<{ label: string; value: string | null }>;
   /** Ações inline (botões pequenos que aparecem no hover do card) */
@@ -97,7 +99,8 @@ const KIND_LABEL: Record<NodeKind, string> = {
   root: "PRODUTO",
   persona: "PERSONA",
   angulo: "ÂNGULO",
-  criativo: "CRIATIVO",
+  // Card agrupa o anúncio inteiro (criativo + LP + métricas) → "CAMPANHA"
+  criativo: "CAMPANHA",
   "plano-com": "PLANO · COM CRÉDITOS",
   "plano-sem": "PLANO · SEM CRÉDITOS",
   pagina: "PÁGINA",
@@ -107,7 +110,8 @@ const KIND_ICON: Record<NodeKind, React.ComponentType<{ className?: string }> | 
   root: TargetIcon,
   persona: null,
   angulo: Megaphone,
-  criativo: ImageIcon,
+  // Campanha = agrupa anúncio (criativo + LP + métricas) — sem ícone, headline destaca
+  criativo: null,
   "plano-com": CreditCard,
   "plano-sem": CreditCard,
   pagina: FileText,
@@ -311,6 +315,14 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="truncate">// {KIND_LABEL[data.kind]}</span>
+              {data.subLabel ? (
+                <span
+                  className="text-[8px] font-medium tracking-wider opacity-50 truncate"
+                  style={{ color: cor }}
+                >
+                  · {data.subLabel}
+                </span>
+              ) : null}
               {data.childCount && data.childCount > 0 && !data.expanded ? (
                 <span
                   className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold flex-shrink-0"
@@ -732,6 +744,16 @@ function buildBlueprintTree(
             ]
           : [];
 
+        // Sub-label do header: tipo + ID Meta (ex: "Imagem · 120242779116400390")
+        const subLabel = c
+          ? [
+              c.tipo === "video" ? "Vídeo" : c.tipo === "carrossel" ? "Carrossel" : "Imagem",
+              c.metaAdsId ? `ID ${c.metaAdsId.slice(-8)}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : null;
+
         nodes.push({
           id: slotId,
           type: "mind",
@@ -739,12 +761,13 @@ function buildBlueprintTree(
           data: {
             label:
               c?.headlineOverlay?.slice(0, 80) ??
-              (c ? `Criativo ${c.id}` : `Criativo ${k + 1}`),
+              (c ? `Campanha ${c.id}` : `Campanha ${k + 1}`),
             kind: "criativo",
             cor: criativoCor,
             isPlaceholder: isCriativoPlaceholder,
             // Status como badge separado (não na linha meta)
             statusBadge: c?.status?.toUpperCase() ?? null,
+            subLabel,
             stats,
             lpUrl: c?.lpUrl ?? null,
             thumbUrl: criativoThumb,
