@@ -60,6 +60,10 @@ type MindNodeData = {
   thumbUrl?: string | null;
   /** Indica que é vídeo (pra mostrar overlay de play) */
   isVideo?: boolean;
+  /** Linha extra de métricas (funil LP) abaixo do meta principal */
+  funilMeta?: string | null;
+  /** LP URL pra mostrar no card e abrir no click direto */
+  lpUrl?: string | null;
 };
 
 type MindNode = Node<MindNodeData>;
@@ -108,8 +112,8 @@ const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
   root: { w: 360, h: 80 },
   persona: { w: 360, h: 86 },
   angulo: { w: 330, h: 76 },
-  // Criativo com thumb inline (~140px de imagem + 80px de textos)
-  criativo: { w: 280, h: 230 },
+  // Criativo (= campanha): thumb 140px + headline + métricas + funil + LP url
+  criativo: { w: 300, h: 290 },
   "plano-com": { w: 270, h: 60 },
   "plano-sem": { w: 270, h: 60 },
   pagina: { w: 270, h: 70 },
@@ -303,6 +307,24 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
               style={{ color: cor, opacity: 0.85 }}
             >
               {data.meta}
+            </div>
+          ) : null}
+          {/* Funil LP (segunda linha de métricas — pra criativos) */}
+          {data.funilMeta && !placeholder ? (
+            <div
+              className="mt-0.5 text-[10px] font-mono truncate"
+              style={{ color: cor, opacity: 0.7 }}
+            >
+              📄 {data.funilMeta}
+            </div>
+          ) : null}
+          {/* LP URL (pra criativos com LP atribuída) */}
+          {data.lpUrl && !placeholder ? (
+            <div className="mt-1.5 text-[10px] font-mono truncate flex items-center gap-1" style={{ opacity: 0.65 }}>
+              <span style={{ color: cor }}>↗</span>
+              <span className="text-foreground/70 truncate">
+                {shortLpLabel(data.lpUrl)}
+              </span>
             </div>
           ) : null}
         </div>
@@ -561,6 +583,23 @@ function buildBlueprintTree(
             ? c.thumbUrl
             : (c.url ?? c.thumbUrl)
           : null;
+
+        // Métricas detalhadas: ctc (LP views → checkout), cr (LP views → compra)
+        const ctcPct =
+          c?.lpViews && c.lpViews > 0 && c.checkouts != null
+            ? (c.checkouts / c.lpViews) * 100
+            : null;
+        const crPct =
+          c?.lpViews && c.lpViews > 0 && c.compras != null
+            ? (c.compras / c.lpViews) * 100
+            : null;
+        // Linha extra com funil de LP (se tiver dado)
+        const funilMeta = c
+          ? [fmtViews(c.lpViews), fmtCtc(ctcPct), fmtCr(crPct)]
+              .filter(Boolean)
+              .join(" · ") || null
+          : null;
+
         nodes.push({
           id: slotId,
           type: "mind",
@@ -573,13 +612,12 @@ function buildBlueprintTree(
             cor: criativoCor,
             isPlaceholder: isCriativoPlaceholder,
             meta: criativoMeta,
-            hasChildren: true,
-            expanded: criativoExpanded,
-            childCount: 2,
+            // Sub-meta opcional pra mostrar funil quando disponível
+            funilMeta,
+            lpUrl: c?.lpUrl ?? null,
             thumbUrl: criativoThumb,
             isVideo: c?.tipo === "video",
-            onToggle: () => toggle(slotId),
-            // Criativo real → abre preview. Placeholder → abre picker pra escolher.
+            // Click real abre preview. Placeholder abre picker.
             onClick: () =>
               c ? onPreviewCriativo(c.id, slotId) : onPickCriativo(slotId),
           },
@@ -595,128 +633,6 @@ function buildBlueprintTree(
             strokeOpacity: isCriativoPlaceholder ? 0.35 : 0.8,
           },
         });
-
-        if (!criativoExpanded) continue;
-
-        const planos: Array<{
-          id: string;
-          label: string;
-          kind: NodeKind;
-          cor: string;
-        }> = [
-          {
-            id: `${slotId}-pcom`,
-            label: "Com Créditos",
-            kind: "plano-com",
-            cor: KIND_DEFAULT_COR["plano-com"],
-          },
-          {
-            id: `${slotId}-psem`,
-            label: "Sem Créditos",
-            kind: "plano-sem",
-            cor: KIND_DEFAULT_COR["plano-sem"],
-          },
-        ];
-
-        for (const plano of planos) {
-          const planoExpanded = expanded.has(plano.id);
-          nodes.push({
-            id: plano.id,
-            type: "mind",
-            position: { x: 0, y: 0 },
-            data: {
-              label: plano.label,
-              kind: plano.kind,
-              cor: plano.cor,
-              isPlaceholder: true,
-              hasChildren: true,
-              expanded: planoExpanded,
-              childCount: PAGINAS_LIMIT,
-              onToggle: () => toggle(plano.id),
-            },
-          });
-          edges.push({
-            id: `e-${slotId}-${plano.id}`,
-            source: slotId,
-            target: plano.id,
-            type: "smoothstep",
-            style: {
-              stroke: plano.cor,
-              strokeWidth: 1.2,
-              strokeOpacity: 0.5,
-            },
-          });
-
-          if (!planoExpanded) continue;
-
-          // Página: pick manual > LP do criativo > LP do ângulo (slot 0) > placeholder
-          // LP é propriedade do criativo (cada ad tem URL própria no Meta);
-          // angulo.lpUrl é fallback p/ criativos legados sem lp_url.
-          const autoLp = c?.lpUrl ?? a?.lpUrl ?? null;
-          // Reverso: compensar LIFO do dagre
-          for (let q = PAGINAS_LIMIT - 1; q >= 0; q--) {
-            const pageSlotId = `${plano.id}-pagina-slot-${q}`;
-            const manualLp = picks.paginas[pageSlotId];
-            const lpResolved = manualLp ?? (q === 0 ? autoLp : null);
-            const isRealPage = !!lpResolved;
-            // Métricas da página = do CRIATIVO PAI desse ramo. A LP pode
-            // estar em N campanhas, mas aqui a árvore representa "essa LP
-            // rodando com esse criativo específico" — só o funil dele
-            // importa. Se o user picou uma LP diferente da do criativo,
-            // não há dados (é uma intenção, não medição).
-            const lpMatchesCriativo = !!c && c.lpUrl === lpResolved;
-            const lpStats = lpMatchesCriativo
-              ? {
-                  lpViews: c.lpViews,
-                  checkouts: c.checkouts,
-                  compras: c.compras,
-                  ctc:
-                    c.lpViews && c.lpViews > 0 && c.checkouts != null
-                      ? (c.checkouts / c.lpViews) * 100
-                      : null,
-                  cr:
-                    c.lpViews && c.lpViews > 0 && c.compras != null
-                      ? (c.compras / c.lpViews) * 100
-                      : null,
-                }
-              : null;
-            const paginaMeta = lpStats
-              ? [
-                  fmtCtc(lpStats.ctc),
-                  fmtCr(lpStats.cr),
-                  fmtViews(lpStats.lpViews),
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || null
-              : null;
-            nodes.push({
-              id: pageSlotId,
-              type: "mind",
-              position: { x: 0, y: 0 },
-              data: {
-                label: isRealPage
-                  ? shortLpLabel(lpResolved!)
-                  : `Variação ${q + 1}`,
-                kind: "pagina",
-                cor: KIND_DEFAULT_COR.pagina,
-                isPlaceholder: !isRealPage,
-                meta: paginaMeta,
-                onClick: () => onPickPagina(pageSlotId),
-              },
-            });
-            edges.push({
-              id: `e-${plano.id}-${pageSlotId}`,
-              source: plano.id,
-              target: pageSlotId,
-              type: "smoothstep",
-              style: {
-                stroke: KIND_DEFAULT_COR.pagina,
-                strokeWidth: isRealPage ? 1.2 : 1,
-                strokeOpacity: isRealPage ? 0.7 : 0.35,
-              },
-            });
-          }
-        }
       }
     }
   }
