@@ -326,9 +326,11 @@ angulosRoutes.post("/import-from-meta", async (c) => {
     if (!item.metaAdsId || !item.nome?.trim()) continue;
     const existingCr = existingByMetaId.get(item.metaAdsId);
     if (existingCr) {
-      // Atualiza só as métricas do criativo (deixa nome/lp/status intocados
-      // pra não sobrescrever ajustes manuais que o user fez no painel)
+      // Atualiza métricas + lp_url (Meta é source of truth pra ad — se user
+      // trocou URL no painel Meta, refletimos aqui). Não toca status pra
+      // preservar pausa/ativação manual no Lead Tracker.
       const cr = item.criativo;
+      const newLp = trimOrNull(cr?.lpUrl ?? item.lpUrl);
       const patch: Record<string, unknown> = { atualizadoEm: new Date() };
       if (cr?.ctr != null) patch.ctr = cr.ctr;
       if (cr?.cpa != null) patch.cpa = cr.cpa;
@@ -336,6 +338,7 @@ angulosRoutes.post("/import-from-meta", async (c) => {
       if (cr?.lpViews != null) patch.lpViews = cr.lpViews;
       if (cr?.checkouts != null) patch.checkouts = cr.checkouts;
       if (cr?.compras != null) patch.compras = cr.compras;
+      if (newLp && newLp !== existingCr.lpUrl) patch.lpUrl = newLp;
       await db.update(criativos).set(patch).where(eq(criativos.id, existingCr.id));
       updated.push({ criativoId: existingCr.id, metaAdsId: item.metaAdsId });
       continue;
