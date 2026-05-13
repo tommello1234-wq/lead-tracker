@@ -309,6 +309,40 @@ type ImportPayload = {
 };
 
 /**
+ * Refresh status only (light sync): pega todos criativos com metaAdsId,
+ * busca status atual no Meta, atualiza no banco. Útil quando user pausou
+ * ads no painel Meta e quer sincronizar sem re-importar tudo.
+ */
+angulosRoutes.post("/refresh-statuses", async (c) => {
+  const { getAds } = await import("../lib/meta-ads.js");
+  // Pega todos criativos com metaAdsId
+  const all = await db.select().from(criativos);
+  const withMetaId = all.filter((c) => c.metaAdsId);
+  if (withMetaId.length === 0) return c.json({ updated: 0 });
+
+  // Busca status atual no Meta (1 chamada, traz tudo). Sem filtro de spend
+  // pra pegar até os ads pausados que zeraram. Sem time range = padrão 90d.
+  const ads = await getAds(null, null, { onlyWithSpend: false }).catch(() => []);
+  const statusByMetaId = new Map<string, string>();
+  for (const ad of ads) {
+    // ACTIVE → ativo; resto (PAUSED, CAMPAIGN_PAUSED, ADSET_PAUSED, etc.) → pausado
+    statusByMetaId.set(ad.adId, ad.status === "ACTIVE" ? "ativo" : "pausado");
+  }
+
+  let updated = 0;
+  for (const cr of withMetaId) {
+    const newStatus = statusByMetaId.get(cr.metaAdsId!);
+    if (!newStatus || newStatus === cr.status) continue;
+    await db
+      .update(criativos)
+      .set({ status: newStatus as CriativoStatus, atualizadoEm: new Date() })
+      .where(eq(criativos.id, cr.id));
+    updated++;
+  }
+  return c.json({ updated, total: withMetaId.length });
+});
+
+/**
  * Import de ads do Meta como ângulos. Idempotente por meta_ads_id:
  * - Criativo novo: INSERT (cria ângulo + criativo)
  * - Criativo existente: UPDATE das métricas (ctr, cpa, lpViews, checkouts,

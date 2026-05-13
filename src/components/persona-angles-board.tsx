@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  RefreshCw,
 } from "lucide-react";
 import { ImportMetaAdsDialog } from "@/components/import-meta-ads-dialog";
 import { api } from "@/lib/api";
@@ -95,6 +96,25 @@ export function PersonaAnglesBoard({
   // Ângulos sem persona definida (órfãos)
   const orfaos = angulos.filter((a) => a.personaId == null);
 
+  // Sincroniza só os status dos criativos (ativo/pausado) consultando Meta API
+  // — bem mais rápido que re-importar tudo, pra refletir ads pausados no painel.
+  const refreshStatusMut = useMutation({
+    mutationFn: () =>
+      api.post<{ updated: number; total: number }>(
+        "/api/angulos/refresh-statuses",
+        {},
+      ),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["angulos"] });
+      alert(
+        `Status atualizados: ${r.updated} de ${r.total} criativos refletem o Meta agora.`,
+      );
+    },
+    onError: (e: unknown) => {
+      alert(e instanceof Error ? e.message : "Erro ao sincronizar status");
+    },
+  });
+
   const togglePersona = (id: number) => {
     setCollapsedPersonas((prev) => {
       const next = new Set(prev);
@@ -123,20 +143,35 @@ export function PersonaAnglesBoard({
   return (
     <div className="flex flex-col gap-6">
       {/* Toolbar do board */}
-      <div className="flex items-center justify-between gap-3 -mb-2">
+      <div className="flex items-center justify-between gap-3 -mb-2 flex-wrap">
         <div className="text-xs text-foreground/60">
           Cada persona vira swim lane. Cadastre ângulos pra testar promessas
           diferentes pro mesmo público.
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setImporting(true)}
-        >
-          <Download className="size-3.5 mr-1.5" />
-          Importar do Meta Ads
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => refreshStatusMut.mutate()}
+            disabled={refreshStatusMut.isPending}
+            title="Sincroniza apenas ATIVO/PAUSADO dos criativos com o Meta"
+          >
+            <RefreshCw
+              className={`size-3.5 mr-1.5 ${refreshStatusMut.isPending ? "animate-spin" : ""}`}
+            />
+            {refreshStatusMut.isPending ? "Sincronizando..." : "Sincronizar status"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setImporting(true)}
+          >
+            <Download className="size-3.5 mr-1.5" />
+            Importar do Meta Ads
+          </Button>
+        </div>
       </div>
 
       {personas.map((p) => {
