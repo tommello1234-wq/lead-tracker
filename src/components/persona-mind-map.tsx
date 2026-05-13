@@ -112,8 +112,8 @@ const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
   root: { w: 360, h: 80 },
   persona: { w: 360, h: 86 },
   angulo: { w: 330, h: 76 },
-  // Criativo (= campanha): thumb 140px + headline + métricas + funil + LP url
-  criativo: { w: 300, h: 290 },
+  // Criativo (= campanha) horizontal: thumb 140 à esquerda + infos à direita
+  criativo: { w: 440, h: 180 },
   "plano-com": { w: 270, h: 60 },
   "plano-sem": { w: 270, h: 60 },
   pagina: { w: 270, h: 70 },
@@ -166,8 +166,12 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
       ) : null}
 
       <div
-        className={`relative rounded-xl px-3 py-2.5 transition-all hover:scale-[1.02] hover:brightness-110 ${
+        className={`relative rounded-xl transition-all hover:scale-[1.02] hover:brightness-110 ${
           placeholder ? "border-dashed" : ""
+        } ${
+          data.kind === "criativo" && data.thumbUrl && !placeholder
+            ? "overflow-hidden flex"
+            : "px-3 py-2.5"
         }`}
         style={{
           borderWidth: 1.5,
@@ -207,38 +211,11 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
           </button>
         ) : null}
 
-        {/* Header tag */}
-        <div
-          className="text-[8px] font-bold tracking-[1.5px] uppercase mb-1 leading-tight flex items-center gap-1.5"
-          style={{
-            color: isRoot ? "rgba(0,0,0,0.7)" : cor,
-            opacity: isRoot ? 1 : placeholder ? 0.55 : 0.9,
-          }}
-        >
-          <span>// {KIND_LABEL[data.kind]}</span>
-          {data.childCount && data.childCount > 0 && !data.expanded ? (
-            <span
-              className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold"
-              style={{
-                background: isRoot ? "rgba(0,0,0,0.18)" : `${cor}25`,
-                color: isRoot ? "#000" : cor,
-              }}
-            >
-              <Layers className="size-2.5" strokeWidth={2.5} />
-              {data.childCount}
-            </span>
-          ) : null}
-        </div>
-
-        {/* Thumbnail inline (só pra criativos com mídia) */}
+        {/* CRIATIVO HORIZONTAL: thumb à esquerda, infos à direita */}
         {data.kind === "criativo" && data.thumbUrl && !placeholder ? (
           <div
-            className="relative -mx-3 -mt-2.5 mb-2 bg-black overflow-hidden"
-            style={{
-              borderTopLeftRadius: 10,
-              borderTopRightRadius: 10,
-              height: 140,
-            }}
+            className="relative bg-black flex-shrink-0"
+            style={{ width: 160, height: "100%" }}
           >
             <img
               src={data.thumbUrl}
@@ -263,6 +240,37 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
             ) : null}
           </div>
         ) : null}
+
+        {/* Container do conteúdo — full pra outros tipos, lado direito pra criativo c/ thumb */}
+        <div
+          className={
+            data.kind === "criativo" && data.thumbUrl && !placeholder
+              ? "flex-1 px-3 py-2.5 min-w-0 flex flex-col justify-between"
+              : ""
+          }
+        >
+        {/* Header tag */}
+        <div
+          className="text-[8px] font-bold tracking-[1.5px] uppercase mb-1 leading-tight flex items-center gap-1.5"
+          style={{
+            color: isRoot ? "rgba(0,0,0,0.7)" : cor,
+            opacity: isRoot ? 1 : placeholder ? 0.55 : 0.9,
+          }}
+        >
+          <span>// {KIND_LABEL[data.kind]}</span>
+          {data.childCount && data.childCount > 0 && !data.expanded ? (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold"
+              style={{
+                background: isRoot ? "rgba(0,0,0,0.18)" : `${cor}25`,
+                color: isRoot ? "#000" : cor,
+              }}
+            >
+              <Layers className="size-2.5" strokeWidth={2.5} />
+              {data.childCount}
+            </span>
+          ) : null}
+        </div>
 
         {/* Body */}
         <div
@@ -328,6 +336,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
             </div>
           ) : null}
         </div>
+        </div>{/* fecha wrapper do conteúdo direito (criativo horizontal) */}
       </div>
     </div>
   );
