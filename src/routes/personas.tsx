@@ -111,6 +111,21 @@ export function PersonasPage() {
     nomeSugerido?: string;
   } | null>(null);
 
+  // Mutations de delete (usadas pelas ações inline do mind map)
+  const deletePersonaMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/personas/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["personas"] });
+      qc.invalidateQueries({ queryKey: ["angulos"] });
+    },
+  });
+  const deleteAnguloMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/angulos/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["angulos"] });
+    },
+  });
+
   const { data: personas = [] } = useQuery({
     queryKey: ["personas", produtoId],
     queryFn: () =>
@@ -325,6 +340,20 @@ export function PersonasPage() {
           produtoId={produtoId ?? null}
           onSelect={(p) => setEditing(p)}
           onSelectAngulo={(a) => setMatrixEditingAngulo(a)}
+          onEditPersona={(p) => setEditing(p)}
+          onDeletePersona={(p) => {
+            if (confirm(`Deletar persona "${p.nome}"? Ângulos e criativos vinculados serão desvinculados.`)) {
+              deletePersonaMutation.mutate(p.id);
+            }
+          }}
+          onCreateAnguloFor={(p) => setMatrixCreating({ persona: p })}
+          onEditAngulo={(a) => setMatrixEditingAngulo(a)}
+          onDeleteAngulo={(a) => {
+            if (confirm(`Deletar ângulo "${a.nome}"? Criativos vinculados serão desvinculados.`)) {
+              deleteAnguloMutation.mutate(a.id);
+            }
+          }}
+          onCreatePersona={() => setCreating(true)}
         />
       )}
 

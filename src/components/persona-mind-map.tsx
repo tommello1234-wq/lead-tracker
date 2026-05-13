@@ -25,6 +25,10 @@ import {
   Layers,
   Maximize2,
   X,
+  Pencil,
+  Trash2,
+  Plus,
+  Eye,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -68,6 +72,13 @@ type MindNodeData = {
   statusBadge?: string | null;
   /** Stats individuais pra renderizar em grid de cards (criativo) */
   stats?: Array<{ label: string; value: string | null }>;
+  /** Ações inline (botões pequenos que aparecem no hover do card) */
+  actions?: Array<{
+    icon: "edit" | "delete" | "add" | "view";
+    label: string;
+    onClick: () => void;
+    danger?: boolean;
+  }>;
 };
 
 type MindNode = Node<MindNodeData>;
@@ -142,7 +153,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
   return (
     <div
       onClick={onClickBody}
-      className={`relative font-mono text-xs select-none ${
+      className={`group relative font-mono text-xs select-none ${
         data.onClick ? "cursor-pointer" : ""
       }`}
       style={{
@@ -213,6 +224,43 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
               <ChevronRight className="size-3" strokeWidth={2.5} />
             )}
           </button>
+        ) : null}
+
+        {/* Toolbar de ações (top-left) — aparece no hover */}
+        {data.actions && data.actions.length > 0 && !placeholder ? (
+          <div
+            data-toggle="1"
+            className="absolute -top-3 left-2 hidden group-hover:flex items-center gap-1 z-10"
+          >
+            {data.actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                data-toggle="1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  action.onClick();
+                }}
+                className={`size-6 grid place-items-center rounded-md border shadow-sm hover:scale-110 transition-transform ${
+                  action.danger
+                    ? "bg-rose-500/95 border-rose-600 text-white"
+                    : "bg-background border-border text-foreground/70 hover:text-foreground"
+                }`}
+                title={action.label}
+                aria-label={action.label}
+              >
+                {action.icon === "edit" ? (
+                  <Pencil className="size-3" strokeWidth={2.2} />
+                ) : action.icon === "delete" ? (
+                  <Trash2 className="size-3" strokeWidth={2.2} />
+                ) : action.icon === "add" ? (
+                  <Plus className="size-3.5" strokeWidth={2.5} />
+                ) : (
+                  <Eye className="size-3" strokeWidth={2.2} />
+                )}
+              </button>
+            ))}
+          </div>
         ) : null}
 
         {/* CRIATIVO HORIZONTAL: thumb à esquerda, infos à direita */}
@@ -479,6 +527,13 @@ function buildBlueprintTree(
   onPickCriativo: (slotId: string) => void,
   onPickPagina: (slotId: string) => void,
   onPreviewCriativo: (criativoId: number, slotId: string) => void,
+  // CRUD callbacks pra ações inline no card
+  onEditPersona: (p: Persona) => void,
+  onDeletePersona: (p: Persona) => void,
+  onCreateAnguloFor: (p: Persona) => void,
+  onEditAngulo: (a: Angulo) => void,
+  onDeleteAngulo: (a: Angulo) => void,
+  onCreatePersona: () => void,
 ): RawTree {
   const nodes: MindNode[] = [];
   const edges: Edge[] = [];
@@ -497,6 +552,9 @@ function buildBlueprintTree(
       expanded: rootExpanded,
       childCount: PERSONAS_LIMIT,
       onToggle: () => toggle(ROOT_ID),
+      actions: [
+        { icon: "add", label: "Adicionar persona", onClick: onCreatePersona },
+      ],
     },
   });
 
@@ -535,6 +593,13 @@ function buildBlueprintTree(
         childCount: ANGULOS_LIMIT,
         onToggle: () => toggle(personaId),
         onClick: p ? () => onSelectPersona(p) : undefined,
+        actions: p
+          ? [
+              { icon: "edit", label: "Editar persona", onClick: () => onEditPersona(p) },
+              { icon: "add", label: "Adicionar ângulo", onClick: () => onCreateAnguloFor(p) },
+              { icon: "delete", label: "Deletar persona", onClick: () => onDeletePersona(p), danger: true },
+            ]
+          : undefined,
       },
     });
     edges.push({
@@ -593,6 +658,17 @@ function buildBlueprintTree(
           onToggle: () => toggle(anguloId),
           // Click no ângulo → abre modal pra atribuir criativos a ele
           onClick: a ? () => onAttachAngulo(a) : undefined,
+          actions: a
+            ? [
+                { icon: "edit", label: "Editar ângulo", onClick: () => onEditAngulo(a) },
+                { icon: "delete", label: "Deletar ângulo", onClick: () => onDeleteAngulo(a), danger: true },
+              ]
+            : p
+              ? [
+                  // Placeholder de ângulo: oferece criar nesse slot
+                  { icon: "add", label: "Criar ângulo aqui", onClick: () => onCreateAnguloFor(p) },
+                ]
+              : undefined,
         },
       });
       edges.push({
@@ -747,11 +823,23 @@ function MindMapInner({
   produtoId,
   onSelectPersona,
   onSelectAngulo,
+  onEditPersona,
+  onDeletePersona,
+  onCreateAnguloFor,
+  onEditAngulo,
+  onDeleteAngulo,
+  onCreatePersona,
 }: {
   personas: Persona[];
   produtoId: number | null;
   onSelectPersona: (p: Persona) => void;
   onSelectAngulo: (a: Angulo) => void;
+  onEditPersona: (p: Persona) => void;
+  onDeletePersona: (p: Persona) => void;
+  onCreateAnguloFor: (p: Persona) => void;
+  onEditAngulo: (a: Angulo) => void;
+  onDeleteAngulo: (a: Angulo) => void;
+  onCreatePersona: () => void;
 }) {
   const { fitView } = useReactFlow();
 
@@ -812,10 +900,22 @@ function MindMapInner({
   // Refs pra callbacks instáveis (props inline do parent recriam toda render).
   const onSelectPersonaRef = useRef(onSelectPersona);
   const onSelectAnguloRef = useRef(onSelectAngulo);
+  const onEditPersonaRef = useRef(onEditPersona);
+  const onDeletePersonaRef = useRef(onDeletePersona);
+  const onCreateAnguloForRef = useRef(onCreateAnguloFor);
+  const onEditAnguloRef = useRef(onEditAngulo);
+  const onDeleteAnguloRef = useRef(onDeleteAngulo);
+  const onCreatePersonaRef = useRef(onCreatePersona);
   const fitViewRef = useRef(fitView);
   useEffect(() => {
     onSelectPersonaRef.current = onSelectPersona;
     onSelectAnguloRef.current = onSelectAngulo;
+    onEditPersonaRef.current = onEditPersona;
+    onDeletePersonaRef.current = onDeletePersona;
+    onCreateAnguloForRef.current = onCreateAnguloFor;
+    onEditAnguloRef.current = onEditAngulo;
+    onDeleteAnguloRef.current = onDeleteAngulo;
+    onCreatePersonaRef.current = onCreatePersona;
     fitViewRef.current = fitView;
   });
 
@@ -894,6 +994,12 @@ function MindMapInner({
       (slotId) => onPickCriativoSlotRef.current(slotId),
       (slotId) => onPickPaginaSlotRef.current(slotId),
       (criativoId, slotId) => onPreviewCriativoRef.current(criativoId, slotId),
+      (p) => onEditPersonaRef.current(p),
+      (p) => onDeletePersonaRef.current(p),
+      (p) => onCreateAnguloForRef.current(p),
+      (a) => onEditAnguloRef.current(a),
+      (a) => onDeleteAnguloRef.current(a),
+      () => onCreatePersonaRef.current(),
     );
     return layoutTree(tree.nodes, tree.edges);
   }, [personas, angulos, expanded, toggle, picks]);
@@ -1396,13 +1502,32 @@ export function PersonaMindMap({
   produtoId,
   onSelect,
   onSelectAngulo,
+  onEditPersona,
+  onDeletePersona,
+  onCreateAnguloFor,
+  onEditAngulo,
+  onDeleteAngulo,
+  onCreatePersona,
 }: {
   personas: Persona[];
   produtoId: number | null;
   onSelect: (p: Persona) => void;
   onSelectAngulo?: (a: Angulo) => void;
+  onEditPersona?: (p: Persona) => void;
+  onDeletePersona?: (p: Persona) => void;
+  onCreateAnguloFor?: (p: Persona) => void;
+  onEditAngulo?: (a: Angulo) => void;
+  onDeleteAngulo?: (a: Angulo) => void;
+  onCreatePersona?: () => void;
 }) {
   const handleAngulo = onSelectAngulo ?? (() => {});
+  const noop = () => {};
+  const handleEditPersona = onEditPersona ?? noop;
+  const handleDeletePersona = onDeletePersona ?? noop;
+  const handleCreateAnguloFor = onCreateAnguloFor ?? noop;
+  const handleEditAngulo = onEditAngulo ?? noop;
+  const handleDeleteAngulo = onDeleteAngulo ?? noop;
+  const handleCreatePersona = onCreatePersona ?? noop;
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // ESC fecha o modo tela cheia
@@ -1468,6 +1593,12 @@ export function PersonaMindMap({
             produtoId={produtoId}
             onSelectPersona={onSelect}
             onSelectAngulo={handleAngulo}
+            onEditPersona={handleEditPersona}
+            onDeletePersona={handleDeletePersona}
+            onCreateAnguloFor={handleCreateAnguloFor}
+            onEditAngulo={handleEditAngulo}
+            onDeleteAngulo={handleDeleteAngulo}
+            onCreatePersona={handleCreatePersona}
           />
         </ReactFlowProvider>
       </div>
