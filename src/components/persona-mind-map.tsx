@@ -355,6 +355,7 @@ function buildBlueprintTree(
   onSelectAngulo: (a: Angulo) => void,
   onPickCriativo: (slotId: string) => void,
   onPickPagina: (slotId: string) => void,
+  onPreviewCriativo: (criativoId: number, slotId: string) => void,
 ): RawTree {
   const nodes: MindNode[] = [];
   const edges: Edge[] = [];
@@ -531,7 +532,9 @@ function buildBlueprintTree(
             expanded: criativoExpanded,
             childCount: 2,
             onToggle: () => toggle(slotId),
-            onClick: () => onPickCriativo(slotId),
+            // Criativo real → abre preview. Placeholder → abre picker pra escolher.
+            onClick: () =>
+              c ? onPreviewCriativo(c.id, slotId) : onPickCriativo(slotId),
           },
         });
         edges.push({
@@ -829,11 +832,25 @@ function MindMapInner({
     setPickerOpen({ kind: "pagina", slotId });
   }, []);
 
+  // Preview do criativo (mídia + métricas)
+  const [previewCriativo, setPreviewCriativo] = useState<{
+    criativoId: number;
+    slotId: string;
+  } | null>(null);
+  const onPreviewCriativoCb = useCallback(
+    (criativoId: number, slotId: string) => {
+      setPreviewCriativo({ criativoId, slotId });
+    },
+    [],
+  );
+
   const onPickCriativoSlotRef = useRef(onPickCriativoSlot);
   const onPickPaginaSlotRef = useRef(onPickPaginaSlot);
+  const onPreviewCriativoRef = useRef(onPreviewCriativoCb);
   useEffect(() => {
     onPickCriativoSlotRef.current = onPickCriativoSlot;
     onPickPaginaSlotRef.current = onPickPaginaSlot;
+    onPreviewCriativoRef.current = onPreviewCriativoCb;
   });
 
   // Computa árvore + layout via useMemo. Sem useState pra nodes/edges =
@@ -849,6 +866,7 @@ function MindMapInner({
       (a) => onSelectAnguloRef.current(a),
       (slotId) => onPickCriativoSlotRef.current(slotId),
       (slotId) => onPickPaginaSlotRef.current(slotId),
+      (criativoId, slotId) => onPreviewCriativoRef.current(criativoId, slotId),
     );
     return layoutTree(tree.nodes, tree.edges);
   }, [personas, angulos, expanded, toggle, picks]);
@@ -930,7 +948,201 @@ function MindMapInner({
           });
         }}
       />
+      {previewCriativo ? (
+        <CriativoPreviewModal
+          criativoId={previewCriativo.criativoId}
+          angulos={angulos}
+          onClose={() => setPreviewCriativo(null)}
+          onTrocar={() => {
+            const { slotId } = previewCriativo;
+            setPreviewCriativo(null);
+            setPickerOpen({ kind: "criativo", slotId });
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+/** Modal: mostra mídia do criativo (imagem/vídeo do ad) + métricas + ações */
+function CriativoPreviewModal({
+  criativoId,
+  angulos,
+  onClose,
+  onTrocar,
+}: {
+  criativoId: number;
+  angulos: Angulo[];
+  onClose: () => void;
+  onTrocar: () => void;
+}) {
+  const criativo = useMemo(() => {
+    for (const a of angulos) {
+      const found = a.criativos?.find((c) => c.id === criativoId);
+      if (found) return found;
+    }
+    return null;
+  }, [angulos, criativoId]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  if (!criativo) return null;
+  const isVideo = criativo.tipo === "video";
+  const previewUrl = criativo.thumbUrl ?? criativo.url;
+  const metaAdsLink = criativo.metaAdsId
+    ? `https://www.facebook.com/adsmanager/manage/ads?act=918344584462338&selected_ad_ids=${criativo.metaAdsId}`
+    : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in-0"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Criativo · {criativo.tipo}
+              {criativo.metaAdsId ? ` · ID ${criativo.metaAdsId}` : ""}
+            </p>
+            <h2 className="text-base font-semibold truncate">
+              {criativo.headlineOverlay ?? `Criativo ${criativo.id}`}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-9 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors flex-shrink-0"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Mídia */}
+          <div className="bg-black grid place-items-center min-h-[280px] max-h-[55vh]">
+            {previewUrl ? (
+              isVideo && criativo.url ? (
+                <video
+                  src={criativo.url}
+                  poster={criativo.thumbUrl ?? undefined}
+                  controls
+                  className="max-h-[55vh] max-w-full"
+                />
+              ) : (
+                <img
+                  src={previewUrl}
+                  alt={criativo.headlineOverlay ?? `Criativo ${criativo.id}`}
+                  className="max-h-[55vh] max-w-full object-contain"
+                />
+              )
+            ) : (
+              <div className="text-muted-foreground/60 text-sm py-12">
+                Sem mídia disponível
+              </div>
+            )}
+          </div>
+
+          {/* Métricas */}
+          <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-border">
+            <Metric label="Status" value={criativo.status?.toUpperCase()} />
+            <Metric label="CTR" value={criativo.ctr != null ? `${criativo.ctr.toFixed(2)}%` : "—"} />
+            <Metric label="CPA" value={criativo.cpa != null ? `R$ ${criativo.cpa.toFixed(0)}` : "—"} />
+            <Metric label="Impressões" value={fmtImp(criativo.impressoes) ?? "—"} />
+            <Metric label="LP Views" value={fmtViews(criativo.lpViews) ?? "—"} />
+            <Metric label="Checkouts" value={criativo.checkouts != null ? String(criativo.checkouts) : "—"} />
+            <Metric label="Compras" value={criativo.compras != null ? String(criativo.compras) : "—"} />
+            <Metric
+              label="CTC"
+              value={
+                criativo.lpViews && criativo.checkouts && criativo.lpViews > 0
+                  ? `${((criativo.checkouts / criativo.lpViews) * 100).toFixed(1)}%`
+                  : "—"
+              }
+            />
+          </div>
+
+          {/* LP URL */}
+          {criativo.lpUrl ? (
+            <div className="px-5 py-3 border-b border-border">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                Landing Page
+              </p>
+              <a
+                href={criativo.lpUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-foreground hover:underline break-all"
+              >
+                {criativo.lpUrl} ↗
+              </a>
+            </div>
+          ) : null}
+
+          {criativo.notas ? (
+            <div className="px-5 py-3">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                Notas
+              </p>
+              <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                {criativo.notas}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <footer className="px-5 py-3 border-t border-border flex items-center justify-between gap-2 flex-wrap">
+          {metaAdsLink ? (
+            <a
+              href={metaAdsLink}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-foreground/70 hover:text-foreground hover:underline"
+            >
+              Abrir no Meta Ads ↗
+            </a>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onTrocar}
+              className="px-3 py-1.5 rounded-lg bg-muted/30 hover:bg-muted/50 text-xs font-medium transition-colors"
+            >
+              Trocar criativo
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg bg-foreground text-background hover:bg-foreground/90 text-xs font-medium transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">
+        {label}
+      </p>
+      <p className="text-sm font-semibold tabular-nums">{value ?? "—"}</p>
+    </div>
   );
 }
 
