@@ -132,14 +132,16 @@ export function ImportMetaAdsDialog({
             },
           };
         });
-      return api.post<{ created: number; skipped: number }>(
+      return api.post<{ created: number; updated: number; skipped: number }>(
         "/api/angulos/import-from-meta",
         { produtoId, items },
       );
     },
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["angulos"] });
-      alert(`Importados: ${r.created} · Pulados (já existiam): ${r.skipped}`);
+      alert(
+        `Importados novos: ${r.created} · Atualizados (refresh de métricas): ${r.updated}`,
+      );
       onImported();
     },
     onError: (e: unknown) => {

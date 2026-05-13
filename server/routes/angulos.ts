@@ -305,8 +305,10 @@ type ImportPayload = {
 };
 
 /**
- * Import de ads do Meta como ângulos. Idempotente por meta_ads_id no
- * criativo — se já tem criativo com esse meta_ads_id, pula.
+ * Import de ads do Meta como ângulos. Idempotente por meta_ads_id:
+ * - Criativo novo: INSERT (cria ângulo + criativo)
+ * - Criativo existente: UPDATE das métricas (ctr, cpa, lpViews, checkouts,
+ *   compras, impressoes) — pra refresh dos dados sem precisar deletar/recriar
  */
 angulosRoutes.post("/import-from-meta", async (c) => {
   const body = (await c.req.json()) as ImportPayload;
@@ -314,16 +316,28 @@ angulosRoutes.post("/import-from-meta", async (c) => {
 
   // Pega criativos existentes com meta_ads_id pra dedupe
   const existing = await db.select().from(criativos);
-  const existingMetaIds = new Set<string>();
-  for (const cr of existing) if (cr.metaAdsId) existingMetaIds.add(cr.metaAdsId);
+  const existingByMetaId = new Map<string, typeof existing[number]>();
+  for (const cr of existing) if (cr.metaAdsId) existingByMetaId.set(cr.metaAdsId, cr);
 
   const created: { anguloId: number; criativoId: number; metaAdsId: string }[] = [];
-  const skipped: string[] = [];
+  const updated: { criativoId: number; metaAdsId: string }[] = [];
 
   for (const item of body.items) {
     if (!item.metaAdsId || !item.nome?.trim()) continue;
-    if (existingMetaIds.has(item.metaAdsId)) {
-      skipped.push(item.metaAdsId);
+    const existingCr = existingByMetaId.get(item.metaAdsId);
+    if (existingCr) {
+      // Atualiza só as métricas do criativo (deixa nome/lp/status intocados
+      // pra não sobrescrever ajustes manuais que o user fez no painel)
+      const cr = item.criativo;
+      const patch: Record<string, unknown> = { atualizadoEm: new Date() };
+      if (cr?.ctr != null) patch.ctr = cr.ctr;
+      if (cr?.cpa != null) patch.cpa = cr.cpa;
+      if (cr?.impressoes != null) patch.impressoes = cr.impressoes;
+      if (cr?.lpViews != null) patch.lpViews = cr.lpViews;
+      if (cr?.checkouts != null) patch.checkouts = cr.checkouts;
+      if (cr?.compras != null) patch.compras = cr.compras;
+      await db.update(criativos).set(patch).where(eq(criativos.id, existingCr.id));
+      updated.push({ criativoId: existingCr.id, metaAdsId: item.metaAdsId });
       continue;
     }
     const [angulo] = await db
@@ -371,5 +385,10 @@ angulosRoutes.post("/import-from-meta", async (c) => {
     created.push({ anguloId: angulo.id, criativoId, metaAdsId: item.metaAdsId });
   }
 
-  return c.json({ created: created.length, skipped: skipped.length, items: created });
+  return c.json({
+    created: created.length,
+    updated: updated.length,
+    skipped: 0,
+    items: created,
+  });
 });
