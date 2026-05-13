@@ -818,16 +818,20 @@ function layoutTree(
   );
   g.setGraph({
     rankdir: "LR",
-    nodesep: 18,
-    ranksep: 90,
-    edgesep: 8,
+    // nodesep maior pra evitar overlap dos cards de campanha (240px altura)
+    nodesep: 48,
+    ranksep: 110,
+    edgesep: 12,
     marginx: 24,
     marginy: 24,
   });
 
   for (const n of nodes) {
     const size = NODE_SIZES[n.data.kind];
-    g.setNode(n.id, { width: size.w, height: size.h + 8 });
+    // Padding extra pros cards grandes (campanha) — dagre considera height
+    // exato, então adiciona "respiro" pra cada tipo evitar sobreposição visual
+    const padding = n.data.kind === "criativo" ? 36 : 12;
+    g.setNode(n.id, { width: size.w, height: size.h + padding });
   }
   for (const e of edges) g.setEdge(e.source, e.target);
 
