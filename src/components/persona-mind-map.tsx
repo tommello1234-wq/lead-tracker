@@ -26,7 +26,7 @@ import {
   Maximize2,
   X,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { MindmapPickerDialog } from "@/components/mindmap-picker-dialog";
 import type { Angulo, Persona, PersonaPrioridade } from "@shared/types";
@@ -422,7 +422,7 @@ function buildBlueprintTree(
   toggle: (id: string) => void,
   picks: ManualPicks,
   onSelectPersona: (p: Persona) => void,
-  onSelectAngulo: (a: Angulo) => void,
+  onAttachAngulo: (a: Angulo) => void,
   onPickCriativo: (slotId: string) => void,
   onPickPagina: (slotId: string) => void,
   onPreviewCriativo: (criativoId: number, slotId: string) => void,
@@ -538,7 +538,8 @@ function buildBlueprintTree(
           expanded: anguloExpanded,
           childCount: CRIATIVOS_LIMIT,
           onToggle: () => toggle(anguloId),
-          onClick: a ? () => onSelectAngulo(a) : undefined,
+          // Click no ângulo → abre modal pra atribuir criativos a ele
+          onClick: a ? () => onAttachAngulo(a) : undefined,
         },
       });
       edges.push({
@@ -816,13 +817,21 @@ function MindMapInner({
     [],
   );
 
+  // Attach criativo → ângulo (click no ângulo abre lista de criativos)
+  const [attachingAngulo, setAttachingAngulo] = useState<Angulo | null>(null);
+  const onAttachAnguloCb = useCallback((a: Angulo) => {
+    setAttachingAngulo(a);
+  }, []);
+
   const onPickCriativoSlotRef = useRef(onPickCriativoSlot);
   const onPickPaginaSlotRef = useRef(onPickPaginaSlot);
   const onPreviewCriativoRef = useRef(onPreviewCriativoCb);
+  const onAttachAnguloRef = useRef(onAttachAnguloCb);
   useEffect(() => {
     onPickCriativoSlotRef.current = onPickCriativoSlot;
     onPickPaginaSlotRef.current = onPickPaginaSlot;
     onPreviewCriativoRef.current = onPreviewCriativoCb;
+    onAttachAnguloRef.current = onAttachAnguloCb;
   });
 
   // Computa árvore + layout via useMemo. Sem useState pra nodes/edges =
@@ -835,7 +844,7 @@ function MindMapInner({
       toggle,
       picks,
       (p) => onSelectPersonaRef.current(p),
-      (a) => onSelectAnguloRef.current(a),
+      (a) => onAttachAnguloRef.current(a),
       (slotId) => onPickCriativoSlotRef.current(slotId),
       (slotId) => onPickPaginaSlotRef.current(slotId),
       (criativoId, slotId) => onPreviewCriativoRef.current(criativoId, slotId),
@@ -930,6 +939,13 @@ function MindMapInner({
             setPreviewCriativo(null);
             setPickerOpen({ kind: "criativo", slotId });
           }}
+        />
+      ) : null}
+      {attachingAngulo ? (
+        <AnguloAttachModal
+          angulo={attachingAngulo}
+          angulos={angulos}
+          onClose={() => setAttachingAngulo(null)}
         />
       ) : null}
     </>
@@ -1120,6 +1136,211 @@ function Metric({ label, value }: { label: string; value: string | null }) {
         {label}
       </p>
       <p className="text-sm font-semibold tabular-nums">{value ?? "—"}</p>
+    </div>
+  );
+}
+
+/** Modal: lista todos os criativos do banco pra atribuir ao ângulo clicado */
+function AnguloAttachModal({
+  angulo,
+  angulos,
+  onClose,
+}: {
+  angulo: Angulo;
+  angulos: Angulo[];
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Flatten: todos criativos com info do ângulo atual
+  const allCriativos = useMemo(() => {
+    const out: Array<{
+      id: number;
+      thumb: string | null;
+      headline: string;
+      anguloId: number | null;
+      anguloNome: string | null;
+      metaAdsId: string | null;
+      tipo: string;
+      status: string;
+      jaAtribuido: boolean;
+    }> = [];
+    for (const a of angulos) {
+      for (const c of a.criativos ?? []) {
+        out.push({
+          id: c.id,
+          thumb: c.thumbUrl ?? c.url ?? null,
+          headline: c.headlineOverlay ?? `Criativo #${c.id}`,
+          anguloId: c.anguloId,
+          anguloNome: a.nome,
+          metaAdsId: c.metaAdsId,
+          tipo: c.tipo,
+          status: c.status,
+          jaAtribuido: c.anguloId === angulo.id,
+        });
+      }
+    }
+    // Ordena: ja atribuídos primeiro, depois sem ângulo, depois outros
+    out.sort((a, b) => {
+      if (a.jaAtribuido !== b.jaAtribuido) return a.jaAtribuido ? -1 : 1;
+      if (!a.anguloId !== !b.anguloId) return a.anguloId ? 1 : -1;
+      return b.id - a.id;
+    });
+    return out;
+  }, [angulos, angulo.id]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allCriativos;
+    return allCriativos.filter((c) => {
+      return (
+        c.headline.toLowerCase().includes(q) ||
+        (c.anguloNome ?? "").toLowerCase().includes(q) ||
+        (c.metaAdsId ?? "").includes(q)
+      );
+    });
+  }, [allCriativos, search]);
+
+  async function atribuir(criativoId: number, jaAtribuido: boolean) {
+    setPendingId(criativoId);
+    try {
+      // Se já tá atribuído a esse ângulo, "desatribui" setando anguloId = null
+      await api.patch(`/api/angulos/criativos/${criativoId}`, {
+        anguloId: jaAtribuido ? null : angulo.id,
+      });
+      await qc.invalidateQueries({ queryKey: ["angulos"] });
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao atualizar atribuição");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in-0"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Ângulo
+            </p>
+            <h2 className="text-lg font-semibold truncate">{angulo.nome}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-9 rounded-xl hover:bg-muted/40 grid place-items-center transition-colors flex-shrink-0"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="px-5 py-3 border-b border-border">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por headline, ângulo ou ID Meta..."
+            className="w-full px-3 py-2 rounded-lg bg-muted/30 border border-border text-sm focus:outline-none focus:border-foreground"
+          />
+          <p className="text-xs text-muted-foreground mt-2">
+            Click no criativo pra atribuí-lo a esse ângulo. Pode ter quantos
+            criativos quiser por ângulo.
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              Nenhum criativo encontrado
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => atribuir(c.id, c.jaAtribuido)}
+                  disabled={pendingId === c.id}
+                  className={`flex items-stretch gap-2 p-2 rounded-xl border-2 transition-colors text-left ${
+                    c.jaAtribuido
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-border hover:border-foreground/30 bg-muted/20"
+                  } ${pendingId === c.id ? "opacity-50" : ""}`}
+                >
+                  <div className="w-16 h-16 rounded-lg bg-black overflow-hidden flex-shrink-0 grid place-items-center">
+                    {c.thumb ? (
+                      <img
+                        src={c.thumb}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-muted-foreground/40 text-xs">
+                        {c.tipo}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                    <p className="text-sm font-medium truncate">{c.headline}</p>
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                      <span className="uppercase font-semibold">{c.tipo}</span>
+                      <span>·</span>
+                      <span className="uppercase font-semibold">
+                        {c.status}
+                      </span>
+                      {c.anguloId && c.anguloId !== angulo.id ? (
+                        <>
+                          <span>·</span>
+                          <span className="truncate">
+                            em: {c.anguloNome}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                    {c.jaAtribuido ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                        ✓ Atribuído · click p/ remover
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <footer className="px-5 py-3 border-t border-border flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">
+            {allCriativos.filter((c) => c.jaAtribuido).length} criativos
+            atribuídos a este ângulo
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg bg-foreground text-background hover:bg-foreground/90 font-medium"
+          >
+            Fechar
+          </button>
+        </footer>
+      </div>
     </div>
   );
 }

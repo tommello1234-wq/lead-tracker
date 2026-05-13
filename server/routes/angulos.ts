@@ -233,6 +233,8 @@ angulosRoutes.patch("/criativos/:id", async (c) => {
   if (!Number.isFinite(id)) return c.json({ error: "id invalido" }, 400);
   const body = (await c.req.json()) as Partial<CriativoInput>;
   const patch: Record<string, unknown> = { atualizadoEm: new Date() };
+  // anguloId pode mudar — permite re-atribuir criativo a outro ângulo
+  if (body.anguloId !== undefined) patch.anguloId = body.anguloId;
   if (body.tipo !== undefined) patch.tipo = body.tipo;
   if (body.url !== undefined) patch.url = trimOrNull(body.url);
   if (body.thumbUrl !== undefined) patch.thumbUrl = trimOrNull(body.thumbUrl);
