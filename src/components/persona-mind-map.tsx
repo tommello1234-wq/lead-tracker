@@ -56,6 +56,10 @@ type MindNodeData = {
   hasChildren?: boolean;
   onToggle?: () => void;
   onClick?: () => void;
+  /** Thumbnail inline (pra criativos) — imagem ou primeiro frame do vídeo */
+  thumbUrl?: string | null;
+  /** Indica que é vídeo (pra mostrar overlay de play) */
+  isVideo?: boolean;
 };
 
 type MindNode = Node<MindNodeData>;
@@ -104,7 +108,8 @@ const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
   root: { w: 360, h: 80 },
   persona: { w: 360, h: 86 },
   angulo: { w: 330, h: 76 },
-  criativo: { w: 310, h: 88 },
+  // Criativo com thumb inline (~140px de imagem + 80px de textos)
+  criativo: { w: 280, h: 230 },
   "plano-com": { w: 270, h: 60 },
   "plano-sem": { w: 270, h: 60 },
   pagina: { w: 270, h: 70 },
@@ -220,6 +225,40 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
             </span>
           ) : null}
         </div>
+
+        {/* Thumbnail inline (só pra criativos com mídia) */}
+        {data.kind === "criativo" && data.thumbUrl && !placeholder ? (
+          <div
+            className="relative -mx-3 -mt-2.5 mb-2 bg-black overflow-hidden"
+            style={{
+              borderTopLeftRadius: 10,
+              borderTopRightRadius: 10,
+              height: 140,
+            }}
+          >
+            <img
+              src={data.thumbUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+            {data.isVideo ? (
+              <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                <div className="size-10 rounded-full bg-black/60 grid place-items-center">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="size-5 text-white"
+                    fill="currentColor"
+                  >
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Body */}
         <div
@@ -516,6 +555,12 @@ function buildBlueprintTree(
               .join(" · ")
           : null;
 
+        // Pra imagem: prefere url full size. Pra vídeo: usa thumbUrl (frame).
+        const criativoThumb = c
+          ? c.tipo === "video"
+            ? c.thumbUrl
+            : (c.url ?? c.thumbUrl)
+          : null;
         nodes.push({
           id: slotId,
           type: "mind",
@@ -531,6 +576,8 @@ function buildBlueprintTree(
             hasChildren: true,
             expanded: criativoExpanded,
             childCount: 2,
+            thumbUrl: criativoThumb,
+            isVideo: c?.tipo === "video",
             onToggle: () => toggle(slotId),
             // Criativo real → abre preview. Placeholder → abre picker pra escolher.
             onClick: () =>
