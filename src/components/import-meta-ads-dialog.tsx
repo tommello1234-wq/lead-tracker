@@ -123,6 +123,8 @@ export function ImportMetaAdsDialog({
                 : ad.imageUrl,
               thumbUrl: ad.thumbnailUrl,
               headlineOverlay: ad.headline ?? null,
+              // Status: ACTIVE Meta → "ativo" local; resto → "pausado"
+              status: ad.status === "ACTIVE" ? ("ativo" as const) : ("pausado" as const),
               ctr: ad.ctr || null,
               cpa: ad.cpa,
               impressoes: ad.impressions,

@@ -405,16 +405,19 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
               {data.stats.map((s) => (
                 <div
                   key={s.label}
-                  className="rounded-md px-2 py-1 flex flex-col gap-0.5"
-                  style={{ background: `${cor}12`, border: `1px solid ${cor}20` }}
+                  className="rounded-md px-2 py-1.5 flex flex-col gap-0.5"
+                  style={{
+                    background: "rgba(0,0,0,0.45)",
+                    border: `1px solid ${cor}55`,
+                  }}
                 >
                   <div
-                    className="text-[8px] uppercase tracking-wider font-bold leading-none"
-                    style={{ color: cor, opacity: 0.7 }}
+                    className="text-[8.5px] uppercase tracking-wider font-bold leading-none"
+                    style={{ color: cor }}
                   >
                     {s.label}
                   </div>
-                  <div className="text-[12px] font-bold tabular-nums leading-tight text-foreground">
+                  <div className="text-[13px] font-extrabold tabular-nums leading-tight text-white">
                     {s.value ?? "—"}
                   </div>
                 </div>
@@ -434,9 +437,9 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
 
           {/* LP URL (rodapé do criativo) */}
           {data.lpUrl && !placeholder ? (
-            <div className="text-[10px] font-mono truncate flex items-center gap-1 pt-1 border-t border-white/5">
+            <div className="text-[10px] font-mono truncate flex items-center gap-1 pt-1 border-t border-white/10">
               <span style={{ color: cor }}>↗</span>
-              <span className="text-foreground/70 truncate">
+              <span className="text-white/85 truncate">
                 {shortLpLabel(data.lpUrl)}
               </span>
             </div>

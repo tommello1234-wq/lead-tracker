@@ -295,6 +295,8 @@ type ImportPayload = {
       headlineOverlay?: string | null;
       /** LP de destino do ad — se omitido, herda de item.lpUrl */
       lpUrl?: string | null;
+      /** Status do ad no Meta — "ativo" se ACTIVE, "pausado" caso contrário */
+      status?: CriativoStatus;
       ctr?: number | null;
       cpa?: number | null;
       impressoes?: number | null;
@@ -328,9 +330,8 @@ angulosRoutes.post("/import-from-meta", async (c) => {
     if (!item.metaAdsId || !item.nome?.trim()) continue;
     const existingCr = existingByMetaId.get(item.metaAdsId);
     if (existingCr) {
-      // Atualiza métricas + lp_url (Meta é source of truth pra ad — se user
-      // trocou URL no painel Meta, refletimos aqui). Não toca status pra
-      // preservar pausa/ativação manual no Lead Tracker.
+      // Atualiza métricas + lp_url + status (Meta é source of truth pro ad —
+      // se user pausou/ativou no painel Meta, reflete aqui).
       const cr = item.criativo;
       const newLp = trimOrNull(cr?.lpUrl ?? item.lpUrl);
       const patch: Record<string, unknown> = { atualizadoEm: new Date() };
@@ -341,6 +342,7 @@ angulosRoutes.post("/import-from-meta", async (c) => {
       if (cr?.checkouts != null) patch.checkouts = cr.checkouts;
       if (cr?.compras != null) patch.compras = cr.compras;
       if (newLp && newLp !== existingCr.lpUrl) patch.lpUrl = newLp;
+      if (cr?.status && cr.status !== existingCr.status) patch.status = cr.status;
       await db.update(criativos).set(patch).where(eq(criativos.id, existingCr.id));
       updated.push({ criativoId: existingCr.id, metaAdsId: item.metaAdsId });
       continue;
@@ -376,7 +378,8 @@ angulosRoutes.post("/import-from-meta", async (c) => {
           // LP é propriedade do criativo (cada ad tem URL própria no Meta).
           // Fallback p/ item.lpUrl se Meta enviou só no nível do ângulo.
           lpUrl: trimOrNull(cr.lpUrl ?? item.lpUrl),
-          status: "ativo",
+          // Status reflete o effective_status do Meta (ACTIVE → "ativo", resto → "pausado").
+          status: cr.status ?? ("ativo" as CriativoStatus),
           ctr: cr.ctr ?? null,
           cpa: cr.cpa ?? null,
           impressoes: cr.impressoes ?? null,
