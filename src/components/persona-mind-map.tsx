@@ -1031,8 +1031,11 @@ function CriativoPreviewModal({
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Mídia — ocupa altura proporcional ao formato (1:1 social, 9:16 video) */}
-          <div className="bg-black grid place-items-center w-full" style={{ aspectRatio: isVideo ? "9 / 16" : "1 / 1", maxHeight: "70vh" }}>
+          {/* Mídia — altura limitada pra deixar espaço pras métricas e footer */}
+          <div
+            className="bg-black grid place-items-center w-full flex-shrink-0"
+            style={{ height: "min(45vh, 420px)" }}
+          >
             {previewUrl ? (
               isVideo && criativo.url ? (
                 <video
