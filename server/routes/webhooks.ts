@@ -6,6 +6,7 @@ import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
 import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
 import { parseBrevexWebhook, verifyBrevexSignature } from "../lib/brevex.js";
 import { parseAsaasWebhook, verifyAsaasSignature } from "../lib/asaas.js";
+import { parsePagarmeWebhook, verifyPagarmeSignature } from "../lib/pagarme.js";
 import { handleGatewayEvent } from "../lib/flows.js";
 import { findOrCreateProdutoByName } from "../lib/produtos.js";
 import { handleEvolutionIncoming } from "../lib/evolution-incoming.js";
@@ -23,6 +24,7 @@ webhookRoutes.get("/", (c) =>
       "POST /api/webhooks/stripe",
       "POST /api/webhooks/brevex (capture-only stub)",
       "POST /api/webhooks/asaas",
+      "POST /api/webhooks/pagarme",
       "POST /api/webhooks/evolution (mensagens recebidas WhatsApp)",
     ],
   }),
@@ -121,6 +123,75 @@ webhookRoutes.post("/asaas", async (c) => {
     const erro = e instanceof Error ? e.message : "Erro desconhecido";
     await db.insert(eventos).values({
       source: "asaas",
+      eventType: event.eventType,
+      payload,
+      processedOk: false,
+      erro,
+    });
+    return c.json({ ok: false, error: erro }, 500);
+  }
+});
+
+/* ==========================================================================
+ * POST /api/webhooks/pagarme
+ * Eventos do Pagar.me v5 (order.*, subscription.*, charge.*).
+ * Auth: Basic Auth — `Authorization: Basic base64(username:PAGARME_WEBHOOK_TOKEN)`.
+ * Configura no painel Pagar.me em Webhooks → Endpoint → "Autenticação Basic".
+ * ========================================================================== */
+webhookRoutes.post("/pagarme", async (c) => {
+  const rawBody = await c.req.text();
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    await db.insert(eventos).values({
+      source: "pagarme",
+      eventType: "invalid_json",
+      payload: { rawBody },
+      processedOk: false,
+      erro: "JSON invalido",
+    });
+    return c.json({ error: "invalid json" }, 400);
+  }
+
+  const sig = verifyPagarmeSignature(c.req.raw.headers);
+  if (!sig.valid) {
+    await db.insert(eventos).values({
+      source: "pagarme",
+      eventType: "signature_invalid",
+      payload: { rawBody, reason: sig.reason },
+      processedOk: false,
+      erro: sig.reason,
+    });
+    return c.json({ error: "invalid signature" }, 401);
+  }
+
+  const event = parsePagarmeWebhook(payload);
+  if (!event) {
+    const pagarmeType = String(payload.type ?? "unknown");
+    await db.insert(eventos).values({
+      source: "pagarme",
+      eventType: pagarmeType,
+      payload,
+      processedOk: false,
+      erro: "Evento Pagar.me nao mapeado",
+    });
+    return c.json({ ok: false, reason: "unmapped-event", pagarmeType });
+  }
+
+  if (event.planoNome) {
+    const produto = await findOrCreateProdutoByName(event.planoNome);
+    if (produto) event.produtoId = produto.id;
+  }
+
+  try {
+    const result = await handleGatewayEvent(event);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    const erro = e instanceof Error ? e.message : "Erro desconhecido";
+    await db.insert(eventos).values({
+      source: "pagarme",
       eventType: event.eventType,
       payload,
       processedOk: false,
