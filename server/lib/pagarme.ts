@@ -195,16 +195,23 @@ export function parsePagarmeWebhook(payload: AnyObject): EventInput | null {
 
 /**
  * Validação Basic Auth do webhook Pagar.me.
- * Pagar.me envia header `Authorization: Basic base64(username:password)`.
- * Validamos a senha (parte após `:`) contra PAGARME_WEBHOOK_TOKEN.
+ * Pagar.me envia header `Authorization: Basic base64(username:password)` —
+ * usuário e senha são configurados no painel Pagar.me ao criar o endpoint.
  *
- * Sem token configurado = aceita tudo (dev mode).
+ * Env vars (ambos obrigatórios em prod):
+ *   - PAGARME_WEBHOOK_USER  → username configurado no painel
+ *   - PAGARME_WEBHOOK_TOKEN → senha configurada no painel
+ *
+ * Sem env vars = aceita tudo (dev mode).
  */
 export function verifyPagarmeSignature(
   headers: Headers,
 ): { valid: boolean; reason?: string } {
-  const expected = process.env.PAGARME_WEBHOOK_TOKEN;
-  if (!expected) return { valid: true, reason: "no-token-configured" };
+  const expectedUser = process.env.PAGARME_WEBHOOK_USER;
+  const expectedPass = process.env.PAGARME_WEBHOOK_TOKEN;
+  if (!expectedUser || !expectedPass) {
+    return { valid: true, reason: "no-credentials-configured" };
+  }
 
   const authHeader = headers.get("authorization") ?? headers.get("Authorization");
   if (!authHeader) return { valid: false, reason: "missing-authorization" };
@@ -219,18 +226,28 @@ export function verifyPagarmeSignature(
     return { valid: false, reason: "invalid-base64" };
   }
 
-  // Formato: "username:password" — pegamos só a senha pra comparar
+  // Formato: "username:password"
   const colonIdx = decoded.indexOf(":");
   if (colonIdx < 0) return { valid: false, reason: "malformed-auth" };
-  const password = decoded.slice(colonIdx + 1);
+  const user = decoded.slice(0, colonIdx);
+  const pass = decoded.slice(colonIdx + 1);
 
-  // Timing-safe compare
-  if (password.length !== expected.length) {
-    return { valid: false, reason: "token-mismatch" };
+  // Timing-safe compare pra ambos (user + password)
+  if (!safeEqual(user, expectedUser)) {
+    return { valid: false, reason: "user-mismatch" };
   }
+  if (!safeEqual(pass, expectedPass)) {
+    return { valid: false, reason: "password-mismatch" };
+  }
+  return { valid: true };
+}
+
+/** Compara duas strings sem leakar timing — usado pra credenciais. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < password.length; i++) {
-    diff |= password.charCodeAt(i) ^ expected.charCodeAt(i);
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
-  return diff === 0 ? { valid: true } : { valid: false, reason: "token-mismatch" };
+  return diff === 0;
 }
