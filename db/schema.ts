@@ -159,6 +159,7 @@ export const MESSAGE_TEMPLATES = [
   "follow_up_indeciso",
   "reembolso_pre_cancelamento",
   "assinatura_pix_pendente",
+  "compra_recusada",
   "custom",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
