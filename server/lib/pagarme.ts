@@ -84,23 +84,44 @@ function parsePagarmeValor(raw: unknown): number | null {
 function detectEventType(payload: AnyObject): GatewayEvent | null {
   const type = String(pick<string>(payload, "type") ?? "").toLowerCase();
 
-  // Order events (compra única)
+  // ========================================================================
+  // INVOICE EVENTS — modelo de assinatura via fatura recorrente (Pagar.me v5)
+  // É o modelo que a maioria das contas usa. Cada renovação gera 1 invoice.
+  // ========================================================================
+  if (type === "invoice.paid") return "assinatura_renovada";
+  if (type === "invoice.canceled" || type === "invoice.cancelled") {
+    return "assinatura_cancelada";
+  }
+  if (type === "invoice.payment_failed") return "assinatura_atrasada";
+  // invoice.created — fatura gerada mas não paga ainda. Ignora — flows.ts
+  // não tem "fatura_gerada" como evento útil pra pós-venda.
+
+  // ========================================================================
+  // ORDER EVENTS — compras avulsas (não-recorrente) ou 1ª compra de sub
+  // ========================================================================
   if (type === "order.paid") return "compra_aprovada";
   if (type === "order.payment_failed") return "compra_recusada";
 
-  // Subscription events
+  // ========================================================================
+  // SUBSCRIPTION EVENTS — eventos diretos da assinatura
+  // ========================================================================
   if (type === "subscription.created") return "compra_aprovada";
   if (type === "subscription.charges_paid") return "assinatura_renovada";
   if (type === "subscription.charges_unpaid") return "assinatura_atrasada";
   if (type === "subscription.canceled" || type === "subscription.cancelled") {
     return "assinatura_cancelada";
   }
+  // subscription_item.created — adição de item à sub. Sem fluxo útil. Ignora.
 
-  // Charge events (cobrança individual — geralmente já vem via order/subscription
-  // mas mantém pra dupla cobertura)
+  // ========================================================================
+  // CHARGE EVENTS — cobrança individual
+  // charge.paid duplica invoice.paid/order.paid → IGNORA pra evitar contar
+  // faturamento 2x. Só processamos refund + failed que NÃO vem em duplicata.
+  // ========================================================================
   if (type === "charge.refunded") return "reembolso";
   if (type === "charge.payment_failed") return "compra_recusada";
-  // charge.paid sozinho não vira evento — vem combinado com order.paid
+  // charge.paid → IGNORA (duplicate de invoice.paid ou order.paid)
+  // charge.created → IGNORA (cobrança gerada, ainda não paga)
 
   return null;
 }
@@ -109,15 +130,23 @@ function detectPeriodicidade(payload: AnyObject): Periodicidade {
   // Pagar.me v5 subscription tem `interval` ("month"|"year"|"week"|"day") +
   // `interval_count` (1..N). Pra simplificar: month → mensal, year → anual.
   const interval = String(
-    pick<string>(payload, "data.interval", "data.subscription.interval") ?? "",
+    pick<string>(
+      payload,
+      "data.interval",
+      "data.subscription.interval",
+      "data.plan.interval",
+    ) ?? "",
   ).toLowerCase();
   if (interval === "year") return "anual";
   if (interval === "month") return "mensal";
 
-  // Sem interval = order avulsa = vitalício
+  // Detecta se é assinatura (recorrente) baseado no tipo OU presença de subscription
+  const type = String(pick<string>(payload, "type") ?? "");
   const isSub =
-    String(pick<string>(payload, "type") ?? "").startsWith("subscription.") ||
-    pick(payload, "data.subscription_id") != null;
+    type.startsWith("subscription.") ||
+    type.startsWith("invoice.") ||
+    pick(payload, "data.subscription_id") != null ||
+    pick(payload, "data.subscription") != null;
   if (!isSub) return "vitalicio";
   return "mensal";
 }
@@ -130,13 +159,22 @@ export function parsePagarmeWebhook(payload: AnyObject): EventInput | null {
   if (!eventType) return null;
 
   // Root data muda por evento:
-  //  - order.* → data = Order
-  //  - subscription.* → data = Subscription
-  //  - charge.* → data = Charge (tem charge.order ou charge.subscription_id)
+  //  - order.* → data = Order { customer, items, amount, ... }
+  //  - subscription.* → data = Subscription { customer, plan, ... }
+  //  - invoice.* → data = Invoice { subscription{customer, plan}, amount, ... }
+  //  - charge.* → data = Charge { customer, amount, ... }
   const data = (pick(payload, "data") ?? {}) as AnyObject;
 
-  // Customer: vem inline em data.customer (objeto completo)
-  const customer = (pick(data, "customer", "charge.customer") ?? {}) as AnyObject;
+  // Customer: pode estar em vários lugares dependendo do evento. Em
+  // invoice.* o customer fica aninhado dentro de subscription. Tenta na
+  // ordem mais específica → mais genérica.
+  const customer = (pick(
+    data,
+    "customer",
+    "subscription.customer",
+    "charge.customer",
+    "order.customer",
+  ) ?? {}) as AnyObject;
   const customerId = pick<string>(customer, "id") ?? null;
 
   const nome = String(pick<string>(customer, "name") ?? "Cliente Pagar.me");
@@ -145,20 +183,33 @@ export function parsePagarmeWebhook(payload: AnyObject): EventInput | null {
     pick(customer, "phones.mobile_phone", "phones.home_phone", "phone"),
   );
 
-  // Valor: tenta amount do nível raiz, depois itens, depois charge
+  // Valor: tenta no nível raiz, depois subscription (invoice), depois items
   const valor = parsePagarmeValor(
-    pick(data, "amount", "items.0.amount", "charges.0.amount", "charge.amount"),
+    pick(
+      data,
+      "amount",
+      "total",
+      "subscription.amount",
+      "items.0.amount",
+      "charges.0.amount",
+      "charge.amount",
+    ),
   );
 
-  // Plano: nome do item ou plano da subscription
+  // Plano: nome do item, plano da subscription, ou code da fatura
   const planoNome =
-    (pick<string>(data, "items.0.name") ??
-      pick<string>(data, "plan.name") ??
-      pick<string>(data, "code") ??
-      null);
+    pick<string>(data, "items.0.name") ??
+    pick<string>(data, "subscription.plan.name") ??
+    pick<string>(data, "subscription.items.0.name") ??
+    pick<string>(data, "plan.name") ??
+    pick<string>(data, "code") ??
+    null;
 
-  // Order/Subscription ID (pra dedup posterior)
-  const orderId = pick<string>(data, "id") ?? null;
+  // ID pra dedup: prefere subscription_id (estável), senão usa data.id
+  const orderId =
+    pick<string>(data, "subscription.id", "subscription_id") ??
+    pick<string>(data, "id") ??
+    null;
 
   // pix_qr_code se vier (Pagar.me retorna pra pagamentos PIX)
   const pixQrCode =
