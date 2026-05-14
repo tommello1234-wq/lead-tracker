@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { sql } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import { eventos } from "../../db/schema.js";
 import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
@@ -267,6 +268,24 @@ webhookRoutes.post("/stripe", async (c) => {
       erro: "JSON invalido",
     });
     return c.json({ error: "invalid json" }, 400);
+  }
+
+  // Dedup por event.id do Stripe — evita reprocessar webhooks que o Stripe
+  // reenvia em retry (se não respondemos 200 em 30s, Stripe re-tenta de
+  // novo... e de novo). Vimos 8 webhooks idênticos chegarem em 2 minutos
+  // pro mesmo evento, gerando 24 mensagens duplicadas pro lead.
+  const stripeEventId = String((event as { id?: string }).id ?? "");
+  if (stripeEventId) {
+    const dup = await db
+      .select({ id: eventos.id })
+      .from(eventos)
+      .where(
+        sql`source = 'stripe' AND payload->>'id' = ${stripeEventId} AND processed_ok = true`,
+      )
+      .limit(1);
+    if (dup.length > 0) {
+      return c.json({ ok: true, reason: "duplicate", stripeEventId });
+    }
   }
 
   const eventInput = parseStripeWebhook(event);

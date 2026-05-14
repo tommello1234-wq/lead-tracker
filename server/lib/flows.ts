@@ -738,7 +738,27 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   // Atualiza lead com novos campos pra renderizar templates
   const refreshedLead = { ...lead, ...updates } as Lead;
 
+  // Dedup: pega templates que já têm mensagem pending pra esse lead — evita
+  // spam quando gateway manda webhook duplicado (Stripe faz retry agressivo
+  // se webhook demorar pra retornar 200, gerando 5-10 eventos idênticos em
+  // segundos). Sem isso, cada webhook adiciona N mensagens novas na fila.
+  const existingPending = await db
+    .select({ template: mensagensAgendadas.template })
+    .from(mensagensAgendadas)
+    .where(
+      and(
+        eq(mensagensAgendadas.leadId, lead.id),
+        eq(mensagensAgendadas.status, "pending"),
+      ),
+    );
+  const pendingTemplates = new Set(existingPending.map((r) => r.template));
+
+  let skippedDups = 0;
   for (const step of flow) {
+    if (pendingTemplates.has(step.template)) {
+      skippedDups++;
+      continue;
+    }
     const conteudo = await renderTemplate(step.template, {
       lead: refreshedLead,
       extras: input.extras,
@@ -751,7 +771,13 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       agendadoPara,
       status: "pending",
     });
+    pendingTemplates.add(step.template); // evita dup dentro do mesmo flow
     scheduled++;
+  }
+  if (skippedDups > 0) {
+    console.log(
+      `[flow] lead ${lead.id} ${input.eventType}: ${scheduled} agendadas, ${skippedDups} skipped (já pending)`,
+    );
   }
 
   return {
