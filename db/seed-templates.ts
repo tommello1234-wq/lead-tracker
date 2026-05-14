@@ -75,15 +75,17 @@ As vezes a gente consegue resolver de outra forma — trocar de plano, ajustar a
   },
   {
     key: "assinatura_pix_pendente",
-    nome: "Assinatura: PIX recorrente não pago",
-    descricao: "Cliente já assinante cuja renovação automática via PIX falhou.",
-    conteudo: `Oi {{primeiroNome}}, tudo bem? 👋
+    nome: "Assinatura: Renovação não paga",
+    // Key mantida por compat com schema/flow_steps existentes — mas texto é
+    // genérico (cobre Ticto/PIX, Stripe/cartão, Asaas/qualquer método).
+    descricao: "Cliente assinante cuja renovação automática falhou (qualquer método).",
+    conteudo: `Opa {{primeiroNome}}, tudo bem?
 
-Vi aqui que a renovação automática do seu Gravyx não passou hoje pelo PIX. Pode ter sido qualquer coisa — saldo do dia, banco com lentidão...
+Vi aqui que a renovação automática do seu Gravyx não passou hoje. Pode ter sido qualquer coisa — saldo, limite do cartão, banco com lentidão...
 
 Se quiser regularizar, é só clicar aqui: {{change_card_url}}
 
-Qualquer coisa, é só responder. Tô por aqui pra ajudar 🙏`,
+Qualquer coisa, é só responder aqui que te ajudo! 🙏`,
     placeholders: ["primeiroNome", "nome", "valor", "change_card_url", "hosted_invoice_url"],
   },
   {
