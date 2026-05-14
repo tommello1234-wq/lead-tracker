@@ -78,8 +78,18 @@ function detectEventType(event: AnyObject): GatewayEvent | null {
       if (reason === "subscription_cycle") return "assinatura_renovada";
       return null;
     }
-    case "invoice.payment_failed":
+    case "invoice.payment_failed": {
+      // Diferencia 1ª compra falhada (cliente novo, cartão recusado) de
+      // renovação falhada (cliente existente, problema na cobrança recorrente).
+      // Sem isso, cliente NOVO recebia mensagem "sua renovação não passou hoje"
+      // — mas ele nem é cliente ainda, é uma compra recusada.
+      const reason = obj ? pick<string>(obj, "billing_reason") : undefined;
+      if (reason === "subscription_create" || reason === "manual") {
+        return "compra_recusada";
+      }
+      // subscription_cycle, subscription_update, subscription_threshold → é renovação
       return "assinatura_atrasada";
+    }
     case "customer.subscription.deleted":
       return "assinatura_cancelada";
     case "charge.refunded":
