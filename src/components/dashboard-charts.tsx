@@ -430,6 +430,8 @@ export function ConvertedByDayChart({ data }: { data: DailyMetric[] }) {
  * ============================================================ */
 export type DailyRevenue = {
   date: string;
+  bruto: number;
+  reembolso: number;
   total: number;
   count: number;
   gasto: number;
@@ -437,11 +439,14 @@ export type DailyRevenue = {
 };
 
 export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
-  const hasData = data.some((d) => d.total > 0 || d.gasto > 0);
+  const hasData = data.some((d) => d.total > 0 || d.gasto > 0 || d.reembolso > 0);
+  const totalBruto = data.reduce((acc, d) => acc + d.bruto, 0);
+  const totalReembolso = data.reduce((acc, d) => acc + d.reembolso, 0);
   const totalFat = data.reduce((acc, d) => acc + d.total, 0);
   const totalGasto = data.reduce((acc, d) => acc + d.gasto, 0);
   const totalLucro = totalFat - totalGasto;
   const showGasto = totalGasto > 0;
+  const showReembolso = totalReembolso > 0;
 
   // Cores: faturamento (lime/forest), gasto (rose/amber), lucro (emerald escuro)
   const COLOR_FAT = "oklch(0.65 0.18 145)";
@@ -461,7 +466,7 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
             </p>
           </div>
           {hasData ? (
-            <div className="flex items-center gap-5 text-right">
+            <div className="flex items-center gap-5 text-right flex-wrap justify-end">
               <div>
                 <p
                   className="text-xl font-bold tabular-nums leading-none"
@@ -470,9 +475,25 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
                   {brl(totalFat)}
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
-                  Faturamento
+                  Faturamento{showReembolso ? " (líquido)" : ""}
                 </p>
               </div>
+              {showReembolso ? (
+                <>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <p
+                      className="text-xl font-bold tabular-nums leading-none"
+                      style={{ color: COLOR_GASTO }}
+                    >
+                      −{brl(totalReembolso)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                      Reembolsos
+                    </p>
+                  </div>
+                </>
+              ) : null}
               {showGasto ? (
                 <>
                   <div className="w-px h-8 bg-border" />
@@ -562,13 +583,26 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
                   <ChartTooltip
                     labelFormatter={(d) => formatDateLabel(String(d))}
                     formatter={(v, name, item) => {
-                      const p = (item.payload ?? {}) as { count?: number };
+                      const p = (item.payload ?? {}) as {
+                        count?: number;
+                        bruto?: number;
+                        reembolso?: number;
+                      };
                       const label = String(name ?? "");
-                      if (label === "Faturamento" && p.count != null) {
-                        return [
-                          `${brl(Number(v ?? 0))} · ${p.count} venda${p.count === 1 ? "" : "s"}`,
-                          label,
+                      if (label === "Faturamento") {
+                        const parts: string[] = [
+                          `${brl(Number(v ?? 0))} líquido`,
                         ];
+                        if (p.count != null) {
+                          parts.push(`${p.count} venda${p.count === 1 ? "" : "s"}`);
+                        }
+                        if (p.bruto != null && p.bruto !== Number(v)) {
+                          parts.push(`${brl(p.bruto)} bruto`);
+                        }
+                        if (p.reembolso != null && p.reembolso > 0) {
+                          parts.push(`−${brl(p.reembolso)} reembolso`);
+                        }
+                        return [parts.join(" · "), label];
                       }
                       return [brl(Number(v ?? 0)), label];
                     }}

@@ -657,15 +657,36 @@ export async function getDailyRevenue(
 ): Promise<
   Array<{
     date: string;
+    bruto: number;
+    reembolso: number;
     total: number;
     count: number;
     gasto: number;
     lucro: number;
   }>
 > {
-  const today = startOfDay(new Date());
-  const since = new Date(today);
-  since.setDate(today.getDate() - (days - 1));
+  // CRÍTICO: tudo em horário do BRASIL (America/Sao_Paulo). Servidor Vercel
+  // roda em UTC — se agregar `date_trunc('day', received_at)` direto, vendas
+  // feitas à noite (BRT 21h+ = UTC 00h+) caem no dia seguinte e o user vê
+  // R$ 50 no dia que vendeu R$ 689. Tudo abaixo opera em BRT.
+  const TZ = "America/Sao_Paulo";
+
+  // Hoje em BRT no formato YYYY-MM-DD (sv-SE é hack: locale que usa ISO format)
+  function dateToISOBR(d: Date): string {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  }
+
+  const todayBR = dateToISOBR(new Date());
+  // Calcula `since` como N-1 dias atrás em BRT — pega meia-noite BRT desse dia
+  // (precisa convertido pra UTC pro filtro SQL bater corretamente)
+  const sinceBR = new Date(`${todayBR}T00:00:00-03:00`);
+  sinceBR.setDate(sinceBR.getDate() - (days - 1));
+  const sinceIso = sinceBR.toISOString();
 
   // Mesma extração de valor do getFaturamento (vários formatos de payload)
   const valorExpr = sql<number>`coalesce(
@@ -678,14 +699,19 @@ export async function getDailyRevenue(
     0
   )::numeric(10,2)`;
 
-  const sinceIso = since.toISOString();
   const produtoFilter = produtoId != null ? sql`and produto_id = ${produtoId}` : sql``;
 
-  // Query única: agrupa por dia (entradas - reembolsos = líquido)
-  const rows = await db.execute<{ day: string; total: number; n: number }>(sql`
+  // Agrupa em BRT: `received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'`
+  // — converte UTC bruto pra BRT e só depois trunca por dia.
+  const rows = await db.execute<{
+    day: string;
+    bruto: number;
+    reembolso: number;
+    n: number;
+  }>(sql`
     with entries as (
       select
-        date_trunc('day', received_at) as day,
+        date_trunc('day', received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') as day,
         sum(${valorExpr}) as valor,
         count(*) as n
       from eventos
@@ -698,7 +724,7 @@ export async function getDailyRevenue(
     ),
     refunds as (
       select
-        date_trunc('day', received_at) as day,
+        date_trunc('day', received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') as day,
         sum(${valorExpr}) as valor
       from eventos
       where processed_ok = true
@@ -710,7 +736,8 @@ export async function getDailyRevenue(
     )
     select
       to_char(coalesce(e.day, r.day), 'YYYY-MM-DD') as day,
-      (coalesce(e.valor, 0) - coalesce(r.valor, 0))::float as total,
+      coalesce(e.valor, 0)::float as bruto,
+      coalesce(r.valor, 0)::float as reembolso,
       coalesce(e.n, 0)::int as n
     from entries e
     full outer join refunds r on r.day = e.day
@@ -718,39 +745,57 @@ export async function getDailyRevenue(
   `);
 
   // Indexa por data pra preencher dias sem venda com zero
-  const byDay = new Map<string, { total: number; n: number }>();
-  for (const row of rows as unknown as Array<{ day: string; total: number; n: number }>) {
-    byDay.set(row.day, { total: Number(row.total), n: Number(row.n) });
+  const byDay = new Map<
+    string,
+    { bruto: number; reembolso: number; n: number }
+  >();
+  for (const row of rows as unknown as Array<{
+    day: string;
+    bruto: number;
+    reembolso: number;
+    n: number;
+  }>) {
+    byDay.set(row.day, {
+      bruto: Number(row.bruto),
+      reembolso: Number(row.reembolso),
+      n: Number(row.n),
+    });
   }
 
   // Gasto Meta por dia — só pra SaaS view (produtoId null OU produto Gravyx).
   // Outros produtos não têm Meta tracking → gasto = 0 → lucro = total.
   // Lazy import pra não criar dep circular meta-ads ↔ queries.
   const { getDailyAdSpend } = await import("./meta-ads.js");
-  const now = new Date();
   const dailySpend =
     produtoId == null || produtoId === 1
-      ? await getDailyAdSpend(since, now).catch(() => [])
+      ? await getDailyAdSpend(sinceBR, new Date()).catch(() => [])
       : [];
   const spendByDay = new Map<string, number>();
   for (const s of dailySpend) spendByDay.set(s.date, s.spend);
 
+  // Gera array de N dias em BRT (a partir de sinceBR, dias consecutivos)
   const out: Array<{
     date: string;
+    bruto: number;
+    reembolso: number;
     total: number;
     count: number;
     gasto: number;
     lucro: number;
   }> = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(since);
-    d.setDate(since.getDate() + i);
-    const iso = d.toISOString().slice(0, 10);
+    const d = new Date(sinceBR);
+    d.setDate(sinceBR.getDate() + i);
+    const iso = dateToISOBR(d);
     const r = byDay.get(iso);
-    const total = r?.total ?? 0;
+    const bruto = r?.bruto ?? 0;
+    const reembolso = r?.reembolso ?? 0;
+    const total = bruto - reembolso;
     const gasto = spendByDay.get(iso) ?? 0;
     out.push({
       date: iso,
+      bruto,
+      reembolso,
       total,
       count: r?.n ?? 0,
       gasto,
