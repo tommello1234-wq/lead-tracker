@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   getDashboardMetrics,
   getDailySeries,
+  getDailyRevenue,
   getFaturamento,
   getPlanoBreakdown,
   getTipoBreakdown,
@@ -66,6 +67,18 @@ dashboardRoutes.get("/daily", async (c) => {
   const produtoId = parseProdutoId(c);
   const days = Number(c.req.query("days") ?? 30) || 30;
   const series = await getDailySeries(days, produtoId);
+  return c.json(series);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/daily-revenue?produtoId=N&days=30
+ * Faturamento líquido por dia (compras + renovações − reembolsos), pra o
+ * gráfico de linha no dashboard. Inclui dias zerados pra série contínua.
+ * ========================================================================== */
+dashboardRoutes.get("/daily-revenue", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const days = Number(c.req.query("days") ?? 30) || 30;
+  const series = await getDailyRevenue(days, produtoId);
   return c.json(series);
 });
 

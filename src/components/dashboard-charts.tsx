@@ -5,6 +5,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -412,6 +414,100 @@ export function ConvertedByDayChart({ data }: { data: DailyMetric[] }) {
                 maxBarSize={24}
               />
             </BarChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ============================================================
+ * 4.5. Faturamento por dia — line chart com BRL
+ * Fonte: /api/dashboard/daily-revenue (eventos compra_aprovada +
+ * assinatura_renovada − reembolso, agregado por dia).
+ * ============================================================ */
+export type DailyRevenue = { date: string; total: number; count: number };
+
+export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
+  const hasData = data.some((d) => d.total > 0);
+  const total = data.reduce((acc, d) => acc + d.total, 0);
+  const avg = data.length ? total / data.length : 0;
+
+  return (
+    <Card className="border-0 shadow-sm rounded-3xl">
+      <CardHeader className="pb-2">
+        <div className="flex items-baseline justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold">Faturamento por dia</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Compras + renovações − reembolsos · últimos 30 dias
+            </p>
+          </div>
+          {hasData ? (
+            <div className="text-right">
+              <p className="text-2xl font-bold tabular-nums" style={{ color: PALETTE.forest }}>
+                {brl(total)}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                no período · média {brl(avg)}/dia
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <EmptyChart />
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="grad-revenue-line" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor={PALETTE.lime} stopOpacity={1} />
+                  <stop offset="100%" stopColor={PALETTE.forest} stopOpacity={1} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="date" tickFormatter={formatDateLabel} {...axisProps} />
+              <YAxis
+                tickFormatter={(v) => brl(Number(v))}
+                width={70}
+                {...axisProps}
+              />
+              <Tooltip
+                cursor={{
+                  stroke: PALETTE.forest,
+                  strokeWidth: 1,
+                  strokeDasharray: "4 4",
+                }}
+                content={
+                  <ChartTooltip
+                    labelFormatter={(d) => formatDateLabel(String(d))}
+                    formatter={(v, _n, item) => {
+                      const p = (item.payload ?? {}) as { count?: number };
+                      const count = p.count ?? 0;
+                      return [
+                        `${brl(Number(v ?? 0))} · ${count} venda${count === 1 ? "" : "s"}`,
+                        "Faturamento",
+                      ];
+                    }}
+                  />
+                }
+              />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="url(#grad-revenue-line)"
+                strokeWidth={3}
+                dot={{ r: 3, strokeWidth: 0, fill: PALETTE.forest }}
+                activeDot={{
+                  r: 6,
+                  strokeWidth: 2,
+                  stroke: "white",
+                  fill: PALETTE.forest,
+                }}
+              />
+            </LineChart>
           </ResponsiveContainer>
         )}
       </CardContent>

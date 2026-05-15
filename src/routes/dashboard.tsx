@@ -19,9 +19,11 @@ import { StatCard } from "@/components/stat-card";
 import { DetailsModal, type DetailsKind } from "@/components/details-modal";
 import {
   ConversionTrendChart,
+  DailyRevenueChart,
   DailyVolumeChart,
   PlanoBreakdownChart,
   TipoBreakdownChart,
+  type DailyRevenue,
 } from "@/components/dashboard-charts";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
@@ -88,6 +90,13 @@ export function DashboardPage() {
   const daily = useQuery({
     queryKey: ["dashboard", "daily", produtoParam],
     queryFn: () => api.get<DailyMetric[]>(`/api/dashboard/daily?produtoId=${produtoParam}&days=30`),
+  });
+  const dailyRevenue = useQuery({
+    queryKey: ["dashboard", "daily-revenue", produtoParam],
+    queryFn: () =>
+      api.get<DailyRevenue[]>(
+        `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30`,
+      ),
   });
   const breakdowns = useQuery({
     queryKey: ["dashboard", "breakdowns", produtoParam],
@@ -218,6 +227,12 @@ export function DashboardPage() {
       {/* Charts */}
       {breakdowns.data && daily.data ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Faturamento por dia — full width (métrica-chave do dashboard) */}
+          {dailyRevenue.data ? (
+            <div className="lg:col-span-2">
+              <DailyRevenueChart data={dailyRevenue.data} />
+            </div>
+          ) : null}
           <PlanoBreakdownChart data={breakdowns.data.planos} />
           <DailyVolumeChart data={daily.data} />
           <ConversionTrendChart data={daily.data} />

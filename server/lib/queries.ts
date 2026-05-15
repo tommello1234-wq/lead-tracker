@@ -643,6 +643,88 @@ export async function getFaturamento(
   };
 }
 
+/**
+ * Faturamento LÍQUIDO agregado por DIA (últimos N dias).
+ * Mesma lógica do getFaturamento mas com GROUP BY date(received_at).
+ *
+ * Retorna 1 row por dia (mesmo dias sem venda → total=0) pra o gráfico
+ * ficar contínuo sem buracos.
+ */
+export async function getDailyRevenue(
+  days = 30,
+  produtoId: number | null = null,
+): Promise<Array<{ date: string; total: number; count: number }>> {
+  const today = startOfDay(new Date());
+  const since = new Date(today);
+  since.setDate(today.getDate() - (days - 1));
+
+  // Mesma extração de valor do getFaturamento (vários formatos de payload)
+  const valorExpr = sql<number>`coalesce(
+    ((${eventos.payload}->'item'->>'amount')::numeric / 100),
+    ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
+    ((${eventos.payload}->'offer'->>'price')::numeric / 100),
+    ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    ((${eventos.payload}->'payment'->>'value')::numeric),
+    (select valor_assinatura from leads where id = ${eventos.leadId}),
+    0
+  )::numeric(10,2)`;
+
+  const sinceIso = since.toISOString();
+  const produtoFilter = produtoId != null ? sql`and produto_id = ${produtoId}` : sql``;
+
+  // Query única: agrupa por dia (entradas - reembolsos = líquido)
+  const rows = await db.execute<{ day: string; total: number; n: number }>(sql`
+    with entries as (
+      select
+        date_trunc('day', received_at) as day,
+        sum(${valorExpr}) as valor,
+        count(*) as n
+      from eventos
+      where processed_ok = true
+        and lead_id is not null
+        and event_type in ('compra_aprovada', 'assinatura_renovada')
+        and received_at >= ${sinceIso}::timestamp
+        ${produtoFilter}
+      group by 1
+    ),
+    refunds as (
+      select
+        date_trunc('day', received_at) as day,
+        sum(${valorExpr}) as valor
+      from eventos
+      where processed_ok = true
+        and lead_id is not null
+        and event_type = 'reembolso'
+        and received_at >= ${sinceIso}::timestamp
+        ${produtoFilter}
+      group by 1
+    )
+    select
+      to_char(coalesce(e.day, r.day), 'YYYY-MM-DD') as day,
+      (coalesce(e.valor, 0) - coalesce(r.valor, 0))::float as total,
+      coalesce(e.n, 0)::int as n
+    from entries e
+    full outer join refunds r on r.day = e.day
+    order by 1
+  `);
+
+  // Indexa por data pra preencher dias sem venda com zero
+  const byDay = new Map<string, { total: number; n: number }>();
+  for (const row of rows as unknown as Array<{ day: string; total: number; n: number }>) {
+    byDay.set(row.day, { total: Number(row.total), n: Number(row.n) });
+  }
+
+  const out: Array<{ date: string; total: number; count: number }> = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setDate(since.getDate() + i);
+    const iso = d.toISOString().slice(0, 10);
+    const r = byDay.get(iso);
+    out.push({ date: iso, total: r?.total ?? 0, count: r?.n ?? 0 });
+  }
+  return out;
+}
+
 export type PlanoBreakdown = {
   plano: string;
   total: number;
