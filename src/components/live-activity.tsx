@@ -69,6 +69,16 @@ const EVENT_META: Record<
     icon: XCircle,
     tone: "bg-[oklch(0.95_0.04_25)] text-[oklch(0.55_0.18_25)]",
   },
+  cliente_respondeu: {
+    label: "Cliente respondeu",
+    icon: MessageSquare,
+    tone: "bg-[oklch(0.94_0.07_130)] text-forest",
+  },
+  cliente_respondeu_sem_lead: {
+    label: "Mensagem sem lead",
+    icon: MessageSquare,
+    tone: "bg-muted text-muted-foreground",
+  },
   msg_sent: {
     label: "Mensagem enviada",
     icon: MessageSquare,
@@ -328,7 +338,17 @@ function LeadGroupRow({
   const latest = group.items[0];
   const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
-  const valor = latest.meta?.valor ? brl(latest.meta.valor) : null;
+  // Só mostra valor monetário em eventos de receita real — evita "R$ 67"
+  // aparecer em mensagens whatsapp ou carrinhos abandonados (que herdam
+  // valor_assinatura do lead mas não representam transação no evento).
+  const MONETARY_EVENTS = new Set([
+    "compra_aprovada",
+    "assinatura_renovada",
+    "assinatura_atrasada",
+    "reembolso",
+  ]);
+  const showValor = MONETARY_EVENTS.has(latest.eventType);
+  const valor = showValor && latest.meta?.valor ? brl(latest.meta.valor) : null;
   const payment = formatPayment(latest.meta?.paymentMethod);
   const count = group.items.length;
 

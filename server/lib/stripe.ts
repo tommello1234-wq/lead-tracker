@@ -152,6 +152,14 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
 
   const { nome, email, contato } = extractCustomer(obj);
 
+  // Skip: carrinho abandonado SEM contato é lixo total — Stripe Checkout
+  // session.expired chega quando alguém abriu a tela mas nem digitou email.
+  // Não dá pra contactar, e gera ruído ("Cliente Stripe · sem email · sem phone").
+  // Sem isso, em poucos dias o banco enche de leads-fantasma sem como aproveitar.
+  if (eventType === "carrinho_abandonado" && !email && !contato) {
+    return null;
+  }
+
   const valor =
     parseStripeAmount(
       pick(obj, "amount_total", "amount_paid", "amount_due", "amount"),
@@ -212,8 +220,33 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
       hosted_invoice_url:
         pick<string>(obj, "hosted_invoice_url", "invoice_pdf") ?? "",
       checkout_url: pick<string>(obj, "url") ?? "",
+      // Atribuição: client_reference_id traz fbc/fbp/UTMs serializados das LPs.
+      // Formato: "fbp:XXX|fbc:YYY|src:facebook|cmp:CAMP|adset:ADSET|ad:AD|plan:byok-mensal"
+      // Usado pro CAPI Meta deduplicar com Pixel da /obrigado e linkar venda → campanha.
+      client_reference_id: pick<string>(obj, "client_reference_id") ?? "",
+      session_id: pick<string>(obj, "id") ?? "",
     },
   };
+}
+
+/**
+ * Decodifica client_reference_id no formato "k:v|k:v|..." (encoded com -- em vez de |
+ * pra evitar problemas com URL, e -col- em vez de :).
+ * Stripe limita client_reference_id a 200 chars + apenas alphanumeric + dash + underscore.
+ */
+export function decodeAttribution(cri: string): Record<string, string> {
+  if (!cri) return {};
+  // Aceita tanto "k:v|k:v" (cru) quanto "k-col-v--k-col-v" (encoded pra Stripe)
+  const normalized = cri.replace(/--/g, "|").replace(/-col-/g, ":");
+  const out: Record<string, string> = {};
+  for (const pair of normalized.split("|")) {
+    const idx = pair.indexOf(":");
+    if (idx === -1) continue;
+    const k = pair.substring(0, idx).trim();
+    const v = pair.substring(idx + 1).trim();
+    if (k && v) out[k] = v;
+  }
+  return out;
 }
 
 /**
