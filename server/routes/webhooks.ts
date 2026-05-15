@@ -3,7 +3,8 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import { eventos } from "../../db/schema.js";
 import { parseTictoWebhook, verifyTictoSignature } from "../lib/ticto.js";
-import { parseStripeWebhook, verifyStripeSignature } from "../lib/stripe.js";
+import { parseStripeWebhook, verifyStripeSignature, decodeAttribution } from "../lib/stripe.js";
+import { sendPurchaseToMeta } from "../lib/meta-capi.js";
 import { parseBrevexWebhook, verifyBrevexSignature } from "../lib/brevex.js";
 import { parseAsaasWebhook, verifyAsaasSignature } from "../lib/asaas.js";
 import { parsePagarmeWebhook, verifyPagarmeSignature } from "../lib/pagarme.js";
@@ -377,8 +378,62 @@ webhookRoutes.post("/stripe", async (c) => {
     if (produto) eventInput.produtoId = produto.id;
   }
 
+  // Fallback: Stripe webhook não vem com line_items expandido por default,
+  // então `planoNome` fica null e produto fica órfão. Como TODA conta Stripe
+  // dessa instância é do Gravyx, usa Gravyx (id=1) como default.
+  // Pra multi-produto Stripe no futuro: setar STRIPE_DEFAULT_PRODUTO_ID=null
+  // e fazer pull dos line_items via API.
+  if (eventInput.produtoId == null) {
+    const fallback = process.env.STRIPE_DEFAULT_PRODUTO_ID ?? "1";
+    const n = Number(fallback);
+    if (Number.isFinite(n) && n > 0) eventInput.produtoId = n;
+  }
+
   try {
     const result = await handleGatewayEvent(eventInput);
+
+    // CAPI Meta — só pra compra aprovada. Roda em paralelo, não bloqueia 200 pro Stripe.
+    // event_id = stripe session_id → deduplica com Pixel browser da /obrigado.
+    if (eventInput.eventType === "compra_aprovada" && eventInput.valor) {
+      const cri = String(eventInput.extras?.client_reference_id ?? "");
+      const attr = decodeAttribution(cri);
+      const sessionId = String(eventInput.extras?.session_id ?? "") || eventInput.gatewayLastOrderId || "";
+      const capiResult = await sendPurchaseToMeta({
+        eventId: sessionId,
+        eventTime: Math.floor(Date.now() / 1000),
+        eventSourceUrl: "https://gravyx.com.br/obrigado",
+        email: eventInput.email,
+        phone: eventInput.contato,
+        firstName: eventInput.nome,
+        fbp: attr.fbp || null,
+        fbc: attr.fbc || null,
+        value: eventInput.valor,
+        currency: "BRL",
+        plan: attr.plan || eventInput.planoNome,
+        campaign: attr.cmp || null,
+        adset: attr.adset || null,
+        ad: attr.ad || null,
+      });
+      // Log do CAPI no eventos pra auditar (não falha o webhook se CAPI errar)
+      await db.insert(eventos).values({
+        source: "meta_capi",
+        eventType: capiResult.ok ? "purchase_sent" : "purchase_failed",
+        payload: {
+          stripe_session_id: sessionId,
+          value: eventInput.valor,
+          plan: attr.plan || eventInput.planoNome,
+          campaign: attr.cmp,
+          adset: attr.adset,
+          ad: attr.ad,
+          fbp: attr.fbp,
+          fbc: attr.fbc ? attr.fbc.substring(0, 30) + "..." : null,
+          response: capiResult.response,
+        },
+        processedOk: capiResult.ok,
+        erro: capiResult.error,
+      });
+    }
+
     return c.json({ ok: true, ...result });
   } catch (e) {
     const erro = e instanceof Error ? e.message : "Erro desconhecido";
