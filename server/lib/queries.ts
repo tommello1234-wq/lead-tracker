@@ -644,16 +644,25 @@ export async function getFaturamento(
 }
 
 /**
- * Faturamento LÍQUIDO agregado por DIA (últimos N dias).
+ * Faturamento LÍQUIDO agregado por DIA (últimos N dias) + gasto Meta + lucro.
  * Mesma lógica do getFaturamento mas com GROUP BY date(received_at).
  *
  * Retorna 1 row por dia (mesmo dias sem venda → total=0) pra o gráfico
- * ficar contínuo sem buracos.
+ * ficar contínuo sem buracos. `gasto` vem do Meta Ads (só conta SaaS/Gravyx).
+ * `lucro = total - gasto`.
  */
 export async function getDailyRevenue(
   days = 30,
   produtoId: number | null = null,
-): Promise<Array<{ date: string; total: number; count: number }>> {
+): Promise<
+  Array<{
+    date: string;
+    total: number;
+    count: number;
+    gasto: number;
+    lucro: number;
+  }>
+> {
   const today = startOfDay(new Date());
   const since = new Date(today);
   since.setDate(today.getDate() - (days - 1));
@@ -714,13 +723,39 @@ export async function getDailyRevenue(
     byDay.set(row.day, { total: Number(row.total), n: Number(row.n) });
   }
 
-  const out: Array<{ date: string; total: number; count: number }> = [];
+  // Gasto Meta por dia — só pra SaaS view (produtoId null OU produto Gravyx).
+  // Outros produtos não têm Meta tracking → gasto = 0 → lucro = total.
+  // Lazy import pra não criar dep circular meta-ads ↔ queries.
+  const { getDailyAdSpend } = await import("./meta-ads.js");
+  const now = new Date();
+  const dailySpend =
+    produtoId == null || produtoId === 1
+      ? await getDailyAdSpend(since, now).catch(() => [])
+      : [];
+  const spendByDay = new Map<string, number>();
+  for (const s of dailySpend) spendByDay.set(s.date, s.spend);
+
+  const out: Array<{
+    date: string;
+    total: number;
+    count: number;
+    gasto: number;
+    lucro: number;
+  }> = [];
   for (let i = 0; i < days; i++) {
     const d = new Date(since);
     d.setDate(since.getDate() + i);
     const iso = d.toISOString().slice(0, 10);
     const r = byDay.get(iso);
-    out.push({ date: iso, total: r?.total ?? 0, count: r?.n ?? 0 });
+    const total = r?.total ?? 0;
+    const gasto = spendByDay.get(iso) ?? 0;
+    out.push({
+      date: iso,
+      total,
+      count: r?.n ?? 0,
+      gasto,
+      lucro: total - gasto,
+    });
   }
   return out;
 }

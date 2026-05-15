@@ -422,35 +422,87 @@ export function ConvertedByDayChart({ data }: { data: DailyMetric[] }) {
 }
 
 /* ============================================================
- * 4.5. Faturamento por dia — line chart com BRL
- * Fonte: /api/dashboard/daily-revenue (eventos compra_aprovada +
- * assinatura_renovada − reembolso, agregado por dia).
+ * 4.5. Faturamento + Lucro por dia — area chart com 3 séries
+ * Fonte: /api/dashboard/daily-revenue
+ *   - total: compras + renovações − reembolsos
+ *   - gasto: spend Meta Ads no dia
+ *   - lucro: total − gasto
  * ============================================================ */
-export type DailyRevenue = { date: string; total: number; count: number };
+export type DailyRevenue = {
+  date: string;
+  total: number;
+  count: number;
+  gasto: number;
+  lucro: number;
+};
 
 export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
-  const hasData = data.some((d) => d.total > 0);
-  const total = data.reduce((acc, d) => acc + d.total, 0);
-  const avg = data.length ? total / data.length : 0;
+  const hasData = data.some((d) => d.total > 0 || d.gasto > 0);
+  const totalFat = data.reduce((acc, d) => acc + d.total, 0);
+  const totalGasto = data.reduce((acc, d) => acc + d.gasto, 0);
+  const totalLucro = totalFat - totalGasto;
+  const showGasto = totalGasto > 0;
+
+  // Cores: faturamento (lime/forest), gasto (rose/amber), lucro (emerald escuro)
+  const COLOR_FAT = "oklch(0.65 0.18 145)";
+  const COLOR_GASTO = "oklch(0.68 0.18 28)";
+  const COLOR_LUCRO = "oklch(0.45 0.15 155)";
 
   return (
-    <Card className="border-0 shadow-sm rounded-3xl">
-      <CardHeader className="pb-2">
-        <div className="flex items-baseline justify-between gap-4">
+    <Card className="border-0 shadow-sm rounded-3xl overflow-hidden">
+      <CardHeader className="pb-3">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <CardTitle className="text-base font-semibold">Faturamento por dia</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Compras + renovações − reembolsos · últimos 30 dias
+            <CardTitle className="text-base font-semibold">
+              Faturamento × Lucro
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Receita líquida vs. gasto Meta Ads · últimos 30 dias
             </p>
           </div>
           {hasData ? (
-            <div className="text-right">
-              <p className="text-2xl font-bold tabular-nums" style={{ color: PALETTE.forest }}>
-                {brl(total)}
-              </p>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                no período · média {brl(avg)}/dia
-              </p>
+            <div className="flex items-center gap-5 text-right">
+              <div>
+                <p
+                  className="text-xl font-bold tabular-nums leading-none"
+                  style={{ color: COLOR_FAT }}
+                >
+                  {brl(totalFat)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                  Faturamento
+                </p>
+              </div>
+              {showGasto ? (
+                <>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <p
+                      className="text-xl font-bold tabular-nums leading-none"
+                      style={{ color: COLOR_GASTO }}
+                    >
+                      −{brl(totalGasto)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                      Gasto Meta
+                    </p>
+                  </div>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <p
+                      className="text-xl font-bold tabular-nums leading-none"
+                      style={{
+                        color: totalLucro >= 0 ? COLOR_LUCRO : COLOR_GASTO,
+                      }}
+                    >
+                      {brl(totalLucro)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                      Lucro
+                    </p>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -459,57 +511,156 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
         {!hasData ? (
           <EmptyChart />
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={360}>
+            <AreaChart
+              data={data}
+              margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
+            >
               <defs>
-                <linearGradient id="grad-revenue-line" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor={PALETTE.lime} stopOpacity={1} />
-                  <stop offset="100%" stopColor={PALETTE.forest} stopOpacity={1} />
+                <linearGradient id="grad-fat-area" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_FAT} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={COLOR_FAT} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-lucro-area" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_LUCRO} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={COLOR_LUCRO} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-gasto-area" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_GASTO} stopOpacity={0.18} />
+                  <stop offset="100%" stopColor={COLOR_GASTO} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid {...gridProps} />
-              <XAxis dataKey="date" tickFormatter={formatDateLabel} {...axisProps} />
+              <CartesianGrid
+                strokeDasharray="2 4"
+                stroke="oklch(0.92 0.01 250)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatDateLabel}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
+                tickMargin={8}
+                interval="preserveStartEnd"
+                minTickGap={32}
+              />
               <YAxis
                 tickFormatter={(v) => brl(Number(v))}
-                width={70}
-                {...axisProps}
+                width={64}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
               />
               <Tooltip
                 cursor={{
-                  stroke: PALETTE.forest,
+                  stroke: "oklch(0.65 0.02 250)",
                   strokeWidth: 1,
                   strokeDasharray: "4 4",
                 }}
                 content={
                   <ChartTooltip
                     labelFormatter={(d) => formatDateLabel(String(d))}
-                    formatter={(v, _n, item) => {
+                    formatter={(v, name, item) => {
                       const p = (item.payload ?? {}) as { count?: number };
-                      const count = p.count ?? 0;
-                      return [
-                        `${brl(Number(v ?? 0))} · ${count} venda${count === 1 ? "" : "s"}`,
-                        "Faturamento",
-                      ];
+                      const label = String(name ?? "");
+                      if (label === "Faturamento" && p.count != null) {
+                        return [
+                          `${brl(Number(v ?? 0))} · ${p.count} venda${p.count === 1 ? "" : "s"}`,
+                          label,
+                        ];
+                      }
+                      return [brl(Number(v ?? 0)), label];
                     }}
                   />
                 }
               />
-              <Line
+              {/* Faturamento — área forte */}
+              <Area
                 type="monotone"
                 dataKey="total"
-                stroke="url(#grad-revenue-line)"
-                strokeWidth={3}
-                dot={{ r: 3, strokeWidth: 0, fill: PALETTE.forest }}
+                name="Faturamento"
+                stroke={COLOR_FAT}
+                strokeWidth={2.5}
+                fill="url(#grad-fat-area)"
+                dot={false}
                 activeDot={{
-                  r: 6,
+                  r: 5,
                   strokeWidth: 2,
                   stroke: "white",
-                  fill: PALETTE.forest,
+                  fill: COLOR_FAT,
                 }}
               />
-            </LineChart>
+              {/* Gasto Meta — área discreta */}
+              {showGasto ? (
+                <Area
+                  type="monotone"
+                  dataKey="gasto"
+                  name="Gasto Meta"
+                  stroke={COLOR_GASTO}
+                  strokeWidth={2}
+                  strokeDasharray="5 3"
+                  fill="url(#grad-gasto-area)"
+                  dot={false}
+                  activeDot={{
+                    r: 4,
+                    strokeWidth: 2,
+                    stroke: "white",
+                    fill: COLOR_GASTO,
+                  }}
+                />
+              ) : null}
+              {/* Lucro — linha principal destacada */}
+              {showGasto ? (
+                <Area
+                  type="monotone"
+                  dataKey="lucro"
+                  name="Lucro"
+                  stroke={COLOR_LUCRO}
+                  strokeWidth={3}
+                  fill="url(#grad-lucro-area)"
+                  dot={false}
+                  activeDot={{
+                    r: 6,
+                    strokeWidth: 2,
+                    stroke: "white",
+                    fill: COLOR_LUCRO,
+                  }}
+                />
+              ) : null}
+            </AreaChart>
           </ResponsiveContainer>
         )}
+        {/* Legenda inline */}
+        {hasData ? (
+          <div className="flex items-center gap-5 mt-4 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="size-3 rounded-sm"
+                style={{ backgroundColor: COLOR_FAT }}
+              />
+              <span className="text-muted-foreground">Faturamento</span>
+            </span>
+            {showGasto ? (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="block w-4 h-0.5 border-t-2 border-dashed"
+                    style={{ borderColor: COLOR_GASTO }}
+                  />
+                  <span className="text-muted-foreground">Gasto Meta</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="size-3 rounded-sm"
+                    style={{ backgroundColor: COLOR_LUCRO }}
+                  />
+                  <span className="text-muted-foreground">Lucro</span>
+                </span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

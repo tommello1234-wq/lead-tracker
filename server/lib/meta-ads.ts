@@ -278,6 +278,35 @@ export async function getInsights(
 }
 
 /* ========================================================
+ * Gasto Meta por dia (pra gráfico de lucro diário)
+ * Retorna 1 row por dia no período. Days zerados (sem gasto)
+ * NÃO aparecem na resposta — frontend preenche com zero.
+ * ======================================================== */
+export async function getDailyAdSpend(
+  since: Date,
+  until: Date,
+): Promise<Array<{ date: string; spend: number }>> {
+  const account = getAdAccountId();
+  const params: Record<string, string> = {
+    fields: "spend",
+    time_range: buildTimeRange(since, until),
+    time_increment: "1", // 1 dia
+    limit: "100",
+  };
+  try {
+    const resp = await metaFetch<{
+      data: Array<{ date_start: string; spend: string }>;
+    }>(`/${account}/insights`, params);
+    return (resp.data ?? []).map((d) => ({
+      date: d.date_start,
+      spend: Number(d.spend ?? 0),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/* ========================================================
  * Performance por campanha
  * ======================================================== */
 export async function getCampaigns(
