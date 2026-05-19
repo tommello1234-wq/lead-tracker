@@ -204,8 +204,16 @@ async function cancelPendingMessages(
  * Cobre automaticamente templates criados pelo user via UI.
  */
 const EVENT_CANCELS: Record<GatewayEvent, GatewayEvent[]> = {
-  // Pagamento entrou — cancela tudo de cobrança pendente
-  compra_aprovada: ["pix_gerado", "carrinho_abandonado", "assinatura_atrasada"],
+  // Pagamento entrou — cancela tudo de cobrança pendente E msg de cartão
+  // recusado (Diogo: cartão recusou 1ª tentativa às 18:54, ele tentou de
+  // novo e pagou 25s depois às 18:54:45 — recebeu msg de "cartão recusou"
+  // E "bem-vindo" no mesmo minuto. Adicionado compra_recusada).
+  compra_aprovada: [
+    "pix_gerado",
+    "carrinho_abandonado",
+    "assinatura_atrasada",
+    "compra_recusada",
+  ],
   // Renovação OK — cancela cobrança de atraso
   assinatura_renovada: ["assinatura_atrasada"],
   // Cancelamento — cliente foi embora, cancela tudo
