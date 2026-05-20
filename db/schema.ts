@@ -107,6 +107,14 @@ export const leads = pgTable("leads", {
   valorEstimado: real("valor_estimado"),
   observacoes: text("observacoes"),
 
+  // Atribuição de LP: qual pathname da LP gerou a venda + domain do referrer.
+  // Vem do `client_reference_id` do Stripe (campos `lp` e `ref` codificados
+  // pelo /ASSETS/stripe-attribution.js da LP). Setado só na criação do lead,
+  // nunca sobrescrito — preserva 1ª origem. Ex: lp_origem="ag-escala-v1-byok-long",
+  // referrer_origem="google.com" (ou "direct" se sem referrer).
+  lpOrigem: text("lp_origem"),
+  referrerOrigem: text("referrer_origem"),
+
   // Identificacao no gateway (Ticto)
   gateway: text("gateway"),
   gatewayCustomerId: text("gateway_customer_id"),

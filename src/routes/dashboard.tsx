@@ -23,7 +23,9 @@ import {
   DailyVolumeChart,
   PlanoBreakdownChart,
   TipoBreakdownChart,
+  VendasPorLpChart,
   type DailyRevenue,
+  type VendaPorLp,
 } from "@/components/dashboard-charts";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
@@ -96,6 +98,13 @@ export function DashboardPage() {
     queryFn: () =>
       api.get<DailyRevenue[]>(
         `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30`,
+      ),
+  });
+  const vendasPorLp = useQuery({
+    queryKey: ["dashboard", "vendas-por-lp", produtoParam],
+    queryFn: () =>
+      api.get<VendaPorLp[]>(
+        `/api/dashboard/vendas-por-lp?produtoId=${produtoParam}&days=30`,
       ),
   });
   const breakdowns = useQuery({
@@ -235,6 +244,9 @@ export function DashboardPage() {
           ) : null}
           <PlanoBreakdownChart data={breakdowns.data.planos} />
           <DailyVolumeChart data={daily.data} />
+          {vendasPorLp.data ? (
+            <VendasPorLpChart data={vendasPorLp.data} />
+          ) : null}
           <ConversionTrendChart data={daily.data} />
           <TipoBreakdownChart data={breakdowns.data.tipos} />
         </div>

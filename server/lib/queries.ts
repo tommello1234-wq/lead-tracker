@@ -872,6 +872,56 @@ export async function getVendasPorPlano(
 }
 
 /**
+ * Vendas agregadas POR LP de origem nos últimos N dias.
+ * Fonte: tabela `leads` (campo `lp_origem` setado na criação do lead via
+ * client_reference_id codificado pelo /ASSETS/stripe-attribution.js).
+ *
+ * Conta leads que:
+ *  - foram criados nos últimos N dias
+ *  - têm pagouEm preenchido (= são clientes pagantes, não só leads)
+ *
+ * Vendas sem lp_origem (tráfego direto/legado sem rastreio) vêm como
+ * "(sem LP rastreada)" pra deixar visível o gap.
+ */
+export async function getVendasPorLp(
+  days = 30,
+  produtoId: number | null = null,
+): Promise<
+  Array<{
+    lp: string;
+    referrer: string | null;
+    vendas: number;
+    receita: number;
+  }>
+> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const conds = [isNotNull(leads.pagouEm), gte(leads.pagouEm, since)];
+  if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
+
+  const rows = await db
+    .select({
+      lp: sql<string>`coalesce(${leads.lpOrigem}, '(sem LP rastreada)')`,
+      referrer: sql<string | null>`${leads.referrerOrigem}`,
+      vendas: sql<number>`count(*)::int`,
+      receita: sql<number>`coalesce(sum(${leads.valorAssinatura}), 0)::numeric(10,2)`,
+    })
+    .from(leads)
+    .where(and(...conds))
+    .groupBy(leads.lpOrigem, leads.referrerOrigem);
+
+  return rows
+    .map((r) => ({
+      lp: String(r.lp),
+      referrer: r.referrer,
+      vendas: Number(r.vendas),
+      receita: Number(r.receita),
+    }))
+    .sort((a, b) => b.vendas - a.vendas);
+}
+
+/**
  * Breakdown de planos por nome (ex: "Gravyx Creator", "Gravyx Studio").
  * Usado pro gráfico de pizza no dashboard.
  *

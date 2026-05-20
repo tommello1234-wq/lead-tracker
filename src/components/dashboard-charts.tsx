@@ -701,6 +701,109 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
 }
 
 /* ============================================================
+ * 4.7. Vendas por LP — tabela ordenada com bullet de % participação
+ * Fonte: /api/dashboard/vendas-por-lp
+ * ============================================================ */
+export type VendaPorLp = {
+  lp: string;
+  referrer: string | null;
+  vendas: number;
+  receita: number;
+};
+
+function formatLpLabel(lp: string): string {
+  if (lp === "(sem LP rastreada)") return lp;
+  if (lp === "home") return "/ (home)";
+  return "/" + lp;
+}
+
+export function VendasPorLpChart({ data }: { data: VendaPorLp[] }) {
+  const total = data.reduce((acc, d) => acc + d.vendas, 0);
+  const totalReceita = data.reduce((acc, d) => acc + d.receita, 0);
+  const hasData = total > 0;
+
+  // Cor lime gradiente por posição (1ª linha mais forte)
+  const intensities = [
+    "oklch(0.78 0.20 132)",
+    "oklch(0.68 0.18 138)",
+    "oklch(0.58 0.16 142)",
+    "oklch(0.48 0.14 145)",
+    "oklch(0.40 0.10 148)",
+  ];
+
+  return (
+    <Card className="border-0 shadow-sm rounded-3xl">
+      <CardHeader className="pb-2">
+        <div className="flex items-baseline justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold">
+              Vendas por LP
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Qual landing page originou cada venda · últimos 30 dias
+            </p>
+          </div>
+          {hasData ? (
+            <div className="text-right">
+              <p className="text-2xl font-bold tabular-nums" style={{ color: PALETTE.forest }}>
+                {total}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {brl(totalReceita)} total
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <EmptyChart />
+        ) : (
+          <div className="space-y-2">
+            {data.slice(0, 10).map((d, i) => {
+              const pct = total > 0 ? (d.vendas / total) * 100 : 0;
+              const cor = intensities[Math.min(i, intensities.length - 1)];
+              return (
+                <div key={d.lp + (d.referrer ?? "")} className="space-y-1">
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="font-mono text-xs truncate flex-1" title={formatLpLabel(d.lp)}>
+                      {formatLpLabel(d.lp)}
+                      {d.referrer && d.referrer !== "direct" ? (
+                        <span className="text-muted-foreground"> · via {d.referrer}</span>
+                      ) : null}
+                    </span>
+                    <span className="font-bold tabular-nums whitespace-nowrap">
+                      {d.vendas}
+                      <span className="text-muted-foreground font-normal">
+                        {" "}({pct.toFixed(0)}%)
+                      </span>
+                    </span>
+                    <span className="text-xs tabular-nums text-forest whitespace-nowrap">
+                      {brl(d.receita)}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: pct + "%", backgroundColor: cor }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {data.length > 10 ? (
+              <p className="text-[10px] text-muted-foreground pt-2">
+                + {data.length - 10} outras LPs
+              </p>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ============================================================
  * 5. Distribuição por tipo — donut igual ao plano (paleta multi)
  * ============================================================ */
 export function TipoBreakdownChart({ data }: { data: TipoBreakdown[] }) {

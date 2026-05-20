@@ -8,6 +8,7 @@ import {
   getTipoBreakdown,
   getSidebarCounts,
   getVendasPorPlano,
+  getVendasPorLp,
 } from "../lib/queries.js";
 import {
   getMetodoBreakdown,
@@ -68,6 +69,19 @@ dashboardRoutes.get("/daily", async (c) => {
   const days = Number(c.req.query("days") ?? 30) || 30;
   const series = await getDailySeries(days, produtoId);
   return c.json(series);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/vendas-por-lp?produtoId=N&days=30
+ * Vendas (leads pagantes) agrupadas por LP de origem nos últimos N dias.
+ * Permite ver qual LP gera mais conversão. Fonte: leads.lp_origem
+ * (preenchido via client_reference_id codificado pelo stripe-attribution.js).
+ * ========================================================================== */
+dashboardRoutes.get("/vendas-por-lp", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const days = Number(c.req.query("days") ?? 30) || 30;
+  const data = await getVendasPorLp(days, produtoId);
+  return c.json(data);
 });
 
 /* ==========================================================================

@@ -11,6 +11,7 @@ import {
   TrendingUp,
   MessageSquare,
   Activity,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -46,6 +47,8 @@ type LeadDetails = {
     gateway: string | null;
     gatewayCustomerId: string | null;
     gatewayLastOrderId: string | null;
+    lpOrigem: string | null;
+    referrerOrigem: string | null;
     pagouEm: string | null;
     canceladoEm: string | null;
     respondeuEm: string | null;
@@ -232,6 +235,21 @@ export function LeadDetailsModal({
                   ) : null}
                   {data.lead.respondeuEm ? (
                     <Field icon={MessageSquare} label="Respondeu WhatsApp" value={formatDt(data.lead.respondeuEm)} />
+                  ) : null}
+                  {data.lead.lpOrigem ? (
+                    <Field
+                      icon={ExternalLink}
+                      label="LP de origem"
+                      value={
+                        "/" +
+                        data.lead.lpOrigem +
+                        (data.lead.referrerOrigem && data.lead.referrerOrigem !== "direct"
+                          ? ` · via ${data.lead.referrerOrigem}`
+                          : data.lead.referrerOrigem === "direct"
+                            ? " · acesso direto"
+                            : "")
+                      }
+                    />
                   ) : null}
                 </div>
               </section>

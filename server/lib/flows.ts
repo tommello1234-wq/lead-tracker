@@ -130,6 +130,20 @@ async function findOrCreateLead(input: EventInput): Promise<Lead> {
     if (existing) return existing;
   }
 
+  // Atribuição de LP: extrai `lp` e `ref` do client_reference_id que vem
+  // codificado pelo /ASSETS/stripe-attribution.js da LP. Setado SÓ na
+  // criação — nunca sobrescrito em renovações/cancelamentos, preserva 1ª
+  // origem. Tráfego sem LP (sem cri ou cri sem lp): fica null.
+  const cri = String(input.extras?.client_reference_id ?? "");
+  let lpOrigem: string | null = null;
+  let referrerOrigem: string | null = null;
+  if (cri) {
+    const { decodeAttribution } = await import("./stripe.js");
+    const attr = decodeAttribution(cri);
+    if (attr.lp) lpOrigem = attr.lp;
+    if (attr.ref) referrerOrigem = attr.ref;
+  }
+
   const [created] = await db
     .insert(leads)
     .values({
@@ -139,6 +153,8 @@ async function findOrCreateLead(input: EventInput): Promise<Lead> {
       tipo: tipoFromEvent(input.eventType),
       status: STATUS_TRANSITIONS[input.eventType].lead,
       origem: "site",
+      lpOrigem,
+      referrerOrigem,
       gateway: input.source,
       gatewayCustomerId: input.gatewayCustomerId ?? null,
       gatewayLastOrderId: input.gatewayLastOrderId ?? null,
