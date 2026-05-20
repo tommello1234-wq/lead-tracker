@@ -86,7 +86,21 @@ function detectEventType(payload: AnyObject): GatewayEvent | null {
   }
 
   // 2) Statuses Ticto v2 (ingles snake_case)
-  if (status === "authorized") return "compra_aprovada";
+  if (status === "authorized") {
+    // Bug observado com lead 424 (Paulo Henrique): renovação Ticto chega
+    // como status="authorized" igual primeira compra, e antes virava
+    // compra_aprovada — disparando msg "seja bem-vindo" pra quem já era
+    // cliente há 1 mês.
+    // Sinal canônico: subscriptions[0].successful_charges. =1 (ou null) →
+    // 1ª cobrança; >1 → renovação. Ticto também manda transaction.occurrence
+    // (>=2 em renovações) como sinal secundário.
+    const successful = pick<number>(payload, "subscriptions.0.successful_charges");
+    const occurrence = pick<number>(payload, "transaction.occurrence");
+    const isRenewal =
+      (typeof successful === "number" && successful > 1) ||
+      (typeof occurrence === "number" && occurrence > 1);
+    return isRenewal ? "assinatura_renovada" : "compra_aprovada";
+  }
   if (status === "refunded") return "reembolso";
   if (status === "refused" || status === "declined") return "compra_recusada";
   if (status === "abandoned_cart") return "carrinho_abandonado";
