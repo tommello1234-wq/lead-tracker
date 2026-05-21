@@ -111,39 +111,57 @@ const STATUS_TRANSITIONS: Record<
  * (ticto-parser já sanitiza, mas defesa em profundidade).
  */
 async function findOrCreateLead(input: EventInput): Promise<Lead> {
+  // Atribuição de LP: extrai `lp` e `ref` do client_reference_id codificado
+  // pelo /ASSETS/stripe-attribution.js da LP. Calcula UMA vez (usado tanto
+  // pra INSERT quanto pra UPDATE de lead existente sem lpOrigem).
+  const cri = String(input.extras?.client_reference_id ?? "");
+  let lpOrigemFromCri: string | null = null;
+  let referrerOrigemFromCri: string | null = null;
+  if (cri) {
+    const { decodeAttribution } = await import("./stripe.js");
+    const attr = decodeAttribution(cri);
+    if (attr.lp) lpOrigemFromCri = attr.lp;
+    if (attr.ref) referrerOrigemFromCri = attr.ref;
+  }
+
+  // Lookup do lead existente — por contato, email ou customerId (1 query cada).
+  // Se ACHAR e o lead existente NÃO tem lpOrigem (1ª compra antiga sem
+  // rastreio) E AGORA vem cri com lp → atualiza. Não sobrescreve se já tem.
+  async function maybeBackfillAttribution(existing: Lead): Promise<Lead> {
+    if (!lpOrigemFromCri && !referrerOrigemFromCri) return existing;
+    if (existing.lpOrigem && existing.referrerOrigem) return existing;
+    const patch: Partial<Lead> = {};
+    if (!existing.lpOrigem && lpOrigemFromCri) patch.lpOrigem = lpOrigemFromCri;
+    if (!existing.referrerOrigem && referrerOrigemFromCri) patch.referrerOrigem = referrerOrigemFromCri;
+    if (Object.keys(patch).length === 0) return existing;
+    const [updated] = await db
+      .update(leads)
+      .set(patch)
+      .where(eq(leads.id, existing.id))
+      .returning();
+    return updated ?? existing;
+  }
+
   if (input.contato) {
     const existing = await db.query.leads.findFirst({
       where: eq(leads.contato, input.contato),
     });
-    if (existing) return existing;
+    if (existing) return maybeBackfillAttribution(existing);
   }
   if (input.email && input.email.includes("@")) {
     const existing = await db.query.leads.findFirst({
       where: eq(leads.email, input.email),
     });
-    if (existing) return existing;
+    if (existing) return maybeBackfillAttribution(existing);
   }
   if (input.gatewayCustomerId) {
     const existing = await db.query.leads.findFirst({
       where: eq(leads.gatewayCustomerId, input.gatewayCustomerId),
     });
-    if (existing) return existing;
+    if (existing) return maybeBackfillAttribution(existing);
   }
 
-  // Atribuição de LP: extrai `lp` e `ref` do client_reference_id que vem
-  // codificado pelo /ASSETS/stripe-attribution.js da LP. Setado SÓ na
-  // criação — nunca sobrescrito em renovações/cancelamentos, preserva 1ª
-  // origem. Tráfego sem LP (sem cri ou cri sem lp): fica null.
-  const cri = String(input.extras?.client_reference_id ?? "");
-  let lpOrigem: string | null = null;
-  let referrerOrigem: string | null = null;
-  if (cri) {
-    const { decodeAttribution } = await import("./stripe.js");
-    const attr = decodeAttribution(cri);
-    if (attr.lp) lpOrigem = attr.lp;
-    if (attr.ref) referrerOrigem = attr.ref;
-  }
-
+  // Lead NOVO: persiste lpOrigem/referrerOrigem na criação
   const [created] = await db
     .insert(leads)
     .values({
@@ -153,8 +171,8 @@ async function findOrCreateLead(input: EventInput): Promise<Lead> {
       tipo: tipoFromEvent(input.eventType),
       status: STATUS_TRANSITIONS[input.eventType].lead,
       origem: "site",
-      lpOrigem,
-      referrerOrigem,
+      lpOrigem: lpOrigemFromCri,
+      referrerOrigem: referrerOrigemFromCri,
       gateway: input.source,
       gatewayCustomerId: input.gatewayCustomerId ?? null,
       gatewayLastOrderId: input.gatewayLastOrderId ?? null,
