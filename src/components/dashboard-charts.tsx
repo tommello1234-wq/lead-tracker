@@ -717,7 +717,13 @@ function formatLpLabel(lp: string): string {
   return "/" + lp;
 }
 
-export function VendasPorLpChart({ data }: { data: VendaPorLp[] }) {
+export function VendasPorLpChart({
+  data,
+  periodLabel,
+}: {
+  data: VendaPorLp[];
+  periodLabel?: string;
+}) {
   const total = data.reduce((acc, d) => acc + d.vendas, 0);
   const totalReceita = data.reduce((acc, d) => acc + d.receita, 0);
   const hasData = total > 0;
@@ -740,7 +746,7 @@ export function VendasPorLpChart({ data }: { data: VendaPorLp[] }) {
               Vendas por LP
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Qual landing page originou cada venda · últimos 30 dias
+              Qual landing page originou cada venda · {periodLabel ?? "últimos 30 dias"}
             </p>
           </div>
           {hasData ? (

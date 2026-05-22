@@ -101,10 +101,10 @@ export function DashboardPage() {
       ),
   });
   const vendasPorLp = useQuery({
-    queryKey: ["dashboard", "vendas-por-lp", produtoParam],
+    queryKey: ["dashboard", "vendas-por-lp", produtoParam, sinceParam, untilParam],
     queryFn: () =>
       api.get<VendaPorLp[]>(
-        `/api/dashboard/vendas-por-lp?produtoId=${produtoParam}&days=30`,
+        `/api/dashboard/vendas-por-lp?${baseQs}`,
       ),
   });
   const breakdowns = useQuery({
@@ -245,7 +245,10 @@ export function DashboardPage() {
           <PlanoBreakdownChart data={breakdowns.data.planos} />
           <DailyVolumeChart data={daily.data} />
           {vendasPorLp.data ? (
-            <VendasPorLpChart data={vendasPorLp.data} />
+            <VendasPorLpChart
+              data={vendasPorLp.data}
+              periodLabel={PERIOD_LABELS[period].toLowerCase()}
+            />
           ) : null}
           <ConversionTrendChart data={daily.data} />
           <TipoBreakdownChart data={breakdowns.data.tipos} />

@@ -872,20 +872,24 @@ export async function getVendasPorPlano(
 }
 
 /**
- * Vendas agregadas POR LP de origem nos últimos N dias.
+ * Vendas agregadas POR LP de origem num período.
  * Fonte: tabela `leads` (campo `lp_origem` setado na criação do lead via
  * client_reference_id codificado pelo /ASSETS/stripe-attribution.js).
  *
  * Conta leads que:
- *  - foram criados nos últimos N dias
+ *  - têm pagouEm dentro do range [since, until]
  *  - têm pagouEm preenchido (= são clientes pagantes, não só leads)
  *
  * Vendas sem lp_origem (tráfego direto/legado sem rastreio) vêm como
  * "(sem LP rastreada)" pra deixar visível o gap.
+ *
+ * Aceita since/until pra respeitar filtro de período do dashboard.
+ * Se ambos null: últimos 30 dias por default.
  */
 export async function getVendasPorLp(
-  days = 30,
   produtoId: number | null = null,
+  since: Date | null = null,
+  until: Date | null = null,
 ): Promise<
   Array<{
     lp: string;
@@ -894,10 +898,19 @@ export async function getVendasPorLp(
     receita: number;
   }>
 > {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
+  // Default = últimos 30 dias se nenhum filtro veio
+  const effectiveSince = since ?? (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d;
+  })();
+  const effectiveUntil = until ?? new Date();
 
-  const conds = [isNotNull(leads.pagouEm), gte(leads.pagouEm, since)];
+  const conds = [
+    isNotNull(leads.pagouEm),
+    gte(leads.pagouEm, effectiveSince),
+    lte(leads.pagouEm, effectiveUntil),
+  ];
   if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
 
   const rows = await db

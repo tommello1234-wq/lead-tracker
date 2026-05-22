@@ -79,8 +79,9 @@ dashboardRoutes.get("/daily", async (c) => {
  * ========================================================================== */
 dashboardRoutes.get("/vendas-por-lp", async (c) => {
   const produtoId = parseProdutoId(c);
-  const days = Number(c.req.query("days") ?? 30) || 30;
-  const data = await getVendasPorLp(days, produtoId);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const data = await getVendasPorLp(produtoId, since, until);
   return c.json(data);
 });
 
