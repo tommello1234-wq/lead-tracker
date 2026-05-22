@@ -95,12 +95,10 @@ Qualquer coisa, é só responder aqui que te ajudo! 🙏`,
       "Cliente NOVO tentou comprar mas o cartão foi recusado — tenta de novo + oferece outro método.",
     conteudo: `Opa {{primeiroNome}}, tudo bem?
 
-Vi aqui que sua compra do Gravyx não passou. O cartão pode ter sido recusado por algum motivo — sem limite, banco bloqueando, dado errado...
-
-Tenta de novo aqui: {{change_card_url}}
+Vi aqui que sua compra do plano {{plano}} ({{valor}}) não passou. O cartão pode ter sido recusado por algum motivo — sem limite, banco bloqueando, dado errado...
 
 Se preferir pagar com PIX ou outro método, é só responder aqui que eu te mando o link! 🙏`,
-    placeholders: ["primeiroNome", "nome", "valor", "change_card_url"],
+    placeholders: ["primeiroNome", "nome", "plano", "valor", "change_card_url"],
   },
   {
     key: "custom",
