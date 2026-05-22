@@ -1106,3 +1106,135 @@ auditRoutes.get("/ticto", async (c) => {
     })),
   });
 });
+
+/**
+ * GET /api/audit/asaas-reconcile?token=<CRON_SECRET>
+ *
+ * Cruza nosso banco com a API Asaas pra ver quantas subs marcadas como
+ * `ativa`/`atrasada` no nosso lado ainda estão realmente ACTIVE no Asaas.
+ * Sync parou em 10/05 e webhook nunca chegou → vendas/cancels do Asaas
+ * desde então são invisíveis. Esse endpoint diz quantas subs nosso banco
+ * está superestimando.
+ *
+ * Read-only — não altera nada no banco.
+ */
+auditRoutes.get("/asaas-reconcile", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  const apiKey = process.env.ASAAS_API_KEY;
+  if (!apiKey) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
+  const apiUrl = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+
+  // Subs Asaas no nosso banco (ativa + atrasada)
+  const ours = await db
+    .select({
+      id: subscriptions.id,
+      leadId: subscriptions.leadId,
+      subscriptionId: subscriptions.gatewaySubscriptionId,
+      status: subscriptions.status,
+      valor: subscriptions.valor,
+      email: leads.email,
+      nome: leads.nome,
+    })
+    .from(subscriptions)
+    .leftJoin(leads, eq(leads.id, subscriptions.leadId))
+    .where(
+      and(
+        eq(subscriptions.gateway, "asaas"),
+        sql`${subscriptions.status} IN ('ativa', 'atrasada')`,
+      ),
+    );
+
+  // Lista todas subs ACTIVE no Asaas (paginado, até 1000)
+  type AsaasSub = { id: string; status: string; customer: string };
+  const asaasActive: AsaasSub[] = [];
+  let offset = 0;
+  while (offset < 1000) {
+    const r = await fetch(`${apiUrl}/subscriptions?limit=100&offset=${offset}&status=ACTIVE`, {
+      headers: { access_token: apiKey },
+    });
+    if (!r.ok) {
+      return c.json({ error: `Asaas API HTTP ${r.status}`, body: (await r.text()).slice(0, 200) }, 502);
+    }
+    const data = (await r.json()) as { data?: AsaasSub[] };
+    if (!data.data?.length) break;
+    asaasActive.push(...data.data);
+    if (data.data.length < 100) break;
+    offset += 100;
+  }
+  const activeIdSet = new Set(asaasActive.map((s) => s.id));
+
+  let aindaAtivas = 0;
+  let missingId = 0;
+  const mudaramStatus: Array<{
+    email: string | null;
+    nome: string | null;
+    subscriptionId: string;
+    statusBanco: string;
+    statusAsaas: string;
+    valor: number | null;
+  }> = [];
+  const errors: Array<{ subscriptionId: string; error: string }> = [];
+
+  for (const o of ours) {
+    if (!o.subscriptionId) {
+      missingId++;
+      continue;
+    }
+    if (activeIdSet.has(o.subscriptionId)) {
+      aindaAtivas++;
+      continue;
+    }
+    // Não está em ACTIVE — busca individual pra ver status real
+    try {
+      const r = await fetch(`${apiUrl}/subscriptions/${o.subscriptionId}`, {
+        headers: { access_token: apiKey },
+      });
+      if (r.status === 404) {
+        mudaramStatus.push({
+          email: o.email,
+          nome: o.nome,
+          subscriptionId: o.subscriptionId,
+          statusBanco: o.status,
+          statusAsaas: "DELETED",
+          valor: o.valor,
+        });
+        continue;
+      }
+      if (!r.ok) {
+        errors.push({ subscriptionId: o.subscriptionId, error: `HTTP ${r.status}` });
+        continue;
+      }
+      const real = (await r.json()) as AsaasSub;
+      mudaramStatus.push({
+        email: o.email,
+        nome: o.nome,
+        subscriptionId: o.subscriptionId,
+        statusBanco: o.status,
+        statusAsaas: real.status,
+        valor: o.valor,
+      });
+    } catch (e) {
+      errors.push({
+        subscriptionId: o.subscriptionId,
+        error: e instanceof Error ? e.message : "unknown",
+      });
+    }
+  }
+
+  const mrrSuperestimado = mudaramStatus.reduce((acc, x) => acc + (x.valor ?? 0), 0);
+
+  return c.json({
+    summary: {
+      totalNoBanco: ours.length,
+      aindaAtivas,
+      mudaramStatus: mudaramStatus.length,
+      missingId,
+      errors: errors.length,
+      mrrSuperestimado: Number(mrrSuperestimado.toFixed(2)),
+      asaasApiTotalActive: asaasActive.length,
+    },
+    mudaramStatus,
+    errors: errors.slice(0, 10),
+  });
+});
