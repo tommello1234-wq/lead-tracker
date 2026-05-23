@@ -1108,6 +1108,220 @@ auditRoutes.get("/ticto", async (c) => {
 });
 
 /**
+ * POST /api/audit/asaas-import-missing?token=<CRON_SECRET>
+ *
+ * Importa subs ACTIVE do Asaas que NÃO estão no nosso banco (gap das
+ * vendas após 10/05 quando sync parou e webhook nunca chegou).
+ *
+ * Pra cada sub Asaas ACTIVE não encontrada no banco:
+ *  - Busca customer info (email, nome, phone, cpf)
+ *  - Cria lead (se email/cpf não existir) ou reusa existente
+ *  - Cria sub no banco com status=ativa
+ *  - Atualiza lead pra subscriptionStatus=ativa
+ *
+ * Idempotente: se rodar 2x, segunda vez não faz nada (já encontra a sub).
+ */
+auditRoutes.post("/asaas-import-missing", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  const apiKey = process.env.ASAAS_API_KEY;
+  if (!apiKey) return c.json({ error: "ASAAS_API_KEY não configurada" }, 500);
+  const apiUrl = (process.env.ASAAS_API_URL ?? "https://api.asaas.com/v3").replace(/\/+$/, "");
+
+  type AsaasSub = {
+    id: string;
+    status: string;
+    customer: string;
+    value: number;
+    cycle?: string;
+    description?: string;
+    nextDueDate?: string;
+  };
+  type AsaasCustomer = {
+    id: string;
+    name?: string;
+    email?: string;
+    mobilePhone?: string;
+    phone?: string;
+    cpfCnpj?: string;
+  };
+
+  // 1. Lista todas subs ACTIVE do Asaas
+  const asaasActive: AsaasSub[] = [];
+  let offset = 0;
+  while (offset < 1000) {
+    const r = await fetch(`${apiUrl}/subscriptions?limit=100&offset=${offset}&status=ACTIVE`, {
+      headers: { access_token: apiKey },
+    });
+    if (!r.ok) return c.json({ error: `Asaas API HTTP ${r.status}` }, 502);
+    const data = (await r.json()) as { data?: AsaasSub[] };
+    if (!data.data?.length) break;
+    asaasActive.push(...data.data);
+    if (data.data.length < 100) break;
+    offset += 100;
+  }
+
+  // 2. Pega IDs que já estão no banco (qualquer status)
+  const inDb = await db
+    .select({ id: subscriptions.gatewaySubscriptionId })
+    .from(subscriptions)
+    .where(eq(subscriptions.gateway, "asaas"));
+  const inDbSet = new Set(inDb.map((x) => x.id).filter(Boolean));
+
+  // 3. Filtra as que faltam
+  const missing = asaasActive.filter((s) => !inDbSet.has(s.id));
+
+  const imported: Array<{
+    subId: string;
+    customerId: string;
+    email: string | null;
+    nome: string | null;
+    valor: number;
+    leadId: number;
+    action: "created_lead" | "reused_lead";
+  }> = [];
+  const errors: Array<{ subId: string; error: string }> = [];
+
+  // Helper pra normalizar telefone
+  const normalizePhone = (raw?: string): string | null => {
+    if (!raw) return null;
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+    return digits || null;
+  };
+
+  // Helper: detectar produto pelo plano (mesma lógica do asaas-sync)
+  const detectProduto = (desc?: string, valor?: number): number => {
+    if (!desc) return 1;
+    if (/web designer/i.test(desc)) return 13;
+    if (/lucrando com foto/i.test(desc)) return 14;
+    if (/designer de prompt/i.test(desc)) return 15;
+    if (/pacote avulso/i.test(desc)) return 16;
+    if (/oferta principal/i.test(desc) && valor !== 47) return 17;
+    return 1;
+  };
+
+  for (const sub of missing) {
+    try {
+      // Busca customer
+      const r = await fetch(`${apiUrl}/customers/${sub.customer}`, {
+        headers: { access_token: apiKey },
+      });
+      if (!r.ok) {
+        errors.push({ subId: sub.id, error: `customer HTTP ${r.status}` });
+        continue;
+      }
+      const cust = (await r.json()) as AsaasCustomer;
+      const email = cust.email?.trim().toLowerCase() || null;
+      const phone = normalizePhone(cust.mobilePhone || cust.phone);
+      const cpf = cust.cpfCnpj || null;
+      const nome = cust.name?.trim() || "Cliente Asaas";
+
+      // Procura lead existente (por cpf, email, telefone)
+      let existingLead = null;
+      if (cpf) {
+        const r2 = await db.query.leads.findFirst({ where: eq(leads.gatewayCustomerId, cpf) });
+        if (r2) existingLead = r2;
+      }
+      if (!existingLead && email) {
+        const r2 = await db.query.leads.findFirst({ where: eq(leads.email, email) });
+        if (r2) existingLead = r2;
+      }
+      if (!existingLead && phone) {
+        const r2 = await db.query.leads.findFirst({ where: eq(leads.contato, phone) });
+        if (r2) existingLead = r2;
+      }
+
+      const valor = Number(sub.value || 0);
+      const produtoId = detectProduto(sub.description, valor);
+      const periodicidade = sub.cycle === "YEARLY" ? "anual" : "mensal";
+      const proximoPagamento = sub.nextDueDate ? new Date(sub.nextDueDate) : null;
+
+      let leadId: number;
+      let action: "created_lead" | "reused_lead";
+
+      if (existingLead) {
+        leadId = existingLead.id;
+        action = "reused_lead";
+        // Atualiza dados do lead (preserva pagouEm antigo)
+        await db.update(leads)
+          .set({
+            subscriptionStatus: "ativa",
+            gateway: "asaas",
+            valorAssinatura: valor,
+            planoNome: sub.description || existingLead.planoNome,
+            periodicidade,
+            produtoId,
+            atualizadoEm: new Date(),
+          })
+          .where(eq(leads.id, existingLead.id));
+      } else {
+        // Cria lead novo
+        const [created] = await db.insert(leads).values({
+          nome,
+          email,
+          contato: phone,
+          tipo: "compra_aprovada",
+          status: "cliente_ativo",
+          origem: "site",
+          gateway: "asaas",
+          gatewayCustomerId: cpf,
+          subscriptionStatus: "ativa",
+          valorAssinatura: valor,
+          planoNome: sub.description || null,
+          periodicidade,
+          produtoId,
+          pagouEm: new Date(), // não temos a data exata; melhor estimativa: hoje
+        }).returning();
+        leadId = created.id;
+        action = "created_lead";
+      }
+
+      // Cria sub
+      await db.insert(subscriptions).values({
+        leadId,
+        gateway: "asaas",
+        gatewaySubscriptionId: sub.id,
+        gatewayCustomerId: cpf,
+        produtoId,
+        status: "ativa",
+        valor,
+        planoNome: sub.description || null,
+        periodicidade,
+        proximoPagamentoEm: proximoPagamento,
+      });
+
+      imported.push({
+        subId: sub.id,
+        customerId: sub.customer,
+        email,
+        nome,
+        valor,
+        leadId,
+        action,
+      });
+    } catch (e) {
+      errors.push({
+        subId: sub.id,
+        error: e instanceof Error ? e.message : "unknown",
+      });
+    }
+  }
+
+  return c.json({
+    summary: {
+      asaasApiTotalActive: asaasActive.length,
+      alreadyInDb: asaasActive.length - missing.length,
+      missing: missing.length,
+      imported: imported.length,
+      errors: errors.length,
+    },
+    imported,
+    errors,
+  });
+});
+
+/**
  * GET /api/audit/asaas-reconcile?token=<CRON_SECRET>
  *
  * Cruza nosso banco com a API Asaas pra ver quantas subs marcadas como
