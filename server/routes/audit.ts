@@ -1268,6 +1268,147 @@ auditRoutes.get("/stripe-reconcile", async (c) => {
 });
 
 /**
+ * POST /api/audit/stripe-import-missing?token=<CRON_SECRET>
+ *
+ * Importa subs Stripe que estão active na API mas não existem no banco.
+ * Usado pra casos onde webhook customer.subscription.created não foi
+ * processado (sub criada via API/Dashboard sem passar pelo checkout normal).
+ *
+ * Pra cada missing: cria lead (se email não existe) + sub no banco, com
+ * pagouEm = data da subscription created.
+ */
+auditRoutes.post("/stripe-import-missing", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
+
+  // Pega todas subs Stripe active
+  const allStripeSubs: Array<{
+    id: string;
+    status: string;
+    customer: string;
+    created: number;
+    current_period_end?: number;
+    cancel_at?: number | null;
+    cancel_at_period_end?: boolean;
+    items?: { data: Array<{ price: { unit_amount: number; recurring?: { interval: string } } }> };
+  }> = [];
+  let starting_after: string | undefined;
+  while (true) {
+    const p = new URLSearchParams({ limit: "100", status: "active" });
+    if (starting_after) p.set("starting_after", starting_after);
+    const r = await fetch(`https://api.stripe.com/v1/subscriptions?${p}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!r.ok) return c.json({ error: `Stripe HTTP ${r.status}` }, 502);
+    const body = (await r.json()) as { data: typeof allStripeSubs; has_more: boolean };
+    allStripeSubs.push(...body.data);
+    if (!body.has_more || body.data.length === 0) break;
+    starting_after = body.data[body.data.length - 1].id;
+    if (allStripeSubs.length > 1000) break;
+  }
+
+  // IDs já no banco
+  const existing = await db
+    .select({ subId: subscriptions.gatewaySubscriptionId })
+    .from(subscriptions)
+    .where(eq(subscriptions.gateway, "stripe"));
+  const existingIds = new Set(existing.map((e) => e.subId).filter(Boolean) as string[]);
+
+  const missing = allStripeSubs.filter((s) => !existingIds.has(s.id));
+
+  type ImportedSub = { subId: string; email: string | null; valor: number };
+  const imported: ImportedSub[] = [];
+  const failed: Array<{ subId: string; reason: string }> = [];
+
+  for (const sub of missing) {
+    try {
+      // Fetch customer pra pegar email
+      const r = await fetch(`https://api.stripe.com/v1/customers/${sub.customer}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!r.ok) {
+        failed.push({ subId: sub.id, reason: `customer HTTP ${r.status}` });
+        continue;
+      }
+      const cust = (await r.json()) as { email?: string | null; name?: string | null; phone?: string | null };
+      const email = cust.email ?? null;
+      if (!email) {
+        failed.push({ subId: sub.id, reason: "customer sem email" });
+        continue;
+      }
+
+      const item = sub.items?.data?.[0];
+      const cents = item?.price?.unit_amount ?? 0;
+      const valor = cents / 100;
+      const interval = item?.price?.recurring?.interval;
+      const periodicidade: "mensal" | "anual" = interval === "year" ? "anual" : "mensal";
+
+      // Acha ou cria lead
+      const existingLead = await db.query.leads.findFirst({
+        where: eq(leads.email, email),
+      });
+
+      const pagouEm = new Date(sub.created * 1000);
+      const proximoPagamento = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+      const cancelAt = sub.cancel_at_period_end && sub.cancel_at ? new Date(sub.cancel_at * 1000) : null;
+
+      let leadId: number;
+      if (existingLead) {
+        leadId = existingLead.id;
+      } else {
+        const [novoLead] = await db
+          .insert(leads)
+          .values({
+            nome: cust.name ?? email.split("@")[0] ?? "Cliente",
+            email,
+            contato: cust.phone ?? null,
+            gateway: "stripe",
+            gatewayCustomerId: sub.customer,
+            status: "cliente_ativo",
+            subscriptionStatus: "ativa",
+            valorAssinatura: valor,
+            periodicidade,
+            pagouEm,
+            produtoId: 1, // Gravyx default
+          })
+          .returning({ id: leads.id });
+        leadId = novoLead.id;
+      }
+
+      // Cria sub
+      await db.insert(subscriptions).values({
+        leadId,
+        gateway: "stripe",
+        gatewaySubscriptionId: sub.id,
+        gatewayCustomerId: sub.customer,
+        produtoId: 1,
+        valor,
+        periodicidade,
+        status: "ativa",
+        pagouEm,
+        proximoPagamentoEm: proximoPagamento,
+        cancelAt,
+      });
+
+      imported.push({ subId: sub.id, email, valor });
+    } catch (e) {
+      failed.push({ subId: sub.id, reason: String(e) });
+    }
+  }
+
+  return c.json({
+    totalActive: allStripeSubs.length,
+    alreadyInDb: existingIds.size,
+    missingCount: missing.length,
+    importedCount: imported.length,
+    failedCount: failed.length,
+    imported,
+    failed,
+  });
+});
+
+/**
  * POST /api/audit/stripe-backfill-cancel-at?token=<CRON_SECRET>
  *
  * Pra cada sub Stripe ativa, busca via API se cancel_at_period_end=true e
