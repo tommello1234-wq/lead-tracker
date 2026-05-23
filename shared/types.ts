@@ -11,6 +11,12 @@ export type DashboardMetrics = {
   vendasMes: number;
   mrr: number;
   mrrPotencial: number;
+  /** MRR de subs ativas com cancel_at populado (vão sair em breve) */
+  mrrCancelando: number;
+  /** Quantidade de subs com cancelamento agendado */
+  cancelandoCount: number;
+  /** MRR atual − cancelando (= MRR projetado pós cancelamentos anunciados) */
+  mrrEfetivo: number;
   arpu: number;
   ltv: number;
   avgLifetimeMonths: number;

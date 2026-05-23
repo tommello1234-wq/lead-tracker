@@ -4,7 +4,7 @@
  */
 import { db } from "../../db/client.js";
 import { leads, subscriptions, eventos, type Lead } from "../../db/schema.js";
-import { and, eq, gte, lte, isNotNull, isNull, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, lte, isNotNull, isNull, desc, asc, inArray, sql } from "drizzle-orm";
 
 export type DetailsKind =
   | "ativos"
@@ -14,6 +14,7 @@ export type DetailsKind =
   | "pix_pagos"
   | "pix_expirados"
   | "cancelados"
+  | "cancelando"
   | "reembolsos"
   | "compras"
   | "fila_msgs";
@@ -180,6 +181,45 @@ export async function getDetails(
           .orderBy(desc(leads.pixGeradoEm))
           .limit(500)
       ).map(toDetail);
+    }
+
+    case "cancelando": {
+      // Subs com cancel_at populado: ativas mas anunciaram cancelamento
+      const subConds = [
+        eq(subscriptions.status, "ativa"),
+        isNotNull(subscriptions.cancelAt),
+      ];
+      if (produtoId != null) subConds.push(eq(subscriptions.produtoId, produtoId));
+      if (gateway) subConds.push(eq(subscriptions.gateway, gateway));
+      const rows = await db
+        .select({
+          subId: subscriptions.id,
+          subGateway: subscriptions.gateway,
+          subPlano: subscriptions.planoNome,
+          subValor: subscriptions.valor,
+          subPeriod: subscriptions.periodicidade,
+          subPagouEm: subscriptions.pagouEm,
+          subProxPag: subscriptions.proximoPagamentoEm,
+          subCancelAt: subscriptions.cancelAt,
+          subStatus: subscriptions.status,
+          lead: leads,
+        })
+        .from(subscriptions)
+        .innerJoin(leads, eq(leads.id, subscriptions.leadId))
+        .where(and(...subConds))
+        .orderBy(asc(subscriptions.cancelAt));
+      return rows.map((r) => ({
+        ...toDetail(r.lead),
+        subscriptionId: r.subId,
+        gateway: r.subGateway,
+        planoNome: r.subPlano,
+        valorAssinatura: r.subValor,
+        periodicidade: r.subPeriod,
+        pagouEm: r.subPagouEm?.toISOString() ?? null,
+        proximoPagamentoEm: r.subProxPag?.toISOString() ?? null,
+        cancelAt: r.subCancelAt?.toISOString() ?? null,
+        subscriptionStatus: r.subStatus,
+      }));
     }
 
     case "cancelados":

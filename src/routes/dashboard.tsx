@@ -201,6 +201,20 @@ export function DashboardPage() {
           onClick={() => setLtvOpen(true)}
         />
         <StatCard
+          label="MRR efetivo (pós cancelamentos)"
+          value={m ? brl(m.mrrEfetivo) : "—"}
+          hint={
+            m && m.cancelandoCount > 0
+              ? `${m.cancelandoCount} sub${m.cancelandoCount === 1 ? "" : "s"} cancelando · −${brl(m.mrrCancelando)}`
+              : m
+                ? "Ninguém anunciou cancelamento"
+                : undefined
+          }
+          icon={TrendingUp}
+          iconTone={m && m.cancelandoCount > 0 ? "rose" : "lime"}
+          onClick={() => m && m.cancelandoCount > 0 ? setDetails("cancelando") : undefined}
+        />
+        <StatCard
           label="Faturamento"
           value={faturamento.data ? brl(faturamento.data.total) : "—"}
           hint={

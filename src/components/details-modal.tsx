@@ -45,6 +45,7 @@ export type DetailsKind =
   | "pix_pagos"
   | "pix_expirados"
   | "cancelados"
+  | "cancelando"
   | "reembolsos"
   | "compras";
 
@@ -56,6 +57,7 @@ const TITLES: Record<DetailsKind, string> = {
   pix_pagos: "PIX gerados e pagos",
   pix_expirados: "PIX expirados",
   cancelados: "Assinaturas canceladas",
+  cancelando: "Cancelando em breve (cancel agendado)",
   reembolsos: "Reembolsos",
   compras: "Compras no período",
 };

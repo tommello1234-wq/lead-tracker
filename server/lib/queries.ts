@@ -158,6 +158,31 @@ export async function getDashboardMetrics(
         ...gatewayConditionSubs(gateway),
       ),
     );
+  // Select extra do cancel_at pra computar MRR efetivo
+  const cancelandoRows = await db
+    .select({
+      leadId: subscriptions.leadId,
+      valor: subscriptions.valor,
+      periodicidade: subscriptions.periodicidade,
+    })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.status, "ativa"),
+        isNotNull(subscriptions.cancelAt),
+        produtoId != null
+          ? eq(subscriptions.produtoId, produtoId)
+          : sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+        ...gatewayConditionSubs(gateway),
+      ),
+    );
+  const mrrCancelando = cancelandoRows.reduce((acc, s) => {
+    const v = s.valor ?? 0;
+    if (s.periodicidade === "anual") return acc + v / 12;
+    if (s.periodicidade === "vitalicio" || s.periodicidade === "gratis") return acc;
+    return acc + v;
+  }, 0);
+  const cancelandoCount = cancelandoRows.length;
   const mrr = subsAtivas.reduce((acc, s) => {
     const v = s.valor ?? 0;
     if (s.periodicidade === "anual") return acc + v / 12;
@@ -358,6 +383,9 @@ export async function getDashboardMetrics(
     vendasMes: vendasMes.length,
     mrr,
     mrrPotencial,
+    mrrCancelando,
+    cancelandoCount,
+    mrrEfetivo: mrr - mrrCancelando,
     arpu,
     ltv,
     avgLifetimeMonths,

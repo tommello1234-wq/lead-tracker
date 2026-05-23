@@ -159,6 +159,7 @@ const ALLOWED_KINDS = new Set<string>([
   "pix_pagos",
   "pix_expirados",
   "cancelados",
+  "cancelando", // subs com cancel_at populado (ativas mas anunciaram cancelamento)
   "reembolsos",
   "compras",
   "fila_msgs",
