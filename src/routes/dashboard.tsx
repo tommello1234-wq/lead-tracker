@@ -172,7 +172,7 @@ export function DashboardPage() {
        *  L2: Saídas | Lucro | CAC (custo e resultado do período)
        *  Saídas usa iconTone rose pra deixar claro que é débito — não
        *  precisa do sinal "−" no número. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="MRR atual"
           value={m ? brl(m.mrr) : "—"}
@@ -182,9 +182,23 @@ export function DashboardPage() {
           onClick={() => setMrrAtualOpen(true)}
         />
         <StatCard
+          label="MRR efetivo"
+          value={m ? brl(m.mrrEfetivo) : "—"}
+          hint={
+            m && m.cancelandoCount > 0
+              ? `${m.cancelandoCount} sub${m.cancelandoCount === 1 ? "" : "s"} cancelando · −${brl(m.mrrCancelando)}`
+              : m
+                ? "Nenhum cancelamento anunciado"
+                : undefined
+          }
+          icon={DollarSign}
+          iconTone={m && m.cancelandoCount > 0 ? "rose" : "lime"}
+          onClick={() => m && m.cancelandoCount > 0 ? setDetails("cancelando") : undefined}
+        />
+        <StatCard
           label="ARPU (por sub)"
           value={m ? brl(m.arpu) : "—"}
-          hint={m ? `MRR ÷ ${m.clientesAtivos} subs · receita média por cliente/mês` : undefined}
+          hint={m ? `MRR ÷ ${m.clientesAtivos} subs · média por cliente/mês` : undefined}
           icon={Users}
           iconTone="lime"
         />
@@ -199,20 +213,6 @@ export function DashboardPage() {
           icon={TrendingUp}
           iconTone="forest"
           onClick={() => setLtvOpen(true)}
-        />
-        <StatCard
-          label="MRR efetivo (pós cancelamentos)"
-          value={m ? brl(m.mrrEfetivo) : "—"}
-          hint={
-            m && m.cancelandoCount > 0
-              ? `${m.cancelandoCount} sub${m.cancelandoCount === 1 ? "" : "s"} cancelando · −${brl(m.mrrCancelando)}`
-              : m
-                ? "Ninguém anunciou cancelamento"
-                : undefined
-          }
-          icon={TrendingUp}
-          iconTone={m && m.cancelandoCount > 0 ? "rose" : "lime"}
-          onClick={() => m && m.cancelandoCount > 0 ? setDetails("cancelando") : undefined}
         />
         <StatCard
           label="Faturamento"
