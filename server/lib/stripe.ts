@@ -73,16 +73,17 @@ function detectEventType(event: AnyObject): GatewayEvent | null {
       return "compra_recusada";
     case "invoice.payment_succeeded": {
       // billing_reason indica o contexto:
-      //  - subscription_create: 1ª fatura (normalmente cliente passou por
-      //    checkout.session.completed que JÁ registrou a venda — dedup em
-      //    flows.ts cuida disso). Mas se cliente foi criado via Stripe
-      //    Dashboard/API direto (sem checkout), esse é o ÚNICO evento que
-      //    registra a 1ª compra — então também vira compra_aprovada.
-      //  - subscription_cycle: renovação recorrente
-      //  - manual: cobrança manual via Dashboard
+      //  - subscription_create: 1ª fatura. IGNORADO porque checkout.session.completed
+      //    JÁ registra essa compra com valor correto (R$ X). Processar aqui criava
+      //    duplicata com amount_total=null (invoice usa amount_paid).
+      //  - subscription_cycle: renovação recorrente — esse SIM vira evento
+      //  - manual: cobrança manual via Dashboard — vira compra_aprovada
+      //
+      // Caso especial (subs criadas via API/Dashboard sem checkout): não cobre.
+      // Pra esses casos, criamos eventos manualmente via SQL (ex: subs de teste do owner).
       const reason = obj ? pick<string>(obj, "billing_reason") : undefined;
       if (reason === "subscription_cycle") return "assinatura_renovada";
-      if (reason === "subscription_create" || reason === "manual") return "compra_aprovada";
+      if (reason === "manual") return "compra_aprovada";
       return null;
     }
     case "invoice.payment_failed": {

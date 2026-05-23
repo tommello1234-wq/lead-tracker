@@ -276,6 +276,8 @@ export async function getDashboardMetrics(
     ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
     ((${eventos.payload}->'offer'->>'price')::numeric / 100),
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
+    ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
     ((${eventos.payload}->'payment'->>'value')::numeric),
     0
   )::numeric(10,2)`;
@@ -667,6 +669,8 @@ export async function getFaturamento(
     ((${eventos.payload}->'offer'->>'price')::numeric / 100),
     -- Stripe: data.object.amount_total em centavos
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
+    ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
     -- Asaas: payment.value já em reais decimal
     ((${eventos.payload}->'payment'->>'value')::numeric),
     -- Fallback: valor_assinatura do lead
@@ -834,6 +838,8 @@ export async function getDailyRevenue(
     ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
     ((${eventos.payload}->'offer'->>'price')::numeric / 100),
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
+    ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
     ((${eventos.payload}->'payment'->>'value')::numeric),
     (select valor_assinatura from leads where id = ${eventos.leadId}),
     0
@@ -993,6 +999,8 @@ export async function getVendasPorPlano(
     ((${eventos.payload}->'transaction'->>'paid_amount')::numeric / 100),
     ((${eventos.payload}->'offer'->>'price')::numeric / 100),
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
+    -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
+    ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
     ((${eventos.payload}->'payment'->>'value')::numeric),
     0
   )::numeric(10,2)`;
