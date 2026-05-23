@@ -1238,6 +1238,75 @@ auditRoutes.get("/stripe-reconcile", async (c) => {
 });
 
 /**
+ * POST /api/audit/stripe-fix-sub-ids?token=<CRON_SECRET>
+ *
+ * Bug histórico: o parser Stripe salvava `id` (= cs_live_XXX session id) em
+ * gateway_subscription_id em vez do `subscription` (= sub_XXX, ID estável).
+ * Resultado: webhooks de cancelamento/renovação Stripe não conseguem achar a
+ * sub no banco (procuram sub_XXX, encontram cs_live_XXX).
+ *
+ * Fix: pra cada sub com cs_live_XXX, busca a session via API Stripe, pega o
+ * .subscription real e atualiza gateway_subscription_id no banco.
+ * Read-write — aplica UPDATE.
+ */
+auditRoutes.post("/stripe-fix-sub-ids", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
+
+  // Pega todas subs do banco com cs_live_* (Stripe sessions confundidas com subs)
+  const broken = await db
+    .select({
+      id: subscriptions.id,
+      subId: subscriptions.gatewaySubscriptionId,
+    })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.gateway, "stripe"),
+        sql`${subscriptions.gatewaySubscriptionId} LIKE 'cs_live_%' OR ${subscriptions.gatewaySubscriptionId} LIKE 'cs_test_%'`,
+      ),
+    );
+
+  const fixed: Array<{ dbId: number; oldId: string; newId: string }> = [];
+  const failed: Array<{ dbId: number; subId: string; reason: string }> = [];
+
+  for (const b of broken) {
+    if (!b.subId) continue;
+    try {
+      const r = await fetch(`https://api.stripe.com/v1/checkout/sessions/${b.subId}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!r.ok) {
+        failed.push({ dbId: b.id, subId: b.subId, reason: `Stripe HTTP ${r.status}` });
+        continue;
+      }
+      const session = (await r.json()) as { subscription?: string };
+      const realSubId = session.subscription;
+      if (!realSubId) {
+        failed.push({ dbId: b.id, subId: b.subId, reason: "session sem subscription" });
+        continue;
+      }
+      await db
+        .update(subscriptions)
+        .set({ gatewaySubscriptionId: realSubId })
+        .where(eq(subscriptions.id, b.id));
+      fixed.push({ dbId: b.id, oldId: b.subId, newId: realSubId });
+    } catch (e) {
+      failed.push({ dbId: b.id, subId: b.subId, reason: String(e) });
+    }
+  }
+
+  return c.json({
+    totalBroken: broken.length,
+    fixedCount: fixed.length,
+    failedCount: failed.length,
+    fixed,
+    failed,
+  });
+});
+
+/**
  * GET /api/audit/ticto-reconcile?token=<CRON_SECRET>
  *
  * Cruza nosso banco com a API Ticto. Subs Ticto não têm gateway_subscription_id

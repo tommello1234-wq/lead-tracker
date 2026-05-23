@@ -167,9 +167,13 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
 
   const gatewayCustomerId = pick<string>(obj, "customer", "customer_id") ?? null;
 
-  // Stripe tem multiplos IDs: session.id, payment_intent, subscription, charge.id
+  // Stripe tem multiplos IDs.
+  // CRÍTICO: prioriza `subscription` (sub_XXX — ID ESTÁVEL da assinatura) antes
+  // de `id` (que em checkout.session.completed é cs_live_XXX, ÚNICO por checkout).
+  // Sem essa ordem, webhook de cancelamento (que manda sub_XXX) nunca acha o
+  // gateway_subscription_id no banco e silenciosamente falha em atualizar status.
   const gatewayLastOrderId =
-    pick<string>(obj, "id", "payment_intent", "subscription", "invoice") ?? null;
+    pick<string>(obj, "subscription", "payment_intent", "invoice", "id") ?? null;
 
   // Plano/produto: line items vem com expand. Stripe webhook NÃO expande
   // line_items por default — só vem se você chama o webhook com expand[]=line_items.
