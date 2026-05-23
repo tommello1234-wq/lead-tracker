@@ -21,6 +21,21 @@ function produtoCondition(produtoId: number | null) {
   ];
 }
 
+/**
+ * Helper: filtro de gateway. Retorna condição p/ leads.gateway.
+ * null = todos (sem filtro adicional). Senão filtra por gateway específico.
+ */
+function gatewayConditionLeads(gateway: string | null) {
+  return gateway != null ? [eq(leads.gateway, gateway)] : [];
+}
+function gatewayConditionSubs(gateway: string | null) {
+  return gateway != null ? [eq(subscriptions.gateway, gateway)] : [];
+}
+function gatewayConditionEventos(gateway: string | null) {
+  // eventos.source = gateway name ("stripe", "ticto", "asaas", "pagarme")
+  return gateway != null ? [eq(eventos.source, gateway)] : [];
+}
+
 export async function getAllLeads(
   produtoId: number | null = null,
   since: Date | null = null,
@@ -109,8 +124,9 @@ export async function getDashboardMetrics(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<DashboardMetrics> {
-  const cond = produtoCondition(produtoId);
+  const cond = [...produtoCondition(produtoId), ...gatewayConditionLeads(gateway)];
   const all = await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
   const monthStart = startOfMonth(new Date());
@@ -139,6 +155,7 @@ export async function getDashboardMetrics(
         produtoId != null
           ? eq(subscriptions.produtoId, produtoId)
           : sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+        ...gatewayConditionSubs(gateway),
       ),
     );
   const mrr = subsAtivas.reduce((acc, s) => {
@@ -197,6 +214,7 @@ export async function getDashboardMetrics(
         produtoId != null
           ? eq(subscriptions.produtoId, produtoId)
           : sql`(${subscriptions.produtoId} IS NULL OR ${subscriptions.produtoId} IN (SELECT id FROM ${produtos} WHERE ativo = true))`,
+        ...gatewayConditionSubs(gateway),
       ),
     );
   const mrrPotencial =
@@ -211,13 +229,14 @@ export async function getDashboardMetrics(
   // Receita: lê do payload dos eventos (não de leads.valorAssinatura — esse
   // muda quando atualizamos preço corrente, contaminando histórico).
   // getFaturamento já tem extração robusta de valor via JSON.
-  const fat = await getFaturamento(produtoId, since, until);
+  const fat = await getFaturamento(produtoId, since, until, gateway);
   const receitaTotal = fat.total;
 
   // Receita perdida em PIX = soma do valor dos eventos pix_expirado no período
   const pixExpRefundConds = [
     eq(eventos.eventType, "pix_expirado"),
     eq(eventos.processedOk, true),
+    ...gatewayConditionEventos(gateway),
   ];
   if (produtoId != null) pixExpRefundConds.push(eq(eventos.produtoId, produtoId));
   if (since) pixExpRefundConds.push(gte(eventos.receivedAt, since));
@@ -386,8 +405,9 @@ export type DailyMetric = {
 export async function getDailySeries(
   days = 30,
   produtoId: number | null = null,
+  gateway: string | null = null,
 ): Promise<DailyMetric[]> {
-  const cond = produtoCondition(produtoId);
+  const cond = [...produtoCondition(produtoId), ...gatewayConditionLeads(gateway)];
   const all = await db.select().from(leads).where(and(...cond));
   const today = startOfDay(new Date());
 
@@ -426,6 +446,7 @@ export async function getDailySeries(
           and received_at >= ${sinceIso}::timestamp
           and received_at < ${untilIso}::timestamp
           ${produtoId != null ? sql`and produto_id = ${produtoId}` : sql``}
+          ${gateway != null ? sql`and source = ${gateway}` : sql``}
       ),
       pagou_ids as (
         select distinct lead_id
@@ -457,8 +478,9 @@ export type TipoBreakdown = { tipo: string; total: number };
 
 export async function getTipoBreakdown(
   produtoId: number | null = null,
+  gateway: string | null = null,
 ): Promise<TipoBreakdown[]> {
-  const cond = produtoCondition(produtoId);
+  const cond = [...produtoCondition(produtoId), ...gatewayConditionLeads(gateway)];
   const all = await db.select().from(leads).where(and(...cond));
   const counts = new Map<string, number>();
   for (const l of all) {
@@ -480,10 +502,12 @@ export async function getTipoBreakdown(
 export async function getRenewalCalendar(
   produtoId: number | null = null,
   referenceDate: Date | null = null,
+  gateway: string | null = null,
 ): Promise<Array<{ dia: number; count: number; paidCount: number; valorEsperado: number; valorRecebido: number; leads: Array<{ id: number; nome: string; valor: number; plano: string | null; pago: boolean }> }>> {
   const conds = [
     eq(subscriptions.status, "ativa"),
     eq(subscriptions.periodicidade, "mensal"),
+    ...gatewayConditionSubs(gateway),
   ];
   if (produtoId != null) {
     conds.push(eq(subscriptions.produtoId, produtoId));
@@ -579,6 +603,7 @@ export async function getFaturamento(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<{
   count: number;
   total: number;
@@ -592,6 +617,7 @@ export async function getFaturamento(
   const baseConditions = [
     eq(eventos.processedOk, true),
     isNotNull(eventos.leadId),
+    ...gatewayConditionEventos(gateway),
   ];
   if (produtoId != null) baseConditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) baseConditions.push(gte(eventos.receivedAt, since));
@@ -661,6 +687,7 @@ export async function getFaturamento(
 export async function getDailyRevenue(
   days = 30,
   produtoId: number | null = null,
+  gateway: string | null = null,
 ): Promise<
   Array<{
     date: string;
@@ -707,6 +734,7 @@ export async function getDailyRevenue(
   )::numeric(10,2)`;
 
   const produtoFilter = produtoId != null ? sql`and produto_id = ${produtoId}` : sql``;
+  const gatewayFilter = gateway != null ? sql`and source = ${gateway}` : sql``;
 
   // Agrupa em BRT: `received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'`
   // — converte UTC bruto pra BRT e só depois trunca por dia.
@@ -727,6 +755,7 @@ export async function getDailyRevenue(
         and event_type in ('compra_aprovada', 'assinatura_renovada')
         and received_at >= ${sinceIso}::timestamp
         ${produtoFilter}
+        ${gatewayFilter}
       group by 1
     ),
     refunds as (
@@ -739,6 +768,7 @@ export async function getDailyRevenue(
         and event_type = 'reembolso'
         and received_at >= ${sinceIso}::timestamp
         ${produtoFilter}
+        ${gatewayFilter}
       group by 1
     )
     select
@@ -830,10 +860,12 @@ export async function getVendasPorPlano(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<Array<{ plano: string; vendas: number; receita: number }>> {
   const conds = [
     eq(eventos.processedOk, true),
     inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+    ...gatewayConditionEventos(gateway),
   ];
   if (produtoId != null) conds.push(eq(eventos.produtoId, produtoId));
   if (since) conds.push(gte(eventos.receivedAt, since));
@@ -897,6 +929,7 @@ export async function getVendasPorLp(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<
   Array<{
     lp: string;
@@ -917,6 +950,7 @@ export async function getVendasPorLp(
     isNotNull(leads.pagouEm),
     gte(leads.pagouEm, effectiveSince),
     lte(leads.pagouEm, effectiveUntil),
+    ...gatewayConditionLeads(gateway),
   ];
   if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
 
@@ -951,8 +985,9 @@ export async function getVendasPorLp(
  */
 export async function getPlanoBreakdown(
   produtoId: number | null = null,
+  gateway: string | null = null,
 ): Promise<PlanoBreakdown[]> {
-  const conds = [];
+  const conds = [...gatewayConditionSubs(gateway)];
   if (produtoId != null) {
     conds.push(eq(subscriptions.produtoId, produtoId));
   } else {

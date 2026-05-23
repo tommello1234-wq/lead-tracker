@@ -43,6 +43,13 @@ function parseUntil(c: { req: { query: (k: string) => string | undefined } }): D
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const VALID_GATEWAYS = new Set(["stripe", "ticto", "asaas", "pagarme"]);
+function parseGateway(c: { req: { query: (k: string) => string | undefined } }): string | null {
+  const v = c.req.query("gateway");
+  if (!v || v === "all") return null;
+  return VALID_GATEWAYS.has(v) ? v : null;
+}
+
 /* ==========================================================================
  * GET /api/dashboard/sidebar-counts
  * ========================================================================== */
@@ -58,7 +65,8 @@ dashboardRoutes.get("/metrics", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const metrics = await getDashboardMetrics(produtoId, since, until);
+  const gateway = parseGateway(c);
+  const metrics = await getDashboardMetrics(produtoId, since, until, gateway);
   return c.json(metrics);
 });
 
@@ -67,19 +75,21 @@ dashboardRoutes.get("/metrics", async (c) => {
  * ========================================================================== */
 dashboardRoutes.get("/daily", async (c) => {
   const produtoId = parseProdutoId(c);
+  const gateway = parseGateway(c);
   const days = Number(c.req.query("days") ?? 30) || 30;
-  const series = await getDailySeries(days, produtoId);
+  const series = await getDailySeries(days, produtoId, gateway);
   return c.json(series);
 });
 
 /* ==========================================================================
- * GET /api/dashboard/cohort?produtoId=N
+ * GET /api/dashboard/cohort?produtoId=N&gateway=stripe
  * Matriz de retenção mensal + LTV real (observado e projetado) por cohort de
  * signup. Diferente do LTV blended em /metrics que só vê quem cancelou.
  * ========================================================================== */
 dashboardRoutes.get("/cohort", async (c) => {
   const produtoId = parseProdutoId(c);
-  const data = await getCohortMatrix(produtoId);
+  const gateway = parseGateway(c);
+  const data = await getCohortMatrix(produtoId, gateway);
   return c.json(data);
 });
 
@@ -93,7 +103,8 @@ dashboardRoutes.get("/vendas-por-lp", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getVendasPorLp(produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getVendasPorLp(produtoId, since, until, gateway);
   return c.json(data);
 });
 
@@ -104,8 +115,9 @@ dashboardRoutes.get("/vendas-por-lp", async (c) => {
  * ========================================================================== */
 dashboardRoutes.get("/daily-revenue", async (c) => {
   const produtoId = parseProdutoId(c);
+  const gateway = parseGateway(c);
   const days = Number(c.req.query("days") ?? 30) || 30;
-  const series = await getDailyRevenue(days, produtoId);
+  const series = await getDailyRevenue(days, produtoId, gateway);
   return c.json(series);
 });
 
@@ -116,7 +128,8 @@ dashboardRoutes.get("/faturamento", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getFaturamento(produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getFaturamento(produtoId, since, until, gateway);
   return c.json(data);
 });
 
@@ -126,9 +139,10 @@ dashboardRoutes.get("/faturamento", async (c) => {
  * ========================================================================== */
 dashboardRoutes.get("/breakdowns", async (c) => {
   const produtoId = parseProdutoId(c);
+  const gateway = parseGateway(c);
   const [planos, tipos] = await Promise.all([
-    getPlanoBreakdown(produtoId),
-    getTipoBreakdown(produtoId),
+    getPlanoBreakdown(produtoId, gateway),
+    getTipoBreakdown(produtoId, gateway),
   ]);
   return c.json({ planos, tipos });
 });
@@ -149,6 +163,7 @@ const ALLOWED_KINDS = new Set<string>([
   "compras",
   "fila_msgs",
 ]);
+// Adiciona gateway no /details
 dashboardRoutes.get("/details", async (c) => {
   const kind = c.req.query("kind");
   if (!kind || !ALLOWED_KINDS.has(kind)) {
@@ -157,7 +172,8 @@ dashboardRoutes.get("/details", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getDetails(kind as DetailsKind, produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getDetails(kind as DetailsKind, produtoId, since, until, gateway);
   return c.json(data);
 });
 
@@ -190,7 +206,8 @@ dashboardRoutes.get("/mrr-movements", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getMrrBreakdown(produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getMrrBreakdown(produtoId, since, until, gateway);
   return c.json(data);
 });
 
@@ -214,7 +231,8 @@ dashboardRoutes.get("/mrr-movements/leads", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getMrrMovementLeads(type, produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getMrrMovementLeads(type, produtoId, since, until, gateway);
   return c.json(data);
 });
 
@@ -228,10 +246,11 @@ dashboardRoutes.get("/saas", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
+  const gateway = parseGateway(c);
   const [metodos, funilPix, retencao] = await Promise.all([
-    getMetodoBreakdown(produtoId, since, until),
-    getFunilPix(produtoId, since, until),
-    getRetencaoPorMetodo(produtoId),
+    getMetodoBreakdown(produtoId, since, until, gateway),
+    getFunilPix(produtoId, since, until, gateway),
+    getRetencaoPorMetodo(produtoId, gateway),
   ]);
   return c.json({ metodos, funilPix, retencao });
 });
@@ -242,7 +261,8 @@ dashboardRoutes.get("/vendas-por-plano", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);
   const until = parseUntil(c);
-  const data = await getVendasPorPlano(produtoId, since, until);
+  const gateway = parseGateway(c);
+  const data = await getVendasPorPlano(produtoId, since, until, gateway);
   return c.json(data);
 });
 

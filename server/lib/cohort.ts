@@ -61,11 +61,13 @@ function brtMonth(iso: string): string {
 
 export async function getCohortMatrix(
   produtoId: number | null,
+  gateway: string | null = null,
 ): Promise<CohortSummary> {
   const filtroProduto =
     produtoId == null
       ? sql`(produto_id IS NULL OR produto_id IN (SELECT id FROM produtos WHERE ativo = true))`
       : sql`produto_id = ${produtoId}`;
+  const filtroGateway = gateway != null ? sql`AND gateway = ${gateway}` : sql``;
 
   const rows = await db.execute<LeadRow>(sql`
     SELECT id,
@@ -77,6 +79,7 @@ export async function getCohortMatrix(
     FROM leads
     WHERE pagou_em IS NOT NULL
       AND ${filtroProduto}
+      ${filtroGateway}
     ORDER BY pagou_em
   `);
 

@@ -18,6 +18,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ProdutoProvider } from "@/contexts/produto-context";
 import { ProductSwitcher } from "@/components/product-switcher";
+import { GatewaySwitcher } from "@/components/gateway-switcher";
 import { PeriodSelector } from "@/components/period-selector";
 import type { SidebarCounts } from "@shared/types";
 
@@ -117,6 +118,7 @@ function AppShell() {
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-2xl font-bold tracking-tight">Lead Tracker</div>
             <ProductSwitcher />
+            <GatewaySwitcher />
           </div>
           <div className="flex items-center gap-3">
             <PeriodSelector />

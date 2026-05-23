@@ -63,9 +63,11 @@ export async function getDetails(
   produtoId: number | null,
   since: Date | null,
   until: Date | null,
+  gateway: string | null = null,
 ): Promise<DetailLead[]> {
   const conds = [] as ReturnType<typeof eq>[];
   if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
+  if (gateway) conds.push(eq(leads.gateway, gateway));
 
   switch (kind) {
     case "ativos": {
@@ -73,6 +75,7 @@ export async function getDetails(
       // Lead com 2 subs ativas vira 2 rows, cada uma com gateway/plano/valor da sub.
       const subConds = [eq(subscriptions.status, "ativa")];
       if (produtoId != null) subConds.push(eq(subscriptions.produtoId, produtoId));
+      if (gateway) subConds.push(eq(subscriptions.gateway, gateway));
       const rows = await db
         .select({
           subId: subscriptions.id,
@@ -218,6 +221,7 @@ export async function getDetails(
       if (produtoId != null) evConds.push(eq(eventos.produtoId, produtoId));
       if (since) evConds.push(gte(eventos.receivedAt, since));
       if (until) evConds.push(lte(eventos.receivedAt, until));
+      if (gateway) evConds.push(eq(eventos.source, gateway));
 
       const valorExpr = sql<number>`coalesce(
         ((${eventos.payload}->'item'->>'amount')::numeric / 100),

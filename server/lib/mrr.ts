@@ -34,19 +34,25 @@ export async function getMrrBreakdown(
   produtoId: number | null,
   since: Date | null,
   until: Date | null,
+  gateway: string | null = null,
 ): Promise<MrrMovementsBreakdown> {
   const conds = [];
   if (produtoId != null) conds.push(eq(mrrMovements.produtoId, produtoId));
   if (since) conds.push(gte(mrrMovements.ocorridoEm, since));
   if (until) conds.push(lte(mrrMovements.ocorridoEm, until));
+  if (gateway) conds.push(eq(leads.gateway, gateway));
 
-  const rows = (await db
+  const baseQuery = db
     .select({
       type: mrrMovements.type,
       count: sql<number>`count(*)::int`,
       total: sql<number>`coalesce(sum(${mrrMovements.amount}), 0)::float`,
     })
-    .from(mrrMovements)
+    .from(mrrMovements);
+  const queryWithJoin = gateway
+    ? baseQuery.innerJoin(leads, eq(leads.id, mrrMovements.leadId))
+    : baseQuery;
+  const rows = (await queryWithJoin
     .where(conds.length > 0 ? and(...conds) : undefined)
     .groupBy(mrrMovements.type)) as Array<{
     type: string;
@@ -92,11 +98,13 @@ export async function getMrrMovementLeads(
   produtoId: number | null,
   since: Date | null,
   until: Date | null,
+  gateway: string | null = null,
 ): Promise<MrrMovementLead[]> {
   const conds = [eq(mrrMovements.type, type as MrrMovementType)];
   if (produtoId != null) conds.push(eq(mrrMovements.produtoId, produtoId));
   if (since) conds.push(gte(mrrMovements.ocorridoEm, since));
   if (until) conds.push(lte(mrrMovements.ocorridoEm, until));
+  if (gateway) conds.push(eq(leads.gateway, gateway));
 
   const rows = await db
     .select({

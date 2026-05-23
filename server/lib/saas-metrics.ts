@@ -101,6 +101,7 @@ export async function getMetodoBreakdown(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<MetodoBreakdown[]> {
   const conditions = [
     inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
@@ -109,6 +110,7 @@ export async function getMetodoBreakdown(
   if (produtoId != null) conditions.push(eq(eventos.produtoId, produtoId));
   if (since != null) conditions.push(gte(eventos.receivedAt, since));
   if (until != null) conditions.push(lte(eventos.receivedAt, until));
+  if (gateway) conditions.push(eq(eventos.source, gateway));
 
   // Total transações + receita por método
   const transacoes = await db
@@ -210,11 +212,13 @@ export async function getFunilPix(
   produtoId: number | null = null,
   since: Date | null = null,
   until: Date | null = null,
+  gateway: string | null = null,
 ): Promise<FunilPix> {
   const cond = [eq(eventos.processedOk, true)];
   if (produtoId != null) cond.push(eq(eventos.produtoId, produtoId));
   if (since != null) cond.push(gte(eventos.receivedAt, since));
   if (until != null) cond.push(lte(eventos.receivedAt, until));
+  if (gateway) cond.push(eq(eventos.source, gateway));
 
   const counts = await db
     .select({
@@ -274,6 +278,7 @@ export async function getFunilPix(
  * ============================================================ */
 export async function getRetencaoPorMetodo(
   produtoId: number | null = null,
+  gateway: string | null = null,
 ): Promise<RetencaoPorMetodo[]> {
   const result = await db.execute<{
     metodo: string;
@@ -312,6 +317,7 @@ export async function getRetencaoPorMetodo(
         and e.processed_ok = true
         and e.lead_id is not null
         ${produtoId != null ? sql`and e.produto_id = ${produtoId}` : sql``}
+        ${gateway != null ? sql`and e.source = ${gateway}` : sql``}
       order by e.lead_id, e.received_at asc
     )
     select

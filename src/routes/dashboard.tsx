@@ -10,6 +10,7 @@ import {
   Target,
   ArrowDownCircle,
   Wallet,
+  Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -69,7 +70,7 @@ export function DashboardPage() {
   const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
   const [ltvOpen, setLtvOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
-  const { produtoId, period, customDate } = useProdutoContext();
+  const { produtoId, period, customDate, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
   const { since, until } = useMemo(
@@ -79,39 +80,40 @@ export function DashboardPage() {
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const produtoParam = produtoId ?? "all";
+  const gatewayParam = gateway ?? "all";
   // baseQs agora carrega since + until — antes só since, então "Ontem" e
   // "Personalizado" (que precisam de upper bound) pegavam até NOW e o
   // filtro virava ineficaz.
-  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  const baseQs = `produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}&gateway=${gatewayParam}`;
 
   const metrics = useQuery({
-    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam],
+    queryKey: ["dashboard", "metrics", produtoParam, sinceParam, untilParam, gatewayParam],
     queryFn: () => api.get<DashboardMetrics>(`/api/dashboard/metrics?${baseQs}`),
   });
   const faturamento = useQuery({
-    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam],
+    queryKey: ["dashboard", "faturamento", produtoParam, sinceParam, untilParam, gatewayParam],
     queryFn: () => api.get<Faturamento>(`/api/dashboard/faturamento?${baseQs}`),
   });
   const daily = useQuery({
-    queryKey: ["dashboard", "daily", produtoParam],
-    queryFn: () => api.get<DailyMetric[]>(`/api/dashboard/daily?produtoId=${produtoParam}&days=30`),
+    queryKey: ["dashboard", "daily", produtoParam, gatewayParam],
+    queryFn: () => api.get<DailyMetric[]>(`/api/dashboard/daily?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`),
   });
   const dailyRevenue = useQuery({
-    queryKey: ["dashboard", "daily-revenue", produtoParam],
+    queryKey: ["dashboard", "daily-revenue", produtoParam, gatewayParam],
     queryFn: () =>
       api.get<DailyRevenue[]>(
-        `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30`,
+        `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`,
       ),
   });
   const vendasPorLp = useQuery({
-    queryKey: ["dashboard", "vendas-por-lp", produtoParam, sinceParam, untilParam],
+    queryKey: ["dashboard", "vendas-por-lp", produtoParam, sinceParam, untilParam, gatewayParam],
     queryFn: () =>
       api.get<VendaPorLp[]>(
         `/api/dashboard/vendas-por-lp?${baseQs}`,
       ),
   });
   const cohort = useQuery({
-    queryKey: ["dashboard", "cohort", produtoParam],
+    queryKey: ["dashboard", "cohort", produtoParam, gatewayParam],
     queryFn: () =>
       api.get<{
         rows: Array<{
@@ -128,13 +130,13 @@ export function DashboardPage() {
         ltvProjMedio: number;
         cohortsMaduras: number;
         totalAtivos: number;
-      }>(`/api/dashboard/cohort?produtoId=${produtoParam}`),
+      }>(`/api/dashboard/cohort?produtoId=${produtoParam}&gateway=${gatewayParam}`),
   });
   const breakdowns = useQuery({
-    queryKey: ["dashboard", "breakdowns", produtoParam],
+    queryKey: ["dashboard", "breakdowns", produtoParam, gatewayParam],
     queryFn: () =>
       api.get<{ planos: PlanoBreakdown[]; tipos: TipoBreakdown[] }>(
-        `/api/dashboard/breakdowns?produtoId=${produtoParam}`,
+        `/api/dashboard/breakdowns?produtoId=${produtoParam}&gateway=${gatewayParam}`,
       ),
   });
 
@@ -162,7 +164,7 @@ export function DashboardPage() {
       <HeroCard
         greeting={`${greeting()}, Washington 👋`}
         title="Lead Tracker"
-        hint={`Visão consolidada · ${PERIOD_LABELS[period]}`}
+        hint={`${gateway ? `Gateway: ${gateway[0].toUpperCase() + gateway.slice(1)}` : "Visão consolidada"} · ${PERIOD_LABELS[period]}`}
       />
 
       {/* Snapshot consolidado: 2 linhas × 3 cards.
@@ -174,10 +176,17 @@ export function DashboardPage() {
         <StatCard
           label="MRR atual"
           value={m ? brl(m.mrr) : "—"}
-          hint={m ? `${m.clientesAtivos} ativos · ARPU ${brl(m.arpu)}` : undefined}
+          hint={m ? `${m.clientesAtivos} subs ativas` : undefined}
           icon={DollarSign}
           iconTone="lime"
           onClick={() => setMrrAtualOpen(true)}
+        />
+        <StatCard
+          label="ARPU (por sub)"
+          value={m ? brl(m.arpu) : "—"}
+          hint={m ? `MRR ÷ ${m.clientesAtivos} subs · receita média por cliente/mês` : undefined}
+          icon={Users}
+          iconTone="lime"
         />
         <StatCard
           label="LTV (lifetime value)"
@@ -246,9 +255,11 @@ export function DashboardPage() {
             hint={
               cac.isError
                 ? "Erro ao buscar Meta"
-                : cac.data
-                  ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
-                  : "Carregando..."
+                : gateway
+                  ? "Global · não filtra por gateway"
+                  : cac.data
+                    ? `${brl(cac.data.adSpend)} gasto / ${cac.data.newCustomers} novos`
+                    : "Carregando..."
             }
             icon={Target}
             iconTone="forest"
