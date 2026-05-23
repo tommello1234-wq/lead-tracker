@@ -9,6 +9,7 @@ import {
   getSidebarCounts,
   getVendasPorPlano,
   getVendasPorLp,
+  getMrrHistory,
 } from "../lib/queries.js";
 import {
   getMetodoBreakdown,
@@ -119,6 +120,18 @@ dashboardRoutes.get("/daily-revenue", async (c) => {
   const days = Number(c.req.query("days") ?? 30) || 30;
   const series = await getDailyRevenue(days, produtoId, gateway);
   return c.json(series);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/mrr-history?produtoId=N&days=30&gateway=stripe
+ * Evolução do MRR (snapshot por dia). Cada ponto = MRR no fim daquele dia.
+ * ========================================================================== */
+dashboardRoutes.get("/mrr-history", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const gateway = parseGateway(c);
+  const days = Number(c.req.query("days") ?? 30) || 30;
+  const data = await getMrrHistory(days, produtoId, gateway);
+  return c.json(data);
 });
 
 /* ==========================================================================

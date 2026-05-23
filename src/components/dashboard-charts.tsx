@@ -888,3 +888,135 @@ export function TipoBreakdownChart({ data }: { data: TipoBreakdown[] }) {
     </Card>
   );
 }
+
+export type MrrHistoryPoint = { date: string; mrr: number; subs: number };
+
+/**
+ * Evolução do MRR ao longo do tempo. Cada ponto = snapshot de MRR no fim
+ * daquele dia (subs ativas naquela data × valor mensalizado).
+ *
+ * Diferente do gráfico Faturamento × Lucro (fluxo de entradas no caixa),
+ * aqui é stock de receita recorrente. Sobe quando entra cliente novo, cai
+ * quando sai. Útil pra ver trajetória de crescimento da base.
+ */
+export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
+  const hasData = data.some((d) => d.mrr > 0);
+  const mrrAtual = data.length > 0 ? data[data.length - 1].mrr : 0;
+  const mrrInicial = data.length > 0 ? data[0].mrr : 0;
+  const variacao = mrrAtual - mrrInicial;
+  const pctVar = mrrInicial > 0 ? (variacao / mrrInicial) * 100 : 0;
+  const subsAtual = data.length > 0 ? data[data.length - 1].subs : 0;
+
+  const COLOR_MRR = "oklch(0.55 0.20 270)"; // roxo — diferente do faturamento
+
+  return (
+    <Card className="border-0 shadow-sm rounded-3xl overflow-hidden">
+      <CardHeader className="pb-3">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle className="text-base font-semibold">Evolução do MRR</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Receita recorrente mensal · snapshot por dia
+            </p>
+          </div>
+          {hasData ? (
+            <div className="flex items-center gap-5 text-right">
+              <div>
+                <p
+                  className="text-xl font-bold tabular-nums leading-none"
+                  style={{ color: COLOR_MRR }}
+                >
+                  {brl(mrrAtual)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                  MRR atual · {subsAtual} subs
+                </p>
+              </div>
+              {variacao !== 0 && mrrInicial > 0 ? (
+                <>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <p
+                      className={`text-xl font-bold tabular-nums leading-none ${
+                        variacao >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {variacao >= 0 ? "+" : ""}
+                      {brl(variacao)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                      Variação · {pctVar >= 0 ? "+" : ""}
+                      {pctVar.toFixed(1)}%
+                    </p>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <EmptyChart />
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="grad-mrr-area" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_MRR} stopOpacity={0.32} />
+                  <stop offset="100%" stopColor={COLOR_MRR} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="2 4"
+                stroke="oklch(0.92 0.01 250)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatDateLabel}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
+                tickMargin={8}
+                interval="preserveStartEnd"
+                minTickGap={32}
+              />
+              <YAxis
+                tickFormatter={(v) => brl(Number(v))}
+                width={64}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
+              />
+              <Tooltip
+                cursor={{
+                  stroke: "oklch(0.65 0.02 250)",
+                  strokeWidth: 1,
+                  strokeDasharray: "4 4",
+                }}
+                content={
+                  <ChartTooltip
+                    labelFormatter={(d) => formatDateLabel(String(d))}
+                    formatter={(v, _name, item) => {
+                      const p = (item.payload ?? {}) as { subs?: number };
+                      return [`${brl(Number(v ?? 0))} · ${p.subs ?? 0} subs`, "MRR"];
+                    }}
+                  />
+                }
+              />
+              <Area
+                type="monotone"
+                dataKey="mrr"
+                name="MRR"
+                stroke={COLOR_MRR}
+                strokeWidth={2.5}
+                fill="url(#grad-mrr-area)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

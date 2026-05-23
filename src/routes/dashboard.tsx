@@ -22,10 +22,12 @@ import {
   ConversionTrendChart,
   DailyRevenueChart,
   DailyVolumeChart,
+  MrrHistoryChart,
   PlanoBreakdownChart,
   TipoBreakdownChart,
   VendasPorLpChart,
   type DailyRevenue,
+  type MrrHistoryPoint,
   type VendaPorLp,
 } from "@/components/dashboard-charts";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
@@ -103,6 +105,13 @@ export function DashboardPage() {
     queryFn: () =>
       api.get<DailyRevenue[]>(
         `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`,
+      ),
+  });
+  const mrrHistory = useQuery({
+    queryKey: ["dashboard", "mrr-history", produtoParam, gatewayParam],
+    queryFn: () =>
+      api.get<MrrHistoryPoint[]>(
+        `/api/dashboard/mrr-history?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`,
       ),
   });
   const vendasPorLp = useQuery({
@@ -284,7 +293,13 @@ export function DashboardPage() {
       {/* Charts */}
       {breakdowns.data && daily.data ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Faturamento por dia — full width (métrica-chave do dashboard) */}
+          {/* Evolução MRR — full width (snapshot estoque de receita recorrente) */}
+          {mrrHistory.data ? (
+            <div className="lg:col-span-2">
+              <MrrHistoryChart data={mrrHistory.data} />
+            </div>
+          ) : null}
+          {/* Faturamento por dia — full width (fluxo de entradas no caixa) */}
           {dailyRevenue.data ? (
             <div className="lg:col-span-2">
               <DailyRevenueChart data={dailyRevenue.data} />

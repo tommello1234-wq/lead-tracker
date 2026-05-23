@@ -705,6 +705,79 @@ export async function getFaturamento(
 }
 
 /**
+ * Evolução do MRR (snapshot por dia nos últimos N dias).
+ *
+ * Pra cada dia X: soma valor mensalizado das subs que estavam ATIVAS naquele dia.
+ * Sub estava ativa em X se: pagou_em <= X E (cancelado_em > X OU cancelado_em IS NULL).
+ * Anuais entram /12, vitalício/grátis = 0.
+ *
+ * Útil pra ver o crescimento do MRR ao longo do tempo, separado do faturamento
+ * que é fluxo. MRR é estoque — sobe quando entra cliente, cai quando sai.
+ */
+export async function getMrrHistory(
+  days = 30,
+  produtoId: number | null = null,
+  gateway: string | null = null,
+): Promise<Array<{ date: string; mrr: number; subs: number }>> {
+  const TZ = "America/Sao_Paulo";
+  function dateToISOBR(d: Date): string {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  }
+
+  const todayBR = dateToISOBR(new Date());
+  const sinceBR = new Date(`${todayBR}T23:59:59-03:00`);
+  sinceBR.setDate(sinceBR.getDate() - (days - 1));
+
+  const produtoFilter = produtoId != null
+    ? sql`AND s.produto_id = ${produtoId}`
+    : sql`AND (s.produto_id IS NULL OR s.produto_id IN (SELECT id FROM produtos WHERE ativo = true))`;
+  const gatewayFilter = gateway != null ? sql`AND s.gateway = ${gateway}` : sql``;
+
+  // Pra cada dia, conta subs ativas no fim do dia (23:59 BRT).
+  // Sub estava ativa se: pagou_em <= fim_do_dia E (cancelado_em > fim_do_dia OU NULL).
+  // Considera reembolsos: subs reembolsadas (status='reembolsada') não contam após reembolsado_em.
+  const rows = await db.execute<{ day: string; mrr: number; subs: number }>(sql`
+    WITH dias AS (
+      SELECT generate_series(
+        ${sinceBR.toISOString()}::timestamptz,
+        ${new Date().toISOString()}::timestamptz,
+        '1 day'::interval
+      ) AS d
+    )
+    SELECT
+      to_char(dias.d AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS day,
+      COUNT(s.id)::int AS subs,
+      COALESCE(SUM(
+        CASE
+          WHEN s.periodicidade = 'anual' THEN s.valor / 12.0
+          WHEN s.periodicidade IN ('vitalicio', 'gratis') THEN 0
+          ELSE s.valor
+        END
+      ), 0)::float AS mrr
+    FROM dias
+    LEFT JOIN subscriptions s ON
+      s.pagou_em <= dias.d
+      AND (s.cancelado_em IS NULL OR s.cancelado_em > dias.d)
+      AND s.status NOT IN ('nenhuma', 'reembolsada')
+      ${produtoFilter}
+      ${gatewayFilter}
+    GROUP BY dias.d
+    ORDER BY dias.d
+  `);
+
+  return (rows as unknown as Array<{ day: string; mrr: number; subs: number }>).map((r) => ({
+    date: r.day,
+    mrr: Number(r.mrr),
+    subs: Number(r.subs),
+  }));
+}
+
+/**
  * Faturamento LÍQUIDO agregado por DIA (últimos N dias) + gasto Meta + lucro.
  * Mesma lógica do getFaturamento mas com GROUP BY date(received_at).
  *
