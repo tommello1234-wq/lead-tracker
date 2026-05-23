@@ -171,8 +171,19 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
   const gatewayLastOrderId =
     pick<string>(obj, "id", "payment_intent", "subscription", "invoice") ?? null;
 
-  // Plano/produto: line items vem com expand. Usamos metadata customizada se disponivel,
-  // senao tentamos description (em invoice.lines).
+  // Plano/produto: line items vem com expand. Stripe webhook NÃO expande
+  // line_items por default — só vem se você chama o webhook com expand[]=line_items.
+  // Fallback: metadata.gravyx_tier ('creator'|'starter'|'studio'|'premium'|'custom')
+  // mapeado pra nome amigável. Sem isso, 40+ subs ficaram sem plano_nome.
+  const tier = String(pick<string>(obj, "metadata.gravyx_tier", "metadata.tier") ?? "").toLowerCase();
+  const TIER_TO_NAME: Record<string, string> = {
+    creator: "Gravyx Creator",
+    starter: "Gravyx Starter",
+    studio: "Gravyx Studio",
+    premium: "Gravyx Premium",
+    enterprise: "Gravyx Enterprise",
+    custom: "Gravyx Custom",
+  };
   const planoNome =
     pick<string>(
       obj,
@@ -180,7 +191,7 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
       "metadata.product_name",
       "lines.data.0.description",
       "items.data.0.description",
-    ) ?? null;
+    ) ?? (tier && TIER_TO_NAME[tier]) ?? null;
 
   // Periodicidade — Stripe oferece vários sinais:
   //  - mode: 'subscription' (recorrente) vs 'payment' (one-time = vitalicio)
