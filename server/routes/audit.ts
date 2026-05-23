@@ -1108,6 +1108,233 @@ auditRoutes.get("/ticto", async (c) => {
 });
 
 /**
+ * GET /api/audit/stripe-reconcile?token=<CRON_SECRET>
+ *
+ * Cruza nosso banco com a API Stripe pra ver quantas subs marcadas como
+ * `ativa`/`atrasada` no nosso lado ainda estão realmente active/past_due
+ * na Stripe. Read-only — não altera nada.
+ */
+auditRoutes.get("/stripe-reconcile", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
+
+  type StripeSub = {
+    id: string;
+    status: string;
+    customer: string;
+    items?: { data: Array<{ price: { unit_amount: number; recurring?: { interval: string } } }> };
+  };
+
+  // Pega todas subs Stripe (paginado)
+  const allStripeSubs: StripeSub[] = [];
+  let starting_after: string | undefined;
+  while (true) {
+    const p = new URLSearchParams({ limit: "100", status: "all" });
+    if (starting_after) p.set("starting_after", starting_after);
+    const r = await fetch(`https://api.stripe.com/v1/subscriptions?${p}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!r.ok) return c.json({ error: `Stripe HTTP ${r.status}` }, 502);
+    const body = (await r.json()) as { data: StripeSub[]; has_more: boolean };
+    allStripeSubs.push(...body.data);
+    if (!body.has_more || body.data.length === 0) break;
+    starting_after = body.data[body.data.length - 1].id;
+    if (allStripeSubs.length > 2000) break;
+  }
+
+  const stripeById = new Map(allStripeSubs.map((s) => [s.id, s]));
+  const stripeActiveOrPastDue = new Set(
+    allStripeSubs.filter((s) => s.status === "active" || s.status === "past_due" || s.status === "trialing").map((s) => s.id),
+  );
+
+  // Subs no banco como ativa/atrasada
+  const ours = await db
+    .select({
+      id: subscriptions.id,
+      subId: subscriptions.gatewaySubscriptionId,
+      status: subscriptions.status,
+      valor: subscriptions.valor,
+      email: leads.email,
+      nome: leads.nome,
+    })
+    .from(subscriptions)
+    .leftJoin(leads, eq(leads.id, subscriptions.leadId))
+    .where(
+      and(
+        eq(subscriptions.gateway, "stripe"),
+        sql`${subscriptions.status} IN ('ativa', 'atrasada')`,
+      ),
+    );
+
+  let aindaAtivas = 0;
+  let missingId = 0;
+  const mudaramStatus: Array<{
+    email: string | null;
+    nome: string | null;
+    subId: string;
+    statusBanco: string;
+    statusStripe: string;
+    valor: number | null;
+  }> = [];
+  const naoEncontradas: Array<{ email: string | null; subId: string; statusBanco: string; valor: number | null }> = [];
+
+  for (const o of ours) {
+    if (!o.subId) {
+      missingId++;
+      continue;
+    }
+    if (stripeActiveOrPastDue.has(o.subId)) {
+      aindaAtivas++;
+      continue;
+    }
+    const stripeSub = stripeById.get(o.subId);
+    if (!stripeSub) {
+      naoEncontradas.push({ email: o.email, subId: o.subId, statusBanco: o.status, valor: o.valor });
+      continue;
+    }
+    mudaramStatus.push({
+      email: o.email,
+      nome: o.nome,
+      subId: o.subId,
+      statusBanco: o.status,
+      statusStripe: stripeSub.status,
+      valor: o.valor,
+    });
+  }
+
+  // Subs Stripe ACTIVE/past_due que faltam no banco (gap)
+  const ourIds = new Set(ours.map((o) => o.subId).filter(Boolean));
+  const allDbSubsRaw = await db.select({ subId: subscriptions.gatewaySubscriptionId })
+    .from(subscriptions).where(eq(subscriptions.gateway, "stripe"));
+  const allDbIds = new Set(allDbSubsRaw.map((x) => x.subId).filter(Boolean));
+  const missingFromDb = allStripeSubs.filter(
+    (s) => (s.status === "active" || s.status === "trialing") && !allDbIds.has(s.id),
+  );
+
+  const mrrSuperestimado = mudaramStatus.reduce((acc, x) => acc + (x.valor ?? 0), 0);
+
+  return c.json({
+    summary: {
+      stripeApiTotalSubs: allStripeSubs.length,
+      stripeActiveOrPastDue: stripeActiveOrPastDue.size,
+      bancoAtivaAtrasada: ours.length,
+      aindaAtivas,
+      mudaramStatus: mudaramStatus.length,
+      naoEncontradas: naoEncontradas.length,
+      missingFromDb: missingFromDb.length,
+      missingId,
+      mrrSuperestimado,
+    },
+    mudaramStatus,
+    naoEncontradas,
+    missingFromDb: missingFromDb.map((s) => ({
+      subId: s.id,
+      customer: s.customer,
+      status: s.status,
+      valor: s.items?.data[0]?.price.unit_amount ? s.items.data[0].price.unit_amount / 100 : null,
+    })),
+  });
+});
+
+/**
+ * GET /api/audit/ticto-reconcile?token=<CRON_SECRET>
+ *
+ * Cruza nosso banco com a API Ticto. Subs Ticto não têm gateway_subscription_id
+ * confiável (varia por offer), então cruzamos por CPF (gateway_customer_id).
+ * Read-only.
+ */
+auditRoutes.get("/ticto-reconcile", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  // Pega subs Ticto via API existente
+  let tictoSubs: Array<{
+    customer?: { cpf?: string; cnpj?: string; email?: string; name?: string };
+    situation?: string;
+    transactions?: Array<{ status?: string }>;
+  }> = [];
+  try {
+    let page = 1;
+    while (page < 50) {
+      const resp = await getSubscriptionsHistory(page);
+      const data = resp.data ?? [];
+      if (data.length === 0) break;
+      tictoSubs = tictoSubs.concat(data as typeof tictoSubs);
+      const lastPage = resp.meta?.last_page ?? page;
+      if (page >= lastPage) break;
+      page++;
+    }
+  } catch (e) {
+    return c.json({ error: `Ticto API: ${e instanceof Error ? e.message : "unknown"}` }, 502);
+  }
+
+  // Filtra ATIVAS na Ticto (situation pode ser: 'active', 'paid_off', 'delayed', 'canceled', etc)
+  const tictoActiveCpfs = new Set<string>();
+  for (const s of tictoSubs) {
+    const sit = String(s.situation ?? "").toLowerCase();
+    if (sit === "active" || sit === "paid_off" || sit === "delayed") {
+      const cpf = s.customer?.cpf ?? s.customer?.cnpj;
+      if (cpf) tictoActiveCpfs.add(cpf);
+    }
+  }
+
+  // Subs no banco
+  const ours = await db
+    .select({
+      id: subscriptions.id,
+      status: subscriptions.status,
+      valor: subscriptions.valor,
+      cpf: subscriptions.gatewayCustomerId,
+      email: leads.email,
+      nome: leads.nome,
+    })
+    .from(subscriptions)
+    .leftJoin(leads, eq(leads.id, subscriptions.leadId))
+    .where(
+      and(
+        eq(subscriptions.gateway, "ticto"),
+        sql`${subscriptions.status} IN ('ativa', 'atrasada')`,
+      ),
+    );
+
+  let aindaAtivas = 0;
+  const possivelmenteCanceladas: Array<{
+    email: string | null;
+    nome: string | null;
+    cpf: string | null;
+    statusBanco: string;
+    valor: number | null;
+  }> = [];
+
+  for (const o of ours) {
+    if (o.cpf && tictoActiveCpfs.has(o.cpf)) {
+      aindaAtivas++;
+    } else {
+      possivelmenteCanceladas.push({
+        email: o.email,
+        nome: o.nome,
+        cpf: o.cpf,
+        statusBanco: o.status,
+        valor: o.valor,
+      });
+    }
+  }
+
+  const mrrSuperestimado = possivelmenteCanceladas.reduce((acc, x) => acc + (x.valor ?? 0), 0);
+
+  return c.json({
+    summary: {
+      tictoApiTotalActive: tictoActiveCpfs.size,
+      bancoAtivaAtrasada: ours.length,
+      aindaAtivas,
+      possivelmenteCanceladas: possivelmenteCanceladas.length,
+      mrrSuperestimado,
+    },
+    possivelmenteCanceladas: possivelmenteCanceladas.slice(0, 30),
+  });
+});
+
+/**
  * POST /api/audit/asaas-import-missing?token=<CRON_SECRET>
  *
  * Importa subs ACTIVE do Asaas que NÃO estão no nosso banco (gap das
