@@ -754,6 +754,23 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
   // Lead pode ter múltiplas subs ativas em gateways diferentes — o MRR vem
   // dessa tabela, então é crítico manter em sincronia. Não toca nas subs de
   // outros gateways do mesmo lead (cancel Ticto não cancela Stripe, etc).
+  // Calcula próxima cobrança esperada quando webhook não envia (ex: Stripe
+  // checkout.session.completed não inclui current_period_end). Soma +1 mês
+  // ou +1 ano à data base (pagouEm/renovação) conforme periodicidade.
+  // Vitalício/grátis não geram próxima cobrança.
+  const periodicidade = input.periodicidade ?? lead.periodicidade;
+  let proximoPagamentoEm: Date | null = null;
+  if (
+    (input.eventType === "compra_aprovada" || input.eventType === "assinatura_renovada") &&
+    periodicidade !== "vitalicio" &&
+    periodicidade !== "gratis"
+  ) {
+    const ref = new Date(now);
+    if (periodicidade === "anual") ref.setFullYear(ref.getFullYear() + 1);
+    else ref.setMonth(ref.getMonth() + 1);
+    proximoPagamentoEm = ref;
+  }
+
   await upsertSubscription({
     leadId: lead.id,
     gateway: input.source,
@@ -767,6 +784,7 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     pagouEm: input.eventType === "compra_aprovada" ? now : null,
     ultimaRenovacaoEm: input.eventType === "assinatura_renovada" ? now : null,
     canceladoEm: input.eventType === "assinatura_cancelada" ? now : null,
+    proximoPagamentoEm,
   });
 
   // Agenda mensagens conforme o fluxo (lido do DB — editavel via /automacoes)
