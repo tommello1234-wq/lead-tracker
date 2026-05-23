@@ -18,6 +18,7 @@ import {
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
 import { getCohortMatrix } from "../lib/cohort.js";
+import { getChurnMetrics } from "../lib/churn.js";
 import { getDetails, type DetailsKind } from "../lib/details.js";
 import { getMrrBreakdown, getMrrMovementLeads } from "../lib/mrr.js";
 
@@ -131,6 +132,19 @@ dashboardRoutes.get("/mrr-history", async (c) => {
   const gateway = parseGateway(c);
   const days = Number(c.req.query("days") ?? 30) || 30;
   const data = await getMrrHistory(days, produtoId, gateway);
+  return c.json(data);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/churn?produtoId=N&gateway=stripe&days=30
+ * Métricas de churn: cancelamentos, reembolsos, taxa de churn mensal,
+ * LTV via churn. Reembolso é separado (não é churn de verdade).
+ * ========================================================================== */
+dashboardRoutes.get("/churn", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const gateway = parseGateway(c);
+  const days = Number(c.req.query("days") ?? 30) || 30;
+  const data = await getChurnMetrics(produtoId, gateway, days);
   return c.json(data);
 });
 

@@ -11,6 +11,7 @@ import {
   ArrowDownCircle,
   Wallet,
   Users,
+  TrendingDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
@@ -34,6 +35,7 @@ import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
 import { CohortTable } from "@/components/cohort-table";
 import { LtvDetailsModal } from "@/components/ltv-details-modal";
+import { ChurnDetailsModal } from "@/components/churn-details-modal";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -71,6 +73,7 @@ export function DashboardPage() {
   const [details, setDetails] = useState<DetailsKind | null>(null);
   const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
   const [ltvOpen, setLtvOpen] = useState(false);
+  const [churnOpen, setChurnOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
@@ -165,6 +168,28 @@ export function DashboardPage() {
     enabled: isSaasView,
     retry: 0,
   });
+  const churn = useQuery({
+    queryKey: ["dashboard", "churn", produtoParam, gatewayParam],
+    queryFn: () =>
+      api.get<{
+        customerChurnMensal: number;
+        cancelamentos: number;
+        cancelamentosAgendados: number;
+        revenueChurnMensal: number;
+        mrrPerdido: number;
+        mrrSaindo: number;
+        reembolsos: number;
+        reembolsoTaxa: number;
+        vendasNoPeriodo: number;
+        ltvViaChurn: number;
+        vidaMediaMeses: number;
+        ativosAtuais: number;
+        ativosInicio: number;
+        arpuAtual: number;
+        diasAnalisados: number;
+        amostraPequena: boolean;
+      }>(`/api/dashboard/churn?produtoId=${produtoParam}&gateway=${gatewayParam}&days=30`),
+  });
 
   const m = metrics.data;
 
@@ -222,6 +247,30 @@ export function DashboardPage() {
           icon={TrendingUp}
           iconTone="forest"
           onClick={() => setLtvOpen(true)}
+        />
+        <StatCard
+          label="Churn (mensal)"
+          value={
+            churn.data
+              ? churn.data.amostraPequena
+                ? `${churn.data.cancelamentos}`
+                : `${(churn.data.customerChurnMensal * 100).toFixed(1)}%`
+              : "—"
+          }
+          hint={
+            churn.data
+              ? churn.data.amostraPequena
+                ? `${churn.data.cancelamentos} cancelaram · ${churn.data.reembolsos} reembolso${churn.data.reembolsos === 1 ? "" : "s"} · amostra pequena`
+                : `${churn.data.cancelamentos} cancelaram · −${brl(churn.data.mrrPerdido)} MRR · clique pra detalhes`
+              : undefined
+          }
+          icon={TrendingDown}
+          iconTone={
+            churn.data && !churn.data.amostraPequena && churn.data.customerChurnMensal > 0.1
+              ? "rose"
+              : "forest"
+          }
+          onClick={() => setChurnOpen(true)}
         />
         <StatCard
           label="Faturamento"
@@ -341,6 +390,9 @@ export function DashboardPage() {
           metrics={m ?? null}
           onClose={() => setLtvOpen(false)}
         />
+      ) : null}
+      {churnOpen ? (
+        <ChurnDetailsModal onClose={() => setChurnOpen(false)} />
       ) : null}
       {selectedLeadId !== null ? (
         <LeadDetailsModal
