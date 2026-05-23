@@ -69,8 +69,9 @@ export function DetailsModal({
   onClose: () => void;
   onLeadClick?: (id: number) => void;
 }) {
-  const { produtoId, period, customDate } = useProdutoContext();
+  const { produtoId, period, customDate, gateway } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const gatewayParam = gateway ?? "all";
   // Memoiza o range pra estabilizar queryKey — pra periodos com `until=NOW`
   // (ex: "hoje"), sem memo o until vira new Date() a cada render → ISO string
   // diferente a cada vez → React Query cancela e refaz o fetch infinitamente,
@@ -81,10 +82,10 @@ export function DetailsModal({
   );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
-  const qs = `kind=${kind}&produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}`;
+  const qs = `kind=${kind}&produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}&gateway=${gatewayParam}`;
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["dashboard", "details", kind, produtoParam, sinceParam, untilParam],
+    queryKey: ["dashboard", "details", kind, produtoParam, sinceParam, untilParam, gatewayParam],
     queryFn: () => api.get<DetailLead[]>(`/api/dashboard/details?${qs}`),
   });
 
@@ -98,7 +99,8 @@ export function DetailsModal({
   }, [onClose]);
 
   const isCompras = kind === "compras";
-  const [gatewayFilter, setGatewayFilter] = useState<string | null>(null);
+  // Pré-seleciona o filtro local com o gateway global (se houver)
+  const [gatewayFilter, setGatewayFilter] = useState<string | null>(gateway);
 
   // Filtro de gateway aplicado localmente
   const filtered = useMemo(() => {

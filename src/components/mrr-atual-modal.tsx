@@ -43,16 +43,19 @@ function leadMrr(l: DetailLead): number {
 }
 
 export function MrrAtualModal({ onClose, onLeadClick }: { onClose: () => void; onLeadClick?: (id: number) => void }) {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, gateway } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
-  const [gatewayFilter, setGatewayFilter] = useState<string | null>(null);
+  const gatewayParam = gateway ?? "all";
+  // Inicia o filtro local sincronizado com o filtro GLOBAL do dashboard.
+  // Usuário ainda pode trocar dentro do modal — esse é o estado inicial só.
+  const [gatewayFilter, setGatewayFilter] = useState<string | null>(gateway);
   const [planoFilter, setPlanoFilter] = useState<string | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["dashboard", "details", "ativos", produtoParam],
+    queryKey: ["dashboard", "details", "ativos", produtoParam, gatewayParam],
     queryFn: () =>
       api.get<DetailLead[]>(
-        `/api/dashboard/details?kind=ativos&produtoId=${produtoParam}`,
+        `/api/dashboard/details?kind=ativos&produtoId=${produtoParam}&gateway=${gatewayParam}`,
       ),
   });
 
