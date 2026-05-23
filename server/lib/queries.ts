@@ -32,8 +32,13 @@ function gatewayConditionSubs(gateway: string | null) {
   return gateway != null ? [eq(subscriptions.gateway, gateway)] : [];
 }
 function gatewayConditionEventos(gateway: string | null) {
-  // eventos.source = gateway name ("stripe", "ticto", "asaas", "pagarme")
-  return gateway != null ? [eq(eventos.source, gateway)] : [];
+  // eventos.source pode ter variantes do mesmo gateway:
+  //  - "stripe" (webhook normal) e "stripe-sync" (sync inicial)
+  //  - "asaas" (webhook) e "asaas-sync" (cron sync)
+  // Filtra por prefixo pra incluir todas as variantes.
+  return gateway != null
+    ? [sql`(${eventos.source} = ${gateway} OR ${eventos.source} = ${gateway + "-sync"})`]
+    : [];
 }
 
 export async function getAllLeads(
