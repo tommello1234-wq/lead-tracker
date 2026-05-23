@@ -92,6 +92,17 @@ function detectEventType(event: AnyObject): GatewayEvent | null {
     }
     case "customer.subscription.deleted":
       return "assinatura_cancelada";
+    case "customer.subscription.updated": {
+      // Cliente pediu cancelamento mas sub continua ativa até period_end.
+      // Stripe seta cancel_at_period_end=true + cancel_at=<timestamp>.
+      // Geramos evento customizado pra UI mostrar "Cancela em DD/MM" e
+      // backend popular subscriptions.cancel_at.
+      if (!obj) return null;
+      const cancelAtEnd = pick<boolean>(obj, "cancel_at_period_end");
+      const cancelAt = pick<number>(obj, "cancel_at");
+      if (cancelAtEnd === true && cancelAt) return "assinatura_cancelamento_agendado";
+      return null;
+    }
     case "charge.refunded":
       return "reembolso";
     default:
@@ -217,6 +228,15 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
   else if (mode === "payment") periodicidade = "vitalicio"; // one-time
   else if (/free|gratis|trial/.test(slug)) periodicidade = "gratis";
 
+  // cancel_at: Stripe envia em customer.subscription.updated quando cliente
+  // pede cancelamento agendado. Timestamp Unix → Date.
+  const cancelAtTs = pick<number>(obj, "cancel_at");
+  const cancelAtEnd = pick<boolean>(obj, "cancel_at_period_end");
+  const cancelAt =
+    eventType === "assinatura_cancelamento_agendado" && cancelAtTs
+      ? new Date(cancelAtTs * 1000)
+      : null;
+
   return {
     source: "stripe",
     eventType,
@@ -229,6 +249,7 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
     valor,
     planoNome,
     periodicidade,
+    cancelAt,
     pixExpiraEm: null, // Stripe nao tem PIX expiration nativo no payload
     extras: {
       // Link util pra mensagens (cliente acessa fatura/checkout)

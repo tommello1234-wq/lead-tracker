@@ -1268,6 +1268,68 @@ auditRoutes.get("/stripe-reconcile", async (c) => {
 });
 
 /**
+ * POST /api/audit/stripe-backfill-cancel-at?token=<CRON_SECRET>
+ *
+ * Pra cada sub Stripe ativa, busca via API se cancel_at_period_end=true e
+ * popula subscriptions.cancel_at. Resolve subs que pediram cancelamento via
+ * Stripe Dashboard antes do webhook customer.subscription.updated ser
+ * processado corretamente (bug histórico).
+ */
+auditRoutes.post("/stripe-backfill-cancel-at", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
+
+  const ativas = await db
+    .select({ id: subscriptions.id, subId: subscriptions.gatewaySubscriptionId })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.gateway, "stripe"), eq(subscriptions.status, "ativa")));
+
+  let updated = 0;
+  let cleared = 0;
+  let failed = 0;
+  const samples: Array<{ subId: string; cancelAt: string | null }> = [];
+
+  for (const a of ativas) {
+    if (!a.subId || !a.subId.startsWith("sub_")) continue;
+    try {
+      const r = await fetch(`https://api.stripe.com/v1/subscriptions/${a.subId}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!r.ok) { failed++; continue; }
+      const sub = (await r.json()) as {
+        cancel_at_period_end?: boolean;
+        cancel_at?: number | null;
+      };
+      const cancelAt =
+        sub.cancel_at_period_end && sub.cancel_at
+          ? new Date(sub.cancel_at * 1000)
+          : null;
+      await db
+        .update(subscriptions)
+        .set({ cancelAt })
+        .where(eq(subscriptions.id, a.id));
+      if (cancelAt) {
+        updated++;
+        samples.push({ subId: a.subId, cancelAt: cancelAt.toISOString() });
+      } else {
+        cleared++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+
+  return c.json({
+    totalAtivas: ativas.length,
+    populatedCancelAt: updated,
+    clearedCancelAt: cleared,
+    failed,
+    samples,
+  });
+});
+
+/**
  * POST /api/audit/stripe-fix-sub-ids?token=<CRON_SECRET>
  *
  * Bug histórico: o parser Stripe salvava `id` (= cs_live_XXX session id) em

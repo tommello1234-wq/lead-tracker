@@ -34,6 +34,8 @@ export type DetailLead = {
   periodicidade: string;
   pagouEm: string | null;
   proximoPagamentoEm?: string | null;
+  /** Stripe cancel_at_period_end — sub continua ativa até essa data, depois cancela. */
+  cancelAt?: string | null;
   canceladoEm: string | null;
   criadoEm: string;
   atualizadoEm: string;
@@ -85,6 +87,7 @@ export async function getDetails(
           subPeriod: subscriptions.periodicidade,
           subPagouEm: subscriptions.pagouEm,
           subProxPag: subscriptions.proximoPagamentoEm,
+          subCancelAt: subscriptions.cancelAt,
           subStatus: subscriptions.status,
           lead: leads,
         })
@@ -102,6 +105,7 @@ export async function getDetails(
         periodicidade: r.subPeriod,
         pagouEm: r.subPagouEm?.toISOString() ?? null,
         proximoPagamentoEm: r.subProxPag?.toISOString() ?? null,
+        cancelAt: r.subCancelAt?.toISOString() ?? null,
         subscriptionStatus: r.subStatus,
       }));
     }

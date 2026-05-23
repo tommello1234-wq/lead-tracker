@@ -283,6 +283,9 @@ export const subscriptions = pgTable("subscriptions", {
   proximoPagamentoEm: timestamp("proximo_pagamento_em", { mode: "date" }),
   ultimaRenovacaoEm: timestamp("ultima_renovacao_em", { mode: "date" }),
   canceladoEm: timestamp("cancelado_em", { mode: "date" }),
+  // Cliente pediu cancelamento mas sub ainda ativa até essa data (Stripe
+  // cancel_at_period_end). MRR conta normal até cancel_at, depois vai zero.
+  cancelAt: timestamp("cancel_at", { mode: "date" }),
   criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
   atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
 });

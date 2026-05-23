@@ -279,6 +279,8 @@ export type DetailLead = {
   periodicidade: string;
   pagouEm: string | null;
   proximoPagamentoEm?: string | null;
+  /** Stripe cancel_at_period_end: sub ativa até essa data, depois cancela */
+  cancelAt?: string | null;
   canceladoEm: string | null;
   criadoEm: string;
   atualizadoEm: string;

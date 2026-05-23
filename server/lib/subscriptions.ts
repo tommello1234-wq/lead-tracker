@@ -27,6 +27,7 @@ export type UpsertSubArgs = {
   proximoPagamentoEm?: Date | null;
   ultimaRenovacaoEm?: Date | null;
   canceladoEm?: Date | null;
+  cancelAt?: Date | null;
 };
 
 export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
@@ -59,6 +60,7 @@ export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
       // Não usa NOW() como fallback: prefere NULL a data fake.
       // Caller deve passar a data real do gateway quando souber.
       canceladoEm: args.canceladoEm ?? null,
+      cancelAt: args.cancelAt ?? null,
     });
     return;
   }
@@ -88,6 +90,12 @@ export async function upsertSubscription(args: UpsertSubArgs): Promise<void> {
   // Sem NOW() de fallback — preferimos NULL a data fake (sync ≠ cancel).
   if (args.status === "cancelada" && !existing.canceladoEm && args.canceladoEm) {
     updates.canceladoEm = args.canceladoEm;
+  }
+  // cancel_at: cliente pediu cancelamento agendado. Pode ser setado (novo
+  // pedido) ou limpo (cliente reverteu cancelamento via Stripe Dashboard).
+  // Aceita explícito null pra desfazer.
+  if (args.cancelAt !== undefined) {
+    updates.cancelAt = args.cancelAt;
   }
 
   await db

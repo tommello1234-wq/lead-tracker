@@ -289,7 +289,12 @@ export function MrrAtualModal({ onClose, onLeadClick }: { onClose: () => void; o
                         {fmtDate(l.pagouEm)}
                       </td>
                       <td className="px-5 py-2.5 tabular-nums">
-                        {l.proximoPagamentoEm ? (
+                        {l.cancelAt ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 dark:text-red-400">
+                            <span className="size-1.5 rounded-full bg-red-500" />
+                            Cancela em {fmtDate(l.cancelAt)}
+                          </span>
+                        ) : l.proximoPagamentoEm ? (
                           <span className="text-foreground/85">{fmtDate(l.proximoPagamentoEm)}</span>
                         ) : (
                           <span className="text-muted-foreground/60">—</span>

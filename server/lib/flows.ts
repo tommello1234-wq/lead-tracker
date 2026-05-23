@@ -36,6 +36,7 @@ export type GatewayEvent =
   | "reembolso"
   | "assinatura_renovada"
   | "assinatura_cancelada"
+  | "assinatura_cancelamento_agendado"
   | "assinatura_atrasada";
 
 export type EventInput = {
@@ -56,6 +57,9 @@ export type EventInput = {
   // Periodicidade extraída do payload (mensal / anual / vitalicio / gratis).
   // Se null, mantém o que já está no lead (default 'mensal').
   periodicidade?: Periodicidade | null;
+  // Cancelamento agendado (Stripe cancel_at_period_end). Sub continua ativa
+  // até essa data, depois é cancelada automaticamente.
+  cancelAt?: Date | null;
   extras?: Record<string, string | number | undefined>;
 };
 
@@ -98,6 +102,10 @@ const STATUS_TRANSITIONS: Record<
   reembolso: { lead: "cliente_em_risco", subscription: "reembolsada" },
   assinatura_renovada: { lead: "cliente_ativo", subscription: "ativa" },
   assinatura_cancelada: { lead: "cliente_cancelado", subscription: "cancelada" },
+  // Cliente pediu cancelamento mas sub continua ativa até period_end.
+  // Status fica `ativa` (continua MRR) — só seta cancel_at na sub pra UI
+  // mostrar "Cancela em DD/MM". Lead vira em_risco pra dunning/win-back.
+  assinatura_cancelamento_agendado: { lead: "cliente_em_risco", subscription: "ativa" },
   assinatura_atrasada: { lead: "cliente_em_risco", subscription: "atrasada" },
 };
 
@@ -784,6 +792,7 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     pagouEm: input.eventType === "compra_aprovada" ? now : null,
     ultimaRenovacaoEm: input.eventType === "assinatura_renovada" ? now : null,
     canceladoEm: input.eventType === "assinatura_cancelada" ? now : null,
+    cancelAt: input.cancelAt ?? null,
     proximoPagamentoEm,
   });
 
