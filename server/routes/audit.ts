@@ -1268,11 +1268,17 @@ auditRoutes.get("/ticto-reconcile", async (c) => {
     return c.json({ error: `Ticto API: ${e instanceof Error ? e.message : "unknown"}` }, 502);
   }
 
-  // Filtra ATIVAS na Ticto (situation pode ser: 'active', 'paid_off', 'delayed', 'canceled', etc)
+  // Filtra ATIVAS na Ticto. `situation` vem em PT ("ativa", "atrasada",
+  // "cancelada", "reembolsada", "checkout_perdido") MAS pode vir EN tambem
+  // dependendo da versao da API. Trata ambos.
   const tictoActiveCpfs = new Set<string>();
+  const statusCounts = new Map<string, number>();
   for (const s of tictoSubs) {
     const sit = String(s.situation ?? "").toLowerCase();
-    if (sit === "active" || sit === "paid_off" || sit === "delayed") {
+    statusCounts.set(sit, (statusCounts.get(sit) ?? 0) + 1);
+    // Considera "ainda assinante" se situation for ativa OU atrasada.
+    // checkout_perdido / cancelada / reembolsada = não conta.
+    if (sit === "ativa" || sit === "active" || sit === "atrasada" || sit === "delayed" || sit === "paid_off") {
       const cpf = s.customer?.cpf ?? s.customer?.cnpj;
       if (cpf) tictoActiveCpfs.add(cpf);
     }
@@ -1324,11 +1330,14 @@ auditRoutes.get("/ticto-reconcile", async (c) => {
 
   return c.json({
     summary: {
-      tictoApiTotalActive: tictoActiveCpfs.size,
+      tictoApiTotalSubs: tictoSubs.length,
+      tictoApiActiveOrDelayedCpfs: tictoActiveCpfs.size,
       bancoAtivaAtrasada: ours.length,
       aindaAtivas,
       possivelmenteCanceladas: possivelmenteCanceladas.length,
       mrrSuperestimado,
+      // debug: contagem por situation pra diagnosticar
+      statusBreakdown: Object.fromEntries(statusCounts.entries()),
     },
     possivelmenteCanceladas: possivelmenteCanceladas.slice(0, 30),
   });
