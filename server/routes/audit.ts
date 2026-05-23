@@ -1214,6 +1214,32 @@ auditRoutes.get("/stripe-reconcile", async (c) => {
 
   const mrrSuperestimado = mudaramStatus.reduce((acc, x) => acc + (x.valor ?? 0), 0);
 
+  // MRR direto da API Stripe (cents → reais, normalizando anual ÷ 12)
+  function subMrr(s: StripeSub): number {
+    const item = s.items?.data?.[0];
+    if (!item) return 0;
+    const v = (item.price?.unit_amount ?? 0) / 100;
+    const interval = item.price?.recurring?.interval;
+    return interval === "year" ? v / 12 : v;
+  }
+  const mrrStripeActive = allStripeSubs
+    .filter((s) => s.status === "active")
+    .reduce((a, s) => a + subMrr(s), 0);
+  const mrrStripeIncTrial = allStripeSubs
+    .filter((s) => s.status === "active" || s.status === "trialing")
+    .reduce((a, s) => a + subMrr(s), 0);
+  const mrrStripeIncPastDue = allStripeSubs
+    .filter((s) => s.status === "active" || s.status === "past_due" || s.status === "trialing")
+    .reduce((a, s) => a + subMrr(s), 0);
+
+  // Quebra por status (count + MRR)
+  const porStatus: Record<string, { count: number; mrr: number }> = {};
+  for (const s of allStripeSubs) {
+    if (!porStatus[s.status]) porStatus[s.status] = { count: 0, mrr: 0 };
+    porStatus[s.status].count++;
+    porStatus[s.status].mrr += subMrr(s);
+  }
+
   return c.json({
     summary: {
       stripeApiTotalSubs: allStripeSubs.length,
@@ -1225,6 +1251,10 @@ auditRoutes.get("/stripe-reconcile", async (c) => {
       missingFromDb: missingFromDb.length,
       missingId,
       mrrSuperestimado,
+      mrrStripeActiveOnly: Math.round(mrrStripeActive * 100) / 100,
+      mrrStripeIncTrial: Math.round(mrrStripeIncTrial * 100) / 100,
+      mrrStripeIncPastDue: Math.round(mrrStripeIncPastDue * 100) / 100,
+      porStatus,
     },
     mudaramStatus,
     naoEncontradas,
