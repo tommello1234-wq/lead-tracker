@@ -250,25 +250,15 @@ export function DashboardPage() {
         />
         <StatCard
           label="Churn (mensal)"
-          value={
-            churn.data
-              ? churn.data.amostraPequena
-                ? `${churn.data.cancelamentos}`
-                : `${(churn.data.customerChurnMensal * 100).toFixed(1)}%`
-              : "—"
-          }
+          value={churn.data ? `${(churn.data.customerChurnMensal * 100).toFixed(1)}%` : "—"}
           hint={
             churn.data
-              ? churn.data.amostraPequena
-                ? `${churn.data.cancelamentos} cancelaram · ${churn.data.reembolsos} reembolso${churn.data.reembolsos === 1 ? "" : "s"} · amostra pequena`
-                : `${churn.data.cancelamentos} cancelaram · −${brl(churn.data.mrrPerdido)} MRR · clique pra detalhes`
+              ? `${churn.data.cancelamentos} cancelaram${churn.data.reembolsos > 0 ? ` · ${churn.data.reembolsos} reembolso${churn.data.reembolsos === 1 ? "" : "s"}` : ""} · ${churn.data.diasAnalisados}d`
               : undefined
           }
           icon={TrendingDown}
           iconTone={
-            churn.data && !churn.data.amostraPequena && churn.data.customerChurnMensal > 0.1
-              ? "rose"
-              : "forest"
+            churn.data && churn.data.customerChurnMensal > 0.1 ? "rose" : "forest"
           }
           onClick={() => setChurnOpen(true)}
         />

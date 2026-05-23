@@ -162,13 +162,13 @@ export function ChurnDetailsModal({ onClose }: { onClose: () => void }) {
                       <Row
                         label="Customer churn mensal"
                         value={`${(d.customerChurnMensal * 100).toFixed(1)}%`}
-                        hint={`${d.cancelamentos} de ${d.ativosInicio} ativos no início`}
+                        hint={`${d.cancelamentos} cancelaram de ${d.ativosAtuais + d.cancelamentos} clientes no período`}
                         warning={d.amostraPequena}
                       />
                       <Row
                         label="Revenue churn mensal"
                         value={`${(d.revenueChurnMensal * 100).toFixed(1)}%`}
-                        hint={`MRR perdido ÷ MRR no início`}
+                        hint={`MRR perdido ÷ MRR total (ativos + perdido)`}
                         warning={d.amostraPequena}
                       />
                       <Row
@@ -199,11 +199,13 @@ export function ChurnDetailsModal({ onClose }: { onClose: () => void }) {
                 <div className="rounded-2xl bg-muted/20 p-4 text-xs text-muted-foreground space-y-2 font-mono">
                   <p>
                     <strong className="text-foreground">Customer churn = </strong>
-                    cancelamentos no período ÷ ativos no início do período
+                    cancelamentos no período ÷ (ativos hoje + cancelamentos)
+                    <br/>
+                    <span className="text-[10px]">= % da base total do período que saiu</span>
                   </p>
                   <p>
                     <strong className="text-foreground">Revenue churn = </strong>
-                    MRR de subs canceladas ÷ MRR total no início
+                    MRR perdido ÷ (MRR atual + MRR perdido)
                   </p>
                   <p>
                     <strong className="text-foreground">LTV via churn = </strong>

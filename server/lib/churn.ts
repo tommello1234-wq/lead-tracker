@@ -187,7 +187,11 @@ export async function getChurnMetrics(
   `);
   const ativosInicio = Number((ativosInicioRows as any)[0]?.n ?? 0);
   const mrrInicio = Number((ativosInicioRows as any)[0]?.mrr_total ?? 0);
-  const ativosDenom = Math.max(ativosInicio, 1); // evita div por zero
+  // Denominador do churn: "todos que foram clientes em algum momento do período"
+  // = ativos hoje + quem cancelou. Mais estável que ativosInicio puro, especialmente
+  // pra SaaS novo (Stripe ~30d) onde ativosInicio é quase zero e fazia churn % explodir.
+  // Padrão simples (= "% que saiu da base"), bate com como Stripe Dashboard calcula.
+  const ativosDenom = Math.max(ativosAtuais + cancelamentos, 1);
 
   // ============================================================
   // 7. TAXAS DE CHURN
@@ -197,12 +201,13 @@ export async function getChurnMetrics(
   // do período. Nesse caso, marca como amostra pequena.
   const customerChurnRaw = cancelamentos / ativosDenom;
   const customerChurnMensal = Math.min(customerChurnRaw, 1);
-  const revenueChurnRaw = mrrInicio > 0 ? mrrPerdido / mrrInicio : 0;
+  // Revenue churn: MRR perdido ÷ MRR total (hoje + perdido). Mesma lógica do customer.
+  const mrrDenom = mrrAtual + mrrPerdido;
+  const revenueChurnRaw = mrrDenom > 0 ? mrrPerdido / mrrDenom : 0;
   const revenueChurnMensal = Math.min(revenueChurnRaw, 1);
-  // Amostra pequena: menos de 10 subs no início OU churn raw > 50% (sinal
-  // de que muitos clientes entraram E saíram dentro do período — cohort
-  // imatura, fórmula não confiável).
-  const amostraPequena = ativosInicio < 10 || customerChurnRaw > 0.5;
+  // Amostra pequena: só quando base TOTAL (ativos + cancelados) é mínima.
+  // Threshold baixo porque agora o denominador é estável (ativos hoje).
+  const amostraPequena = ativosDenom < 5;
 
   // ============================================================
   // 8. LTV via churn (fórmula clássica SaaS)
