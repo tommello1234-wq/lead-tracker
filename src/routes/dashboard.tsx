@@ -238,11 +238,19 @@ export function DashboardPage() {
         />
         <StatCard
           label="LTV (lifetime value)"
-          value={m ? brl(m.ltv) : "—"}
+          value={
+            churn.data && churn.data.ltvViaChurn > 0
+              ? brl(churn.data.ltvViaChurn)
+              : m
+                ? brl(m.ltv)
+                : "—"
+          }
           hint={
-            m
-              ? `${m.avgLifetimeMonths.toFixed(1)} meses médios · clique pra entender`
-              : undefined
+            churn.data && churn.data.ltvViaChurn > 0
+              ? `ARPU ÷ churn ${(churn.data.customerChurnMensal * 100).toFixed(1)}% · ${churn.data.vidaMediaMeses.toFixed(1)} meses médios`
+              : m
+                ? `${m.avgLifetimeMonths.toFixed(1)} meses médios · clique pra entender`
+                : undefined
           }
           icon={TrendingUp}
           iconTone="forest"

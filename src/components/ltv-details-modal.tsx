@@ -38,13 +38,27 @@ export function LtvDetailsModal({
   metrics: DashboardMetrics | null;
   onClose: () => void;
 }) {
-  const { produtoId } = useProdutoContext();
+  const { produtoId, gateway } = useProdutoContext();
   const produtoParam = produtoId ?? "all";
+  const gatewayParam = gateway ?? "all";
 
   const cohort = useQuery({
-    queryKey: ["dashboard", "cohort", produtoParam],
+    queryKey: ["dashboard", "cohort", produtoParam, gatewayParam],
     queryFn: () =>
-      api.get<CohortData>(`/api/dashboard/cohort?produtoId=${produtoParam}`),
+      api.get<CohortData>(`/api/dashboard/cohort?produtoId=${produtoParam}&gateway=${gatewayParam}`),
+  });
+  const churn = useQuery({
+    queryKey: ["dashboard", "churn-ltv-modal", produtoParam, gatewayParam],
+    queryFn: () =>
+      api.get<{
+        customerChurnMensal: number;
+        ltvViaChurn: number;
+        vidaMediaMeses: number;
+        reembolsoTaxa: number;
+        reembolsos: number;
+        ativosAtuais: number;
+        arpuAtual: number;
+      }>(`/api/dashboard/churn?produtoId=${produtoParam}&gateway=${gatewayParam}&days=30`),
   });
 
   useEffect(() => {
@@ -110,43 +124,65 @@ export function LtvDetailsModal({
             </p>
           </section>
 
-          {/* Comparativo dos 2 métodos */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-2xl border border-border p-4 space-y-3">
+          {/* Comparativo dos 3 métodos */}
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Método principal: via churn (clássico SaaS) */}
+            <div className="rounded-2xl border-2 border-forest-500/40 bg-forest-500/5 p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
-                  Antigo (blended)
+                <span className="text-xs px-2 py-0.5 rounded-full bg-forest-500/15 text-forest-600 dark:text-forest-400">
+                  Via churn (atual no card)
                 </span>
               </div>
-              <div className="text-3xl font-bold">{brl(ltvBlended)}</div>
+              <div className="text-3xl font-bold text-forest-600 dark:text-forest-400">
+                {brl(churn.data?.ltvViaChurn ?? 0)}
+              </div>
               <div className="text-xs text-muted-foreground space-y-1">
-                <div><strong>Fórmula:</strong> ARPU × meses médios de quem cancelou</div>
+                <div><strong>Fórmula:</strong> ARPU ÷ churn mensal</div>
                 <div className="font-mono">
-                  {brl(arpu)} × {avgMonths.toFixed(1)} = {brl(ltvBlended)}
+                  {brl(churn.data?.arpuAtual ?? arpu)} ÷ {((churn.data?.customerChurnMensal ?? 0) * 100).toFixed(1)}% = {brl(churn.data?.ltvViaChurn ?? 0)}
                 </div>
-                <div className="pt-2 text-red-600 dark:text-red-400">
-                  ⚠️ Só conta quem JÁ cancelou. Ignora os {cohort.data?.totalAtivos ?? "?"} clientes ativos
-                  que ainda pagam — enviesa pra baixo.
+                <div className="pt-2 text-forest-700 dark:text-forest-300">
+                  ✅ Fórmula clássica SaaS. Vida média: {(churn.data?.vidaMediaMeses ?? 0).toFixed(1)} meses.
                 </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border-2 border-forest-500/40 bg-forest-500/5 p-4 space-y-3">
+            {/* Cohort real */}
+            <div className="rounded-2xl border border-border p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-forest-500/15 text-forest-600 dark:text-forest-400">
-                  Novo (cohort real)
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  Cohort real
                 </span>
               </div>
-              <div className="text-3xl font-bold text-forest-600 dark:text-forest-400">
+              <div className="text-3xl font-bold">
                 {brl(ltvReal)}
               </div>
               <div className="text-xs text-muted-foreground space-y-1">
-                <div><strong>Fórmula:</strong> Σ (% retido no mês N × ticket)</div>
+                <div><strong>Fórmula:</strong> Σ (% retido × ticket)</div>
                 <div className="font-mono">
-                  observado: {brl(ltvReal)} · projetado: {brl(ltvProj)}
+                  observado: {brl(ltvReal)} · proj: {brl(ltvProj)}
                 </div>
-                <div className="pt-2 text-forest-700 dark:text-forest-300">
-                  ✅ Conta TODOS os clientes — ativos + cancelados. Média de {cohortsMaduras} cohorts ≥3 meses.
+                <div className="pt-2 text-blue-700 dark:text-blue-300">
+                  📊 Mais rigoroso — precisa cohorts ≥3m. Hoje: {cohortsMaduras} cohorts.
+                </div>
+              </div>
+            </div>
+
+            {/* Blended antigo */}
+            <div className="rounded-2xl border border-border p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
+                  Blended antigo
+                </span>
+              </div>
+              <div className="text-3xl font-bold">{brl(ltvBlended)}</div>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <div><strong>Fórmula:</strong> ARPU × meses dos cancelados</div>
+                <div className="font-mono">
+                  {brl(arpu)} × {avgMonths.toFixed(1)} = {brl(ltvBlended)}
+                </div>
+                <div className="pt-2 text-red-600 dark:text-red-400">
+                  ⚠️ Ignora os {cohort.data?.totalAtivos ?? "?"} ativos. Enviesa pra baixo.
                 </div>
               </div>
             </div>
