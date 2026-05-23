@@ -1437,8 +1437,45 @@ auditRoutes.post("/asaas-import-missing", async (c) => {
     return 1;
   };
 
+  const skipped: Array<{ subId: string; reason: string; customer: string }> = [];
+
   for (const sub of missing) {
     try {
+      // ⚠️ ANTI-FANTASMA: ANTES de tudo, checa se essa sub tem PELO MENOS 1
+      // pagamento CONFIRMED/RECEIVED no Asaas. Status "ACTIVE" no Asaas
+      // significa "sub habilitada" — não significa que o cliente pagou.
+      // Sem essa checagem, importávamos subs onde o cliente gerou cobrança
+      // mas nunca pagou (caso alroldosantos123: 2 subs ACTIVE, R$ 134 de
+      // MRR fantasma).
+      const payR = await fetch(
+        `${apiUrl}/payments?subscription=${sub.id}&limit=10`,
+        { headers: { access_token: apiKey } },
+      );
+      if (!payR.ok) {
+        errors.push({ subId: sub.id, error: `payments HTTP ${payR.status}` });
+        continue;
+      }
+      const payData = (await payR.json()) as {
+        data?: Array<{ id: string; status: string; paymentDate?: string; confirmedDate?: string }>;
+      };
+      const paidPayments = (payData.data ?? []).filter(
+        (p) => p.status === "CONFIRMED" || p.status === "RECEIVED" || p.status === "RECEIVED_IN_CASH",
+      );
+      if (paidPayments.length === 0) {
+        skipped.push({
+          subId: sub.id,
+          customer: sub.customer,
+          reason: "no_confirmed_payments (sub ACTIVE no Asaas mas cliente nunca pagou — fantasma)",
+        });
+        continue;
+      }
+      // Data do 1º pagamento confirmado (pra setar lead.pagouEm correto)
+      const firstPaidDate = paidPayments
+        .map((p) => p.confirmedDate || p.paymentDate)
+        .filter(Boolean)
+        .sort()[0];
+      const pagouEmDate = firstPaidDate ? new Date(firstPaidDate) : new Date();
+
       // Busca customer
       const r = await fetch(`${apiUrl}/customers/${sub.customer}`, {
         headers: { access_token: apiKey },
@@ -1507,7 +1544,7 @@ auditRoutes.post("/asaas-import-missing", async (c) => {
           planoNome: sub.description || null,
           periodicidade,
           produtoId,
-          pagouEm: new Date(), // não temos a data exata; melhor estimativa: hoje
+          pagouEm: pagouEmDate, // data do 1º pagamento confirmado no Asaas
         }).returning();
         leadId = created.id;
         action = "created_lead";
@@ -1550,9 +1587,11 @@ auditRoutes.post("/asaas-import-missing", async (c) => {
       alreadyInDb: asaasActive.length - missing.length,
       missing: missing.length,
       imported: imported.length,
+      skipped: skipped.length,
       errors: errors.length,
     },
     imported,
+    skipped,
     errors,
   });
 });

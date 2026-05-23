@@ -16,6 +16,7 @@ import {
   getRetencaoPorMetodo,
 } from "../lib/saas-metrics.js";
 import { getCacMetrics } from "../lib/cac.js";
+import { getCohortMatrix } from "../lib/cohort.js";
 import { getDetails, type DetailsKind } from "../lib/details.js";
 import { getMrrBreakdown, getMrrMovementLeads } from "../lib/mrr.js";
 
@@ -69,6 +70,17 @@ dashboardRoutes.get("/daily", async (c) => {
   const days = Number(c.req.query("days") ?? 30) || 30;
   const series = await getDailySeries(days, produtoId);
   return c.json(series);
+});
+
+/* ==========================================================================
+ * GET /api/dashboard/cohort?produtoId=N
+ * Matriz de retenção mensal + LTV real (observado e projetado) por cohort de
+ * signup. Diferente do LTV blended em /metrics que só vê quem cancelou.
+ * ========================================================================== */
+dashboardRoutes.get("/cohort", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const data = await getCohortMatrix(produtoId);
+  return c.json(data);
 });
 
 /* ==========================================================================

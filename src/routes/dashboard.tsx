@@ -29,6 +29,8 @@ import {
 } from "@/components/dashboard-charts";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
+import { CohortTable } from "@/components/cohort-table";
+import { LtvDetailsModal } from "@/components/ltv-details-modal";
 import type {
   DashboardMetrics,
   Faturamento,
@@ -65,6 +67,7 @@ const SHORT_LABELS: Record<Period, string> = {
 export function DashboardPage() {
   const [details, setDetails] = useState<DetailsKind | null>(null);
   const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
+  const [ltvOpen, setLtvOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
@@ -106,6 +109,26 @@ export function DashboardPage() {
       api.get<VendaPorLp[]>(
         `/api/dashboard/vendas-por-lp?${baseQs}`,
       ),
+  });
+  const cohort = useQuery({
+    queryKey: ["dashboard", "cohort", produtoParam],
+    queryFn: () =>
+      api.get<{
+        rows: Array<{
+          cohortMonth: string;
+          signupCount: number;
+          ticketMedio: number;
+          monthsElapsed: number;
+          retention: (number | null)[];
+          ltvSoFar: number;
+          ltvProjected: number;
+          activeNow: number;
+        }>;
+        ltvMedio: number;
+        ltvProjMedio: number;
+        cohortsMaduras: number;
+        totalAtivos: number;
+      }>(`/api/dashboard/cohort?produtoId=${produtoParam}`),
   });
   const breakdowns = useQuery({
     queryKey: ["dashboard", "breakdowns", produtoParam],
@@ -161,12 +184,12 @@ export function DashboardPage() {
           value={m ? brl(m.ltv) : "—"}
           hint={
             m
-              ? `${m.avgLifetimeMonths.toFixed(1)} meses médios de assinatura`
+              ? `${m.avgLifetimeMonths.toFixed(1)} meses médios · clique pra entender`
               : undefined
           }
           icon={TrendingUp}
           iconTone="forest"
-          onClick={() => setDetails("cancelados")}
+          onClick={() => setLtvOpen(true)}
         />
         <StatCard
           label="Faturamento"
@@ -252,6 +275,11 @@ export function DashboardPage() {
           ) : null}
           <ConversionTrendChart data={daily.data} />
           <TipoBreakdownChart data={breakdowns.data.tipos} />
+          {cohort.data ? (
+            <div className="lg:col-span-2">
+              <CohortTable data={cohort.data} cac={cac.data?.cac ?? null} />
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="card-soft p-6">
@@ -266,6 +294,12 @@ export function DashboardPage() {
         <MrrAtualModal
           onClose={() => setMrrAtualOpen(false)}
           onLeadClick={(id) => setSelectedLeadId(id)}
+        />
+      ) : null}
+      {ltvOpen ? (
+        <LtvDetailsModal
+          metrics={m ?? null}
+          onClose={() => setLtvOpen(false)}
         />
       ) : null}
       {selectedLeadId !== null ? (

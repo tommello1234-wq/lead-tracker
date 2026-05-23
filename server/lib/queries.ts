@@ -296,7 +296,11 @@ export async function getDashboardMetrics(
         monthsPaidPerCustomer.length
       : 0;
 
-  let arpu = clientesAtivos.length > 0 ? mrr / clientesAtivos.length : 0;
+  // ARPU = MRR ÷ subs ativas (por SUB, não por lead).
+  // Decisão de produto: 1 lead pode ter N subs (ex.: alroldosantos = 2 subs
+  // Custom + Starter). Cada sub recorre independente, então o valor por sub
+  // é a base correta pra MRR/LTV/payback. ARPU por LEAD subestimaria.
+  let arpu = subsAtivas.length > 0 ? mrr / subsAtivas.length : 0;
   if (arpu === 0 && finishedLeads.length > 0) {
     arpu =
       finishedLeads.reduce((acc, l) => acc + (l.valorAssinatura ?? 0), 0) /
@@ -338,7 +342,10 @@ export async function getDashboardMetrics(
     arpu,
     ltv,
     avgLifetimeMonths,
-    clientesAtivos: clientesAtivos.length,
+    // clientesAtivos = SUBS ativas (não leads únicos) — coerente com ARPU por sub.
+    // Diferença histórica: ~2-4 subs vêm de leads que aparecem em múltiplas linhas
+    // (1 lead = N subs ativas). Antes mostrava 270; agora 274 (= subscriptions.status='ativa').
+    clientesAtivos: subsAtivas.length,
     pixGerados: pixGeradosNoPeriodo.length,
     pixPagos: pixPagosCohort.length,
     pixExpirados: pixExpiradosCount,
