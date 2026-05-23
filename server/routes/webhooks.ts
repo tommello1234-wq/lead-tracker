@@ -393,11 +393,16 @@ webhookRoutes.post("/stripe", async (c) => {
     const result = await handleGatewayEvent(eventInput);
 
     // CAPI Meta — só pra compra aprovada. Roda em paralelo, não bloqueia 200 pro Stripe.
-    // event_id = stripe session_id → deduplica com Pixel browser da /obrigado.
+    // event_id: prioriza gatewayLastOrderId (sub_* pra assinatura, payment_intent pra
+    // one-time). Crítico: Stripe dispara checkout.session.completed (id=cs_live_*) E
+    // invoice.paid (id=in_*) na 1ª fatura de assinatura. Se usarmos extras.session_id
+    // (obj.id cru), cada webhook manda event_id diferente e o Meta conta como 2
+    // conversões distintas (inflação ~25% do Gerenciador). gatewayLastOrderId é o
+    // sub_* idêntico nos 2 webhooks → Meta deduplica nativamente.
     if (eventInput.eventType === "compra_aprovada" && eventInput.valor) {
       const cri = String(eventInput.extras?.client_reference_id ?? "");
       const attr = decodeAttribution(cri);
-      const sessionId = String(eventInput.extras?.session_id ?? "") || eventInput.gatewayLastOrderId || "";
+      const sessionId = eventInput.gatewayLastOrderId || String(eventInput.extras?.session_id ?? "") || "";
       const capiResult = await sendPurchaseToMeta({
         eventId: sessionId,
         eventTime: Math.floor(Date.now() / 1000),
