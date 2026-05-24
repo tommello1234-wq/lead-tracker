@@ -1,4 +1,5 @@
-import { ExternalLink, Home, Newspaper, TrendingUp, Building2, HelpCircle, Palette, Handshake, Download } from "lucide-react";
+import { useState } from "react";
+import { ExternalLink, Home, Newspaper, TrendingUp, Building2, HelpCircle, Palette, Handshake, Download, ChevronDown } from "lucide-react";
 
 type Page = {
   slug: string;
@@ -132,55 +133,100 @@ export function PaginasPage() {
     return acc;
   }, 0);
 
+  // Estado das seções abertas — começam todas fechadas (clique pra expandir)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+
+  function toggle(title: string) {
+    setOpenSections((prev) => ({ ...prev, [title]: !prev[title] }));
+  }
+
+  function expandAll() {
+    const all: Record<string, boolean> = {};
+    SECTIONS.forEach((s) => { all[s.title] = true; });
+    setOpenSections(all);
+  }
+
+  function collapseAll() {
+    setOpenSections({});
+  }
+
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Páginas</h1>
-        <p className="text-sm text-muted-foreground">
-          Todas as landing pages publicadas em produção · <strong>{total} páginas</strong> · domínio <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{BASE_URL}</code>
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold mb-2">Páginas</h1>
+          <p className="text-sm text-muted-foreground">
+            Todas as landing pages publicadas em produção · <strong>{total} páginas</strong> · domínio <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{BASE_URL}</code>
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <button
+            onClick={expandAll}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Expandir tudo
+          </button>
+          <span className="text-muted-foreground/30">|</span>
+          <button
+            onClick={collapseAll}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Recolher tudo
+          </button>
+        </div>
       </header>
 
-      <div className="space-y-8">
+      <div className="space-y-2">
         {SECTIONS.map((section) => {
           const Icon = section.icon;
           const sectionTotal = section.pages?.length ?? section.groups?.reduce((a, g) => a + g.pages.length, 0) ?? 0;
+          const isOpen = !!openSections[section.title];
           return (
-            <section key={section.title}>
-              <div className="flex items-center gap-2 mb-3">
-                <Icon className="w-4 h-4 text-emerald-400" />
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <section key={section.title} className="border border-border rounded-lg overflow-hidden">
+              <button
+                onClick={() => toggle(section.title)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors text-left"
+              >
+                <Icon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground flex-1">
                   {section.title}
                 </h2>
-                <span className="text-xs text-muted-foreground/60">
+                <span className="text-xs text-muted-foreground/70">
                   {sectionTotal} {sectionTotal === 1 ? "página" : "páginas"}
                 </span>
-              </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-muted-foreground transition-transform flex-shrink-0 ${isOpen ? "rotate-180" : ""}`}
+                />
+              </button>
 
-              {/* Layout 1: lista simples */}
-              {section.pages && (
-                <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-                  {section.pages.map((page) => (
-                    <PageRow key={page.slug} page={page} />
-                  ))}
-                </div>
-              )}
-
-              {/* Layout 2: múltiplos grupos lado a lado */}
-              {section.groups && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {section.groups.map((group) => (
-                    <div key={group.title}>
-                      <h3 className="text-xs font-semibold text-foreground/70 mb-2 px-1">
-                        {group.title} <span className="text-muted-foreground/60 font-normal">· {group.pages.length}</span>
-                      </h3>
-                      <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-                        {group.pages.map((page) => (
-                          <PageRow key={page.slug} page={page} />
-                        ))}
-                      </div>
+              {isOpen && (
+                <div className="border-t border-border bg-muted/10 p-3">
+                  {/* Layout 1: lista simples */}
+                  {section.pages && (
+                    <div className="bg-background border border-border rounded-lg overflow-hidden divide-y divide-border">
+                      {section.pages.map((page) => (
+                        <PageRow key={page.slug} page={page} />
+                      ))}
                     </div>
-                  ))}
+                  )}
+
+                  {/* Layout 2: múltiplos grupos lado a lado */}
+                  {section.groups && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {section.groups.map((group) => (
+                        <div key={group.title}>
+                          <h3 className="text-xs font-semibold text-foreground/70 mb-2 px-1">
+                            {group.title} <span className="text-muted-foreground/60 font-normal">· {group.pages.length}</span>
+                          </h3>
+                          <div className="bg-background border border-border rounded-lg overflow-hidden divide-y divide-border">
+                            {group.pages.map((page) => (
+                              <PageRow key={page.slug} page={page} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </section>
