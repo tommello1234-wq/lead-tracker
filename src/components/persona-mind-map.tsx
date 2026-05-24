@@ -117,14 +117,15 @@ const KIND_ICON: Record<NodeKind, React.ComponentType<{ className?: string }> | 
   pagina: FileText,
 };
 
+// Paleta alinhada com identidade visual da app (tons soft, não-neon)
 const KIND_DEFAULT_COR: Record<NodeKind, string> = {
-  root: "#10b981",
-  persona: "#71717a",
-  angulo: "#f59e0b",
-  criativo: "#06b6d4",
-  "plano-com": "#a855f7",
-  "plano-sem": "#ec4899",
-  pagina: "#3b82f6",
+  root: "oklch(0.65 0.18 145)", // lime/forest — cor primária da app
+  persona: "oklch(0.62 0.04 250)", // cinza neutro
+  angulo: "oklch(0.7 0.15 70)", // âmbar suave
+  criativo: "oklch(0.65 0.12 200)", // ciano suave
+  "plano-com": "oklch(0.62 0.18 290)", // violeta
+  "plano-sem": "oklch(0.65 0.18 350)", // rosa
+  pagina: "oklch(0.62 0.15 250)", // azul suave
 };
 
 const NODE_SIZES: Record<NodeKind, { w: number; h: number }> = {
@@ -157,7 +158,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
   return (
     <div
       onClick={onClickBody}
-      className={`group relative font-mono text-xs select-none ${
+      className={`group relative text-xs select-none ${
         data.onClick ? "cursor-pointer" : ""
       }`}
       style={{
@@ -168,45 +169,34 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-2 !h-2 !bg-foreground/30 !border-2 !border-background"
+        className="!w-1.5 !h-1.5 !bg-border !border-0 !opacity-60"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!w-2 !h-2 !bg-foreground/30 !border-2 !border-background"
+        className="!w-1.5 !h-1.5 !bg-border !border-0 !opacity-60"
       />
 
-      {/* Glow halo (só pra root e persona expandida) */}
-      {isRoot ? (
-        <div
-          className="absolute inset-0 rounded-2xl blur-xl opacity-40 -z-10"
-          style={{ background: cor }}
-        />
-      ) : null}
-
       <div
-        className={`relative rounded-xl transition-all hover:scale-[1.02] hover:brightness-110 ${
-          placeholder ? "border-dashed" : ""
+        className={`relative rounded-2xl bg-card transition-all hover:shadow-md hover:-translate-y-px ${
+          placeholder ? "border-dashed opacity-50" : ""
         } ${
           data.kind === "criativo" && data.thumbUrl && !placeholder
             ? "overflow-hidden flex"
-            : "px-3 py-2.5"
+            : "px-4 py-3"
         }`}
         style={{
-          borderWidth: 1.5,
+          borderWidth: isRoot ? 0 : 1,
           borderStyle: placeholder ? "dashed" : "solid",
-          borderColor: placeholder ? `${cor}45` : cor,
+          borderColor: placeholder ? "var(--border)" : "var(--border)",
           background: isRoot
-            ? `linear-gradient(135deg, ${cor}, ${cor}dd)`
-            : placeholder
-              ? "rgba(255,255,255,0.02)"
-              : `linear-gradient(135deg, ${cor}18, ${cor}05)`,
-          opacity: placeholder ? 0.6 : 1,
+            ? `linear-gradient(135deg, ${cor}, color-mix(in oklch, ${cor} 75%, white))`
+            : "var(--card)",
           boxShadow: isRoot
-            ? `0 0 30px ${cor}55, inset 0 1px 0 rgba(255,255,255,0.15)`
-            : !placeholder
-              ? `0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 ${cor}15`
-              : "none",
+            ? `0 8px 24px color-mix(in oklch, ${cor} 35%, transparent), 0 2px 6px color-mix(in oklch, ${cor} 25%, transparent)`
+            : placeholder
+              ? "none"
+              : "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
         }}
       >
         {/* Toggle button (top-right) */}
@@ -307,14 +297,21 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
         >
           {/* Header: tag + (status badge pra criativo) + childCount badge */}
           <div
-            className="text-[8px] font-bold tracking-[1.5px] uppercase leading-tight flex items-center justify-between gap-2"
+            className="text-[9px] font-semibold tracking-wider uppercase leading-tight flex items-center justify-between gap-2"
             style={{
-              color: isRoot ? "rgba(0,0,0,0.7)" : cor,
-              opacity: isRoot ? 1 : placeholder ? 0.55 : 0.9,
+              color: isRoot ? "rgba(255,255,255,0.9)" : cor,
+              opacity: isRoot ? 1 : placeholder ? 0.55 : 0.85,
             }}
           >
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="truncate">// {KIND_LABEL[data.kind]}</span>
+              {/* Color dot pra distinguir tipo (sutil) */}
+              {!isRoot ? (
+                <span
+                  className="size-1.5 rounded-full shrink-0"
+                  style={{ background: cor }}
+                />
+              ) : null}
+              <span className="truncate">{KIND_LABEL[data.kind]}</span>
               {data.subLabel ? (
                 <span
                   className="text-[8px] font-medium tracking-wider opacity-50 truncate"
@@ -362,13 +359,13 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
 
           {/* Headline */}
           <div
-            className="font-sans text-[13px] font-bold leading-snug"
+            className="text-[14px] font-semibold leading-snug mt-1"
             style={{
               color: isRoot
-                ? "#000"
+                ? "rgba(255,255,255,0.98)"
                 : placeholder
-                  ? "#a1a1aa"
-                  : "#fafafa",
+                  ? "var(--muted-foreground)"
+                  : "var(--foreground)",
             }}
           >
             <div className="flex items-start gap-1.5">
@@ -376,7 +373,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
                 <span
                   className="shrink-0 mt-0.5"
                   style={{
-                    color: isRoot ? "rgba(0,0,0,0.7)" : cor,
+                    color: isRoot ? "rgba(255,255,255,0.85)" : cor,
                     opacity: placeholder ? 0.6 : 1,
                   }}
                 >
@@ -389,13 +386,23 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
 
           {/* Persona meta */}
           {isPersona && (data.pct != null || data.prioridade) && !placeholder ? (
-            <div
-              className="text-[10px] font-medium font-mono"
-              style={{ color: cor, opacity: 0.85 }}
-            >
-              {data.prioridade ? data.prioridade.toUpperCase() : ""}
-              {data.prioridade && data.pct != null ? " · " : ""}
-              {data.pct != null ? `${Math.round(data.pct)}%` : ""}
+            <div className="flex items-center gap-2 mt-1.5">
+              {data.prioridade ? (
+                <span
+                  className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md"
+                  style={{
+                    background: `color-mix(in oklch, ${cor} 12%, transparent)`,
+                    color: cor,
+                  }}
+                >
+                  {data.prioridade}
+                </span>
+              ) : null}
+              {data.pct != null ? (
+                <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+                  {Math.round(data.pct)}% do público
+                </span>
+              ) : null}
             </div>
           ) : null}
 
@@ -428,8 +435,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
           {/* Meta inline (pra outros tipos — angulo, persona) */}
           {data.meta && !placeholder && !data.stats?.length ? (
             <div
-              className="text-[10px] font-mono truncate"
-              style={{ color: cor, opacity: 0.85 }}
+              className="text-[11px] truncate mt-1 text-muted-foreground"
             >
               {data.meta}
             </div>
@@ -627,8 +633,8 @@ function buildBlueprintTree(
       animated: !isPersonaPlaceholder && p?.prioridade === "primaria",
       style: {
         stroke: personaCor,
-        strokeWidth: 2,
-        strokeOpacity: isPersonaPlaceholder ? 0.4 : 0.95,
+        strokeWidth: 1.5,
+        strokeOpacity: isPersonaPlaceholder ? 0.3 : 0.5,
       },
     });
 
@@ -702,8 +708,8 @@ function buildBlueprintTree(
         type: "smoothstep",
         style: {
           stroke: anguloCor,
-          strokeWidth: 1.6,
-          strokeOpacity: isAnguloPlaceholder ? 0.4 : 0.85,
+          strokeWidth: 1.25,
+          strokeOpacity: isAnguloPlaceholder ? 0.3 : 0.45,
         },
       });
 
@@ -796,8 +802,8 @@ function buildBlueprintTree(
           type: "smoothstep",
           style: {
             stroke: criativoCor,
-            strokeWidth: 1.4,
-            strokeOpacity: isCriativoPlaceholder ? 0.35 : 0.8,
+            strokeWidth: 1.25,
+            strokeOpacity: isCriativoPlaceholder ? 0.25 : 0.4,
           },
         });
       }
@@ -1059,14 +1065,14 @@ function MindMapInner({
         <button
           type="button"
           onClick={collapseAll}
-          className="px-2.5 py-1 rounded-md bg-card border border-border text-[11px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors shadow-sm"
+          className="px-3 py-1.5 rounded-xl bg-card border border-border text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors shadow-sm"
         >
           Recolher tudo
         </button>
         <button
           type="button"
           onClick={expandAll}
-          className="px-2.5 py-1 rounded-md bg-card border border-border text-[11px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors shadow-sm"
+          className="px-3 py-1.5 rounded-xl bg-card border border-border text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors shadow-sm"
         >
           Expandir personas
         </button>
@@ -1080,16 +1086,16 @@ function MindMapInner({
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        colorMode="dark"
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
         defaultEdgeOptions={{ type: "smoothstep" }}
+        style={{ background: "var(--background)" }}
       >
-        <Background gap={32} size={1} color="#27272a" />
+        <Background gap={28} size={1.5} color="var(--border)" />
         <Controls
           showInteractive={false}
-          className="!bg-card !border !border-border [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground/70"
+          className="!bg-card !border !border-border !rounded-xl !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground/70 [&>button:hover]:!bg-muted"
         />
       </ReactFlow>
       <MindmapPickerDialog
@@ -1582,7 +1588,7 @@ export function PersonaMindMap({
   // Wrapper muda: inline normal vs fixed cobrindo viewport
   const wrapperClass = isFullscreen
     ? "fixed inset-0 z-50 bg-background flex flex-col"
-    : "rounded-lg border border-border bg-card overflow-hidden";
+    : "rounded-3xl border border-border bg-card overflow-hidden shadow-sm";
   const flowHeight = isFullscreen ? "flex-1" : "";
   const flowStyle: React.CSSProperties = isFullscreen
     ? { width: "100%", flex: 1, position: "relative" }
@@ -1590,39 +1596,27 @@ export function PersonaMindMap({
 
   return (
     <div className={wrapperClass}>
-      <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between gap-3 flex-wrap">
-        <div className="text-xs text-foreground/70">
-          <span className="font-bold">Hierarquia:</span> Produto → 3 Personas →
-          3 Ângulos → 3 Criativos → 2 Planos → 3 Páginas
+      <div className="px-5 py-3 border-b border-border bg-card flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-sm text-foreground/80">
+          <span className="font-semibold">Hierarquia:</span>{" "}
+          <span className="text-muted-foreground">Produto → Personas → Ângulos → Criativos</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsFullscreen((v) => !v)}
-          className="px-2 py-1 rounded-md bg-card border border-border text-[11px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors flex items-center gap-1"
-          title={isFullscreen ? "Fechar (ESC)" : "Tela cheia"}
-        >
-          {isFullscreen ? <X className="size-3" /> : <Maximize2 className="size-3" />}
-          {isFullscreen ? "Fechar" : "Tela cheia"}
-        </button>
-        <div className="flex items-center gap-3 text-[10px] text-foreground/50 font-mono">
-          <span className="flex items-center gap-1">
-            <span
-              className="size-2 rounded border-2 border-solid"
-              style={{ borderColor: "#10b981" }}
-            />
-            real
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className="size-2 rounded border-2 border-dashed"
-              style={{ borderColor: "#71717a" }}
-            />
-            placeholder
-          </span>
-          <span className="flex items-center gap-1">
-            <ChevronRight className="size-3" />
-            click pra expandir
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground mr-2">
+            <span className="flex items-center gap-1.5">
+              <ChevronRight className="size-3" />
+              click pra expandir
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="px-3 py-1.5 rounded-xl bg-card border border-border text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition-colors flex items-center gap-1.5"
+            title={isFullscreen ? "Fechar (ESC)" : "Tela cheia"}
+          >
+            {isFullscreen ? <X className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+            {isFullscreen ? "Fechar" : "Tela cheia"}
+          </button>
         </div>
       </div>
       <div style={flowStyle} className={flowHeight}>
