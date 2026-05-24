@@ -3,6 +3,7 @@
  * CRUD do Kanban de produção de criativos (ideia → produzido → testado → recusado).
  */
 import { Hono } from "hono";
+import { put } from "@vercel/blob";
 import { db } from "../../db/client.js";
 import {
   criativoKanban,
@@ -14,6 +15,48 @@ import {
 import { asc, eq } from "drizzle-orm";
 
 export const criativosKanbanRoutes = new Hono();
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
+const ALLOWED_PREFIXES = ["image/", "video/"];
+
+/**
+ * POST /api/criativos-kanban/upload
+ * Multipart upload pra Vercel Blob. Aceita image/* ou video/*, até 50MB.
+ * Retorna { url, contentType, size }.
+ *
+ * Env necessária: BLOB_READ_WRITE_TOKEN (auto-injetado pela Vercel quando
+ * o projeto tem Blob enabled em Vercel → Storage → Blob).
+ */
+criativosKanbanRoutes.post("/upload", async (c) => {
+  const formData = await c.req.formData().catch(() => null);
+  if (!formData) return c.json({ error: "form-data inválido" }, 400);
+  const file = formData.get("file");
+  if (!(file instanceof File)) return c.json({ error: "arquivo obrigatório no campo 'file'" }, 400);
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return c.json({ error: `arquivo > 50MB (recebeu ${(file.size / 1024 / 1024).toFixed(1)}MB)` }, 413);
+  }
+  const ct = file.type || "application/octet-stream";
+  if (!ALLOWED_PREFIXES.some((p) => ct.startsWith(p))) {
+    return c.json({ error: `tipo não suportado (${ct}). Apenas image/* e video/*` }, 415);
+  }
+
+  // Path único: criativos-kanban/<timestamp>-<safe-name>
+  const safe = (file.name || "arquivo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+  const path = `criativos-kanban/${Date.now()}-${safe}`;
+
+  try {
+    const blob = await put(path, file, {
+      access: "public",
+      addRandomSuffix: true,
+      contentType: ct,
+    });
+    return c.json({ url: blob.url, contentType: ct, size: file.size });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "upload falhou";
+    return c.json({ error: msg }, 500);
+  }
+});
 
 /** GET /api/criativos-kanban — lista tudo agrupado por etapa */
 criativosKanbanRoutes.get("/", async (c) => {

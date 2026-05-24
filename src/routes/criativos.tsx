@@ -1,6 +1,6 @@
-import { useState, type DragEvent } from "react";
+import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical } from "lucide-react";
+import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -264,6 +264,138 @@ function Card({
   );
 }
 
+function UploadField({
+  url,
+  onUrlChange,
+  onTypeDetected,
+}: {
+  url: string;
+  onUrlChange: (u: string) => void;
+  onTypeDetected: (contentType: string) => void;
+}) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setError(null);
+    if (file.size > 50 * 1024 * 1024) {
+      setError(`Arquivo > 50MB (${(file.size / 1024 / 1024).toFixed(1)}MB). Reduza antes de enviar.`);
+      return;
+    }
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      setError(`Tipo não suportado: ${file.type || "desconhecido"}`);
+      return;
+    }
+    setUploading(true);
+    setProgress(`Enviando ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/criativos-kanban/upload", {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const data = (await res.json()) as { url?: string; contentType?: string; error?: string };
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      onUrlChange(data.url);
+      if (data.contentType) onTypeDetected(data.contentType);
+      setProgress(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha no upload");
+      setProgress(null);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function onChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    // permite re-upload do mesmo arquivo
+    e.target.value = "";
+  }
+
+  const isVideo = url && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+  const isImage = url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+
+  return (
+    <div>
+      <Label>Arquivo do criativo</Label>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*,video/*"
+        onChange={onChange}
+        className="hidden"
+      />
+      {!url && (
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={uploading}
+          className="w-full border-2 border-dashed border-border hover:border-foreground/40 rounded-md p-6 flex flex-col items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {uploading ? (
+            <>
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">{progress || "Enviando..."}</span>
+            </>
+          ) : (
+            <>
+              <Upload className="w-6 h-6 text-muted-foreground" />
+              <span className="text-sm font-medium">Clique pra enviar imagem ou vídeo</span>
+              <span className="text-xs text-muted-foreground">PNG, JPG, WebP, MP4, WebM · até 50MB</span>
+            </>
+          )}
+        </button>
+      )}
+      {url && (
+        <div className="border border-border rounded-md p-3 space-y-2">
+          {isImage && (
+            <img src={url} alt="preview" className="max-h-48 mx-auto rounded" />
+          )}
+          {isVideo && (
+            <video src={url} controls className="max-h-48 mx-auto rounded w-full" />
+          )}
+          <div className="flex items-center gap-2">
+            <Input
+              value={url}
+              onChange={(e) => onUrlChange(e.target.value)}
+              className="text-xs flex-1"
+              placeholder="https://..."
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading}
+              title="Trocar arquivo"
+            >
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => onUrlChange("")}
+              title="Remover"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-rose-400 mt-1">{error}</p>}
+    </div>
+  );
+}
+
 function CriativoDialog({
   open,
   onOpenChange,
@@ -392,23 +524,26 @@ function CriativoDialog({
               rows={3}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>URL da mídia</Label>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-            <div>
-              <Label>URL da thumb</Label>
-              <Input
-                value={thumbUrl}
-                onChange={(e) => setThumbUrl(e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
+          <UploadField
+            url={url}
+            onUrlChange={(u) => {
+              setUrl(u);
+              // se for imagem, auto-popula a thumb também
+              if (u && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u)) setThumbUrl(u);
+            }}
+            onTypeDetected={(t) => {
+              if (t.startsWith("video/")) setTipo("video");
+              else if (t.startsWith("image/")) setTipo("imagem");
+            }}
+          />
+          <div>
+            <Label className="text-xs text-muted-foreground">URL da thumb (opcional, sobrepõe preview)</Label>
+            <Input
+              value={thumbUrl}
+              onChange={(e) => setThumbUrl(e.target.value)}
+              placeholder="https://..."
+              className="text-xs"
+            />
           </div>
           <div>
             <Label>Notas</Label>
