@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   HelpCircle,
+  FileText,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -92,6 +93,7 @@ function AppShell() {
           <SideIcon to="/ads" icon={Megaphone} label="Meta Ads" expanded={expanded} />
           <SideIcon to="/personas" icon={Target} label="Personas" expanded={expanded} />
           <SideIcon to="/quiz" icon={HelpCircle} label="Quiz" expanded={expanded} />
+          <SideIcon to="/paginas" icon={FileText} label="Páginas" expanded={expanded} />
         </nav>
 
         {/* Logout */}
