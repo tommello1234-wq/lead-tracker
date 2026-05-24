@@ -14,6 +14,7 @@ import { metaAdsRoutes } from "./routes/meta-ads.js";
 import { personasRoutes } from "./routes/personas.js";
 import { angulosRoutes } from "./routes/angulos.js";
 import { quizRoutes } from "./routes/quiz.js";
+import { criativosKanbanRoutes } from "./routes/criativos-kanban.js";
 import { requireAuth } from "./middleware/auth.js";
 
 /**
@@ -50,6 +51,7 @@ app.use("/activity/*", requireAuth);
 app.use("/meta-ads/*", requireAuth);
 app.use("/personas/*", requireAuth);
 app.use("/angulos/*", requireAuth);
+app.use("/criativos-kanban/*", requireAuth);
 
 app.route("/produtos", produtosRoutes);
 app.route("/leads", leadsRoutes);
@@ -59,6 +61,7 @@ app.route("/activity", activityRoutes);
 app.route("/meta-ads", metaAdsRoutes);
 app.route("/personas", personasRoutes);
 app.route("/angulos", angulosRoutes);
+app.route("/criativos-kanban", criativosKanbanRoutes);
 
 // 404 padrão JSON
 app.notFound((c) => c.json({ error: "Not found" }, 404));

@@ -514,6 +514,37 @@ export type Criativo = typeof criativos.$inferSelect;
 export type NovoCriativo = typeof criativos.$inferInsert;
 
 /**
+ * Kanban de produção de criativos — separado da tabela `criativos` (que
+ * rastreia ads em produção com métricas CTR/CPA). Aqui é o pipeline interno:
+ * ideia → produzido → testado → recusado.
+ */
+export const CRIATIVO_KANBAN_ETAPAS = ["ideia", "produzido", "testado", "recusado"] as const;
+export type CriativoKanbanEtapa = (typeof CRIATIVO_KANBAN_ETAPAS)[number];
+
+export const criativoKanban = pgTable("criativo_kanban", {
+  id: serial("id").primaryKey(),
+  titulo: text("titulo").notNull(),
+  descricao: text("descricao"),
+  tipo: text("tipo").$type<CriativoTipo>().notNull().default("imagem"),
+  etapa: text("etapa").$type<CriativoKanbanEtapa>().notNull().default("ideia"),
+  // Posição dentro da coluna (drag-to-reorder). Menor = mais no topo.
+  ordem: integer("ordem").notNull().default(0),
+  // Mídia opcional (thumbnail, mockup, link pra arquivo)
+  thumbUrl: text("thumb_url"),
+  url: text("url"),
+  // Linkagem opcional a um ângulo já existente
+  anguloId: integer("angulo_id").references(() => angulos.id, {
+    onDelete: "set null",
+  }),
+  notas: text("notas"),
+  criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+});
+
+export type CriativoKanban = typeof criativoKanban.$inferSelect;
+export type NovoCriativoKanban = typeof criativoKanban.$inferInsert;
+
+/**
  * Quiz funnel — rastreia cada passo de uma LP de quiz pra ver onde
  * cada lead para e o que respondeu até ali. Permite calcular drop-off
  * por step + lead scoring real-time + remarketing por resposta.
