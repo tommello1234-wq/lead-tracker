@@ -25,7 +25,13 @@ type CapiUserData = {
   fbc?: string; // _fbc cookie cru
   client_ip_address?: string;
   client_user_agent?: string;
-  fn?: string[]; // first name (SHA-256)
+  fn?: string[]; // first name (SHA-256, lowercase)
+  ln?: string[]; // last name (SHA-256, lowercase)
+  ct?: string[]; // city (SHA-256, lowercase, sem espaços/acentos)
+  st?: string[]; // state (SHA-256, lowercase, 2-letter pra BR: "al", "sp")
+  zp?: string[]; // zip (SHA-256, só dígitos)
+  country?: string[]; // ISO 2-letter (SHA-256, lowercase, ex: "br")
+  external_id?: string[]; // ID do user no nosso sistema (SHA-256) — Stripe customer_id é estável
 };
 
 type CapiCustomData = {
@@ -44,6 +50,15 @@ export type CapiPurchaseInput = {
   email?: string | null;
   phone?: string | null; // formato qualquer; será normalizado pra dígitos
   firstName?: string | null;
+  // Advanced Matching enriquecido — quanto mais campos, mais chance do Meta casar
+  // a venda com clicks anteriores do user em anúncios. Crítico quando fbp/fbc
+  // estão ausentes (in-app browser, Safari ITP, first-time visitor).
+  lastName?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  country?: string | null; // "br", "us", etc — qualquer caps, será normalizado
+  externalId?: string | null; // ID estável do user (recomendado: Stripe customer_id)
   fbp?: string | null;
   fbc?: string | null;
   ip?: string | null;
@@ -64,6 +79,28 @@ function sha256(input: string): string {
 
 function normalizePhoneForHash(raw: string): string {
   return raw.replace(/\D/g, "");
+}
+
+/**
+ * Normaliza pra Advanced Matching: lowercase, remove acentos, remove espaços e
+ * pontuação. Meta exige isso pra city/state/country antes do SHA-256
+ * — "Maceió" → "maceio", "São Paulo" → "saopaulo".
+ */
+function normalizeForHash(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // remove acentos (combining diacritical marks)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ""); // remove tudo que não for letra/dígito
+}
+
+function normalizeZipForHash(raw: string): string {
+  return raw.replace(/\D/g, ""); // BR CEP: só dígitos
+}
+
+function normalizeCountryForHash(raw: string): string {
+  // Meta espera ISO 3166-1 alpha-2 lowercase (br, us, ...). Trunca pra 2 chars.
+  return raw.toLowerCase().replace(/[^a-z]/g, "").slice(0, 2);
 }
 
 /**
@@ -89,6 +126,28 @@ export async function sendPurchaseToMeta(
     if (digits) user_data.ph = [sha256(digits)];
   }
   if (input.firstName) user_data.fn = [sha256(input.firstName.split(" ")[0])];
+  if (input.lastName) {
+    // Pega tudo depois do 1º espaço como sobrenome (Ferreira de Melo → "ferreira de melo")
+    // Meta documenta lowercase + sem pontuação, mas mantém espaços. sha256() já faz trim+lowercase.
+    user_data.ln = [sha256(input.lastName.replace(/[.,;:()]/g, ""))];
+  }
+  if (input.city) {
+    const c = normalizeForHash(input.city);
+    if (c) user_data.ct = [sha256(c)];
+  }
+  if (input.state) {
+    const s = normalizeForHash(input.state);
+    if (s) user_data.st = [sha256(s)];
+  }
+  if (input.zip) {
+    const z = normalizeZipForHash(input.zip);
+    if (z) user_data.zp = [sha256(z)];
+  }
+  if (input.country) {
+    const co = normalizeCountryForHash(input.country);
+    if (co) user_data.country = [sha256(co)];
+  }
+  if (input.externalId) user_data.external_id = [sha256(String(input.externalId))];
   if (input.fbp) user_data.fbp = input.fbp;
   if (input.fbc) user_data.fbc = input.fbc;
   if (input.ip) user_data.client_ip_address = input.ip;

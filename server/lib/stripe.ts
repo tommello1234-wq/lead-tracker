@@ -129,6 +129,11 @@ function extractCustomer(obj: AnyObject): {
   nome: string;
   email: string | null;
   contato: string | null;
+  lastName: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  country: string | null;
 } {
   const nome =
     pick<string>(
@@ -139,6 +144,11 @@ function extractCustomer(obj: AnyObject): {
       "shipping_details.name",
       "metadata.customer_name",
     ) ?? "Cliente Stripe";
+
+  // lastName = tudo depois do 1º espaço. Pra Advanced Matching do Meta
+  // (campo `ln`). Se nome só tem 1 palavra, lastName = null.
+  const nomeParts = nome.trim().split(/\s+/);
+  const lastName = nomeParts.length > 1 ? nomeParts.slice(1).join(" ") : null;
 
   const email =
     pick<string>(
@@ -159,7 +169,38 @@ function extractCustomer(obj: AnyObject): {
   );
   const contato = parsePhone(phoneRaw);
 
-  return { nome, email, contato };
+  // Endereço pra Advanced Matching (ct/st/zp/country no CAPI).
+  // Stripe coleta em billing_address_collection=required → customer_details.address.
+  const city =
+    pick<string>(
+      obj,
+      "customer_details.address.city",
+      "billing_details.address.city",
+      "shipping_details.address.city",
+    ) ?? null;
+  const state =
+    pick<string>(
+      obj,
+      "customer_details.address.state",
+      "billing_details.address.state",
+      "shipping_details.address.state",
+    ) ?? null;
+  const zip =
+    pick<string>(
+      obj,
+      "customer_details.address.postal_code",
+      "billing_details.address.postal_code",
+      "shipping_details.address.postal_code",
+    ) ?? null;
+  const country =
+    pick<string>(
+      obj,
+      "customer_details.address.country",
+      "billing_details.address.country",
+      "shipping_details.address.country",
+    ) ?? null;
+
+  return { nome, email, contato, lastName, city, state, zip, country };
 }
 
 export function parseStripeWebhook(event: AnyObject): EventInput | null {
@@ -169,7 +210,7 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
   const obj = (event.data as AnyObject)?.object as AnyObject | undefined;
   if (!obj) return null;
 
-  const { nome, email, contato } = extractCustomer(obj);
+  const { nome, email, contato, lastName, city, state, zip, country } = extractCustomer(obj);
 
   // Skip: carrinho abandonado SEM contato é lixo total — Stripe Checkout
   // session.expired chega quando alguém abriu a tela mas nem digitou email.
@@ -269,6 +310,19 @@ export function parseStripeWebhook(event: AnyObject): EventInput | null {
       // Usado pro CAPI Meta deduplicar com Pixel da /obrigado e linkar venda → campanha.
       client_reference_id: pick<string>(obj, "client_reference_id") ?? "",
       session_id: pick<string>(obj, "id") ?? "",
+      // Advanced Matching enriquecido pro CAPI Meta — quanto mais sinais, mais
+      // chance do Meta casar venda com clicks anteriores em anúncios quando
+      // fbp/fbc estão ausentes (in-app browser, ITP, first-time visitor).
+      // externalId usa o customer_id estável do Stripe (cus_XXX) — persiste entre
+      // re-compras do mesmo cliente.
+      customer_extras: {
+        lastName,
+        city,
+        state,
+        zip,
+        country,
+        externalId: gatewayCustomerId,
+      },
     },
   };
 }

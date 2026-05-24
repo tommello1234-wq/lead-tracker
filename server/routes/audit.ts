@@ -7,8 +7,10 @@
 import { Hono } from "hono";
 import { db } from "../../db/client.js";
 import { subscriptions, leads, eventos, mrrMovements } from "../../db/schema.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getSubscriptionsHistory } from "../lib/ticto-api.js";
+import { sendPurchaseToMeta } from "../lib/meta-capi.js";
+import { decodeAttribution } from "../lib/stripe.js";
 
 export const auditRoutes = new Hono();
 
@@ -2027,5 +2029,134 @@ auditRoutes.get("/asaas-reconcile", async (c) => {
     },
     mudaramStatus,
     errors: errors.slice(0, 10),
+  });
+});
+
+/**
+ * POST /api/audit/resend-capi-event?token=<CRON_SECRET>&leadId=611
+ *
+ * Reenvia o evento Purchase pro Meta CAPI com Advanced Matching enriquecido
+ * — usado quando uma venda chegou no Meta mas não atribuiu (sem fbp/fbc),
+ * pra dar uma 2ª chance com mais sinais de matching.
+ *
+ * - Lê o lead + evento Stripe original em `eventos`
+ * - Extrai customer_details.address pra ct/st/zp/country (Maceió → "maceio", AL → "al", etc)
+ * - Decodifica client_reference_id pra recuperar campaign/adset/ad/fbp/fbc
+ * - Usa event_id NOVO ("<original>-retry-1") pra evitar dedup do Meta
+ * - Mantém event_time ORIGINAL pra preservar janela de atribuição
+ *
+ * Precisa rodar em produção (Vercel) — META_PIXEL_ID e META_CAPI_ACCESS_TOKEN
+ * estão como "Sensitive" e não dá pra puxar via env pull/run.
+ */
+auditRoutes.post("/resend-capi-event", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+
+  const leadIdRaw = c.req.query("leadId");
+  const leadId = Number(leadIdRaw);
+  if (!leadIdRaw || !Number.isFinite(leadId) || leadId <= 0) {
+    return c.json({ error: "leadId query param required" }, 400);
+  }
+
+  const lead = await db.query.leads.findFirst({ where: eq(leads.id, leadId) });
+  if (!lead) return c.json({ error: `lead ${leadId} not found` }, 404);
+  if (!lead.pagouEm) return c.json({ error: `lead ${leadId} sem pagouEm` }, 400);
+  if (!lead.valorAssinatura) return c.json({ error: `lead ${leadId} sem valor` }, 400);
+
+  // Pega o evento Stripe ORIGINAL (mais antigo compra_aprovada) pra extrair address
+  // e o cs_live_* original.
+  const evs = await db
+    .select()
+    .from(eventos)
+    .where(
+      and(
+        eq(eventos.leadId, leadId),
+        eq(eventos.source, "stripe"),
+        eq(eventos.eventType, "compra_aprovada"),
+      ),
+    )
+    .orderBy(eventos.receivedAt)
+    .limit(1);
+  const stripeEvent = evs[0];
+  if (!stripeEvent) {
+    return c.json({ error: `sem compra_aprovada Stripe pro lead ${leadId}` }, 404);
+  }
+
+  const payload = stripeEvent.payload as Record<string, unknown> | null;
+  const data = (payload?.data ?? {}) as Record<string, unknown>;
+  const obj = (data.object ?? {}) as Record<string, unknown>;
+  const cd = (obj.customer_details ?? {}) as Record<string, unknown>;
+  const addr = (cd.address ?? {}) as Record<string, unknown>;
+  const cri = String(obj.client_reference_id ?? "");
+  const originalSessionId = String(obj.id ?? lead.gatewayLastOrderId ?? "");
+  if (!originalSessionId) {
+    return c.json({ error: `sem session_id no payload original` }, 400);
+  }
+
+  // Decodifica atribuição (campaign/adset/ad/fbp/fbc/plan).
+  // O JS da LP codifica fbp/fbc com `_` em vez de `.` pra caber no formato Stripe
+  // (alphanumeric + dash + underscore). Convertemos de volta antes de mandar pro Meta.
+  const attr = decodeAttribution(cri);
+  const fbp = attr.fbp ? String(attr.fbp).replace(/_/g, ".") : null;
+  const fbc = attr.fbc ? String(attr.fbc).replace(/_/g, ".") : null;
+
+  // Nome → first + last
+  const nome = String(cd.name ?? lead.nome);
+  const parts = nome.trim().split(/\s+/);
+  const firstName = parts[0];
+  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
+
+  // event_id NOVO evita dedup do Meta com o envio original
+  const eventId = `${originalSessionId}-retry-1`;
+  const eventTime = Math.floor(new Date(lead.pagouEm).getTime() / 1000);
+
+  const signals = {
+    email: lead.email,
+    phone: lead.contato,
+    firstName,
+    lastName,
+    city: addr.city ? String(addr.city) : null,
+    state: addr.state ? String(addr.state) : null,
+    zip: addr.postal_code ? String(addr.postal_code) : null,
+    country: addr.country ? String(addr.country) : null,
+    externalId: lead.gatewayCustomerId,
+    fbp,
+    fbc,
+    campaign: attr.cmp ?? null,
+    adset: attr.adset ?? null,
+    ad: attr.ad ?? null,
+    plan: attr.plan ?? lead.planoNome ?? null,
+  };
+
+  const meta = await sendPurchaseToMeta({
+    eventId,
+    eventTime,
+    eventSourceUrl: "https://gravyx.com.br/obrigado",
+    email: signals.email,
+    phone: signals.phone,
+    firstName: signals.firstName,
+    lastName: signals.lastName,
+    city: signals.city,
+    state: signals.state,
+    zip: signals.zip,
+    country: signals.country,
+    externalId: signals.externalId,
+    fbp: signals.fbp,
+    fbc: signals.fbc,
+    value: lead.valorAssinatura,
+    currency: "BRL",
+    plan: signals.plan,
+    campaign: signals.campaign,
+    adset: signals.adset,
+    ad: signals.ad,
+  });
+
+  return c.json({
+    leadId,
+    nome: lead.nome,
+    originalSessionId,
+    retryEventId: eventId,
+    eventTime,
+    signalsSent: signals,
+    meta,
   });
 });

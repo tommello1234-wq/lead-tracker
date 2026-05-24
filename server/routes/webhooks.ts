@@ -414,6 +414,17 @@ webhookRoutes.post("/stripe", async (c) => {
       const cri = String(eventInput.extras?.client_reference_id ?? "");
       const attr = decodeAttribution(cri);
       const sessionId = String(eventInput.extras?.session_id ?? "") || eventInput.gatewayLastOrderId || "";
+      // Advanced Matching enriquecido: lastName/city/state/zip/country/external_id
+      // do customer_details do Stripe. Crítico quando fbp/fbc ausentes — Meta tenta
+      // matchear o user com cliques anteriores em anúncios via mais campos hashados.
+      const ce = (eventInput.extras?.customer_extras ?? {}) as {
+        lastName?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip?: string | null;
+        country?: string | null;
+        externalId?: string | null;
+      };
       const capiResult = await sendPurchaseToMeta({
         eventId: sessionId,
         eventTime: Math.floor(Date.now() / 1000),
@@ -421,6 +432,12 @@ webhookRoutes.post("/stripe", async (c) => {
         email: eventInput.email,
         phone: eventInput.contato,
         firstName: eventInput.nome,
+        lastName: ce.lastName ?? null,
+        city: ce.city ?? null,
+        state: ce.state ?? null,
+        zip: ce.zip ?? null,
+        country: ce.country ?? null,
+        externalId: ce.externalId ?? eventInput.gatewayCustomerId ?? null,
         fbp: attr.fbp || null,
         fbc: attr.fbc || null,
         value: eventInput.valor,
