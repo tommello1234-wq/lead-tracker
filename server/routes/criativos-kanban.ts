@@ -40,12 +40,63 @@ function getSupabaseClient() {
 }
 
 /**
- * POST /api/criativos-kanban/upload
- * Multipart upload pra Supabase Storage (bucket "criativos-kanban").
- * Aceita image/* ou video/*, até 50MB. Retorna { url, contentType, size }.
+ * POST /api/criativos-kanban/upload-url
+ * Retorna URL assinada pra upload DIRETO no Supabase Storage (sem passar
+ * pelo Vercel — evita limite de 4.5MB do proxy serverless).
  *
- * Bucket precisa estar criado como PUBLIC no painel Supabase
- * (Storage → New bucket → criativos-kanban → Public).
+ * Body: { filename, contentType, size }
+ * Resposta: { signedUrl, token, path, publicUrl }
+ *
+ * Frontend usa signedUrl/token pra upload com supabase.storage.uploadToSignedUrl().
+ * Depois usa publicUrl direto pra exibir.
+ */
+criativosKanbanRoutes.post("/upload-url", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    filename?: string;
+    contentType?: string;
+    size?: number;
+  };
+
+  const filename = String(body.filename ?? "arquivo");
+  const ct = String(body.contentType ?? "application/octet-stream");
+  const size = Number(body.size ?? 0);
+
+  if (size > MAX_UPLOAD_BYTES) {
+    return c.json({ error: `arquivo > 50MB (informou ${(size / 1024 / 1024).toFixed(1)}MB)` }, 413);
+  }
+  if (!ALLOWED_PREFIXES.some((p) => ct.startsWith(p))) {
+    return c.json({ error: `tipo não suportado (${ct}). Apenas image/* e video/*` }, 415);
+  }
+
+  // Path único: <timestamp>-<random>-<safe-name>
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+  const random = Math.random().toString(36).slice(2, 10);
+  const path = `${Date.now()}-${random}-${safe}`;
+
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUploadUrl(path);
+    if (error) return c.json({ error: error.message }, 500);
+
+    const { data: pub } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path);
+    return c.json({
+      signedUrl: data.signedUrl,
+      token: data.token,
+      path: data.path,
+      publicUrl: pub.publicUrl,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "falha ao gerar URL";
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * @deprecated Usa /upload-url + upload direto. Mantido por compatibilidade
+ * caso algum lugar ainda chame. NÃO funciona pra arquivos > 4.5MB (limite
+ * do Vercel proxy).
  */
 criativosKanbanRoutes.post("/upload", async (c) => {
   const formData = await c.req.formData().catch(() => null);
@@ -61,7 +112,6 @@ criativosKanbanRoutes.post("/upload", async (c) => {
     return c.json({ error: `tipo não suportado (${ct}). Apenas image/* e video/*` }, 415);
   }
 
-  // Path único dentro do bucket: <timestamp>-<random>-<safe-name>
   const safe = (file.name || "arquivo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
   const random = Math.random().toString(36).slice(2, 10);
   const path = `${Date.now()}-${random}-${safe}`;
@@ -71,14 +121,8 @@ criativosKanbanRoutes.post("/upload", async (c) => {
     const buffer = await file.arrayBuffer();
     const { error } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(path, buffer, {
-        contentType: ct,
-        cacheControl: "31536000", // 1 year — arquivos são imutáveis (path único)
-        upsert: false,
-      });
+      .upload(path, buffer, { contentType: ct, cacheControl: "31536000", upsert: false });
     if (error) return c.json({ error: error.message }, 500);
-
-    // URL pública do arquivo (bucket precisa ser public)
     const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path);
     return c.json({ url: data.publicUrl, contentType: ct, size: file.size });
   } catch (e) {

@@ -289,21 +289,42 @@ function UploadField({
       return;
     }
     setUploading(true);
-    setProgress(`Enviando ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
+    setProgress(`Preparando upload de ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/criativos-kanban/upload", {
+      // 1. Pede URL assinada pro backend (passa só metadata, não o arquivo)
+      const urlRes = await fetch("/api/criativos-kanban/upload-url", {
         method: "POST",
         credentials: "include",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+        }),
       });
-      const data = (await res.json()) as { url?: string; contentType?: string; error?: string };
-      if (!res.ok || !data.url) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+      const urlData = (await urlRes.json()) as {
+        signedUrl?: string;
+        publicUrl?: string;
+        error?: string;
+      };
+      if (!urlRes.ok || !urlData.signedUrl || !urlData.publicUrl) {
+        throw new Error(urlData.error || `HTTP ${urlRes.status}`);
       }
-      onUrlChange(data.url);
-      if (data.contentType) onTypeDetected(data.contentType);
+
+      // 2. Upload DIRETO pro Supabase Storage (evita limite 4.5MB do Vercel)
+      setProgress(`Enviando ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
+      const uploadRes = await fetch(urlData.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) {
+        throw new Error(`Upload falhou: HTTP ${uploadRes.status}`);
+      }
+
+      // 3. Usa a publicUrl
+      onUrlChange(urlData.publicUrl);
+      if (file.type) onTypeDetected(file.type);
       setProgress(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha no upload");
