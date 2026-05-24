@@ -961,11 +961,13 @@ export async function getDailyRevenue(
   }
 
   // Gasto Meta por dia — só pra SaaS view (produtoId null OU produto Gravyx).
-  // Outros produtos não têm Meta tracking → gasto = 0 → lucro = total.
-  // Lazy import pra não criar dep circular meta-ads ↔ queries.
+  // CRÍTICO: NÃO inclui gasto quando filtra por gateway específico — Meta Ads
+  // é BLENDED (não atribuível a um gateway). Comparar faturamento de UM gateway
+  // com gasto Meta TOTAL geraria "lucro" negativo falso (caso reportado).
+  // Quando gateway está filtrado, gasto fica zerado → gráfico mostra só receita.
   const { getDailyAdSpend } = await import("./meta-ads.js");
   const dailySpend =
-    produtoId == null || produtoId === 1
+    (produtoId == null || produtoId === 1) && gateway == null
       ? await getDailyAdSpend(sinceBR, new Date()).catch(() => [])
       : [];
   const spendByDay = new Map<string, number>();

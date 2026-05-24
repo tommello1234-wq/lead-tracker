@@ -288,13 +288,15 @@ export function DashboardPage() {
         />
         <StatCard
           label="Saídas"
-          value={cac.data ? brl(cac.data.adSpend ?? 0) : "—"}
+          value={gateway ? "—" : cac.data ? brl(cac.data.adSpend ?? 0) : "—"}
           hint={
-            cac.isError
-              ? "Erro Meta API"
-              : cac.data
-                ? "Tráfego pago (Meta Ads)"
-                : "Carregando..."
+            gateway
+              ? "Global · não filtra por gateway"
+              : cac.isError
+                ? "Erro Meta API"
+                : cac.data
+                  ? "Tráfego pago (Meta Ads)"
+                  : "Carregando..."
           }
           icon={ArrowDownCircle}
           iconTone="rose"
@@ -302,13 +304,15 @@ export function DashboardPage() {
         <StatCard
           label="Lucro"
           value={
-            faturamento.data && cac.data
-              ? brl(faturamento.data.total - (cac.data.adSpend ?? 0))
-              : faturamento.data
-                ? brl(faturamento.data.total)
-                : "—"
+            gateway
+              ? "—"
+              : faturamento.data && cac.data
+                ? brl(faturamento.data.total - (cac.data.adSpend ?? 0))
+                : faturamento.data
+                  ? brl(faturamento.data.total)
+                  : "—"
           }
-          hint="Faturamento − Saídas"
+          hint={gateway ? "Disponível só em Todos gateways" : "Faturamento − Saídas"}
           icon={Wallet}
           iconTone={
             faturamento.data
