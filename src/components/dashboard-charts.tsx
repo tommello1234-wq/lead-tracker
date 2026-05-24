@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Area,
   AreaChart,
@@ -5,6 +6,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
   LineChart,
   Pie,
@@ -889,7 +891,24 @@ export function TipoBreakdownChart({ data }: { data: TipoBreakdown[] }) {
   );
 }
 
-export type MrrHistoryPoint = { date: string; mrr: number; subs: number };
+export type MrrHistoryPoint = {
+  date: string;
+  mrr: number;
+  mrrEfetivo: number;
+  subs: number;
+  novos: number;
+  cancelados: number;
+};
+
+type MetricKey = "mrr" | "mrrEfetivo" | "subs" | "novos" | "cancelados";
+
+const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: boolean }> = {
+  mrr: { label: "MRR", color: "oklch(0.55 0.20 270)", isMoney: true },
+  mrrEfetivo: { label: "MRR efetivo", color: "oklch(0.65 0.18 145)", isMoney: true },
+  subs: { label: "Subs ativas", color: "oklch(0.6 0.15 200)", isMoney: false },
+  novos: { label: "Novos no dia", color: "oklch(0.7 0.18 130)", isMoney: false },
+  cancelados: { label: "Cancelados no dia", color: "oklch(0.65 0.20 25)", isMoney: false },
+};
 
 /**
  * Evolução do MRR ao longo do tempo. Cada ponto = snapshot de MRR no fim
@@ -900,14 +919,28 @@ export type MrrHistoryPoint = { date: string; mrr: number; subs: number };
  * quando sai. Útil pra ver trajetória de crescimento da base.
  */
 export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
-  const hasData = data.some((d) => d.mrr > 0);
-  const mrrAtual = data.length > 0 ? data[data.length - 1].mrr : 0;
-  const mrrInicial = data.length > 0 ? data[0].mrr : 0;
-  const variacao = mrrAtual - mrrInicial;
-  const pctVar = mrrInicial > 0 ? (variacao / mrrInicial) * 100 : 0;
-  const subsAtual = data.length > 0 ? data[data.length - 1].subs : 0;
+  // Toggles: quais séries mostrar. MRR sempre ON por default.
+  const [active, setActive] = useState<Record<MetricKey, boolean>>({
+    mrr: true,
+    mrrEfetivo: false,
+    subs: false,
+    novos: false,
+    cancelados: false,
+  });
 
-  const COLOR_MRR = "oklch(0.55 0.20 270)"; // roxo — diferente do faturamento
+  function toggle(key: MetricKey) {
+    setActive((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  const hasData = data.some((d) => d.mrr > 0);
+  const last = data[data.length - 1] ?? null;
+  const first = data[0] ?? null;
+  const variacaoMrr = last && first ? last.mrr - first.mrr : 0;
+  const pctVar = first && first.mrr > 0 ? (variacaoMrr / first.mrr) * 100 : 0;
+
+  // Detecta se tem séries em dinheiro E em count (precisa eixo Y duplo)
+  const anyMoney = active.mrr || active.mrrEfetivo;
+  const anyCount = active.subs || active.novos || active.cancelados;
 
   return (
     <Card className="border-0 shadow-sm rounded-3xl overflow-hidden">
@@ -916,33 +949,33 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
           <div>
             <CardTitle className="text-base font-semibold">Evolução do MRR</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Receita recorrente mensal · snapshot por dia
+              Snapshot por dia · clique nas séries pra ligar/desligar
             </p>
           </div>
-          {hasData ? (
+          {hasData && last ? (
             <div className="flex items-center gap-5 text-right">
               <div>
                 <p
                   className="text-xl font-bold tabular-nums leading-none"
-                  style={{ color: COLOR_MRR }}
+                  style={{ color: METRIC_CONFIG.mrr.color }}
                 >
-                  {brl(mrrAtual)}
+                  {brl(last.mrr)}
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
-                  MRR atual · {subsAtual} subs
+                  MRR atual · {last.subs} subs
                 </p>
               </div>
-              {variacao !== 0 && mrrInicial > 0 ? (
+              {variacaoMrr !== 0 && first && first.mrr > 0 ? (
                 <>
                   <div className="w-px h-8 bg-border" />
                   <div>
                     <p
                       className={`text-xl font-bold tabular-nums leading-none ${
-                        variacao >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+                        variacaoMrr >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
                       }`}
                     >
-                      {variacao >= 0 ? "+" : ""}
-                      {brl(variacao)}
+                      {variacaoMrr >= 0 ? "+" : ""}
+                      {brl(variacaoMrr)}
                     </p>
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
                       Variação · {pctVar >= 0 ? "+" : ""}
@@ -954,17 +987,49 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
             </div>
           ) : null}
         </div>
+
+        {/* Toggles das séries */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          {(Object.keys(METRIC_CONFIG) as MetricKey[]).map((key) => {
+            const cfg = METRIC_CONFIG[key];
+            const isActive = active[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggle(key)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-muted/40 text-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-muted/20"
+                }`}
+              >
+                <span
+                  className="size-2.5 rounded-full"
+                  style={{
+                    backgroundColor: isActive ? cfg.color : "oklch(0.85 0.01 250)",
+                  }}
+                />
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
       </CardHeader>
       <CardContent>
         {!hasData ? (
           <EmptyChart />
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+            <ComposedChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-mrr-area" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={COLOR_MRR} stopOpacity={0.32} />
-                  <stop offset="100%" stopColor={COLOR_MRR} stopOpacity={0} />
+                  <stop offset="0%" stopColor={METRIC_CONFIG.mrr.color} stopOpacity={0.32} />
+                  <stop offset="100%" stopColor={METRIC_CONFIG.mrr.color} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-mrr-efetivo-area" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={METRIC_CONFIG.mrrEfetivo.color} stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={METRIC_CONFIG.mrrEfetivo.color} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid
@@ -982,13 +1047,26 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
                 interval="preserveStartEnd"
                 minTickGap={32}
               />
-              <YAxis
-                tickFormatter={(v) => brl(Number(v))}
-                width={64}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
-              />
+              {anyMoney ? (
+                <YAxis
+                  yAxisId="money"
+                  tickFormatter={(v) => brl(Number(v))}
+                  width={64}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
+                />
+              ) : null}
+              {anyCount ? (
+                <YAxis
+                  yAxisId="count"
+                  orientation={anyMoney ? "right" : "left"}
+                  width={48}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "oklch(0.55 0.02 250)", fontSize: 11 }}
+                />
+              ) : null}
               <Tooltip
                 cursor={{
                   stroke: "oklch(0.65 0.02 250)",
@@ -998,22 +1076,71 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
                 content={
                   <ChartTooltip
                     labelFormatter={(d) => formatDateLabel(String(d))}
-                    formatter={(v, _name, item) => {
-                      const p = (item.payload ?? {}) as { subs?: number };
-                      return [`${brl(Number(v ?? 0))} · ${p.subs ?? 0} subs`, "MRR"];
+                    formatter={(v, name) => {
+                      const label = String(name ?? "");
+                      const key = (Object.keys(METRIC_CONFIG) as MetricKey[]).find(
+                        (k) => METRIC_CONFIG[k].label === label,
+                      );
+                      if (!key) return [String(v), label];
+                      const isMoney = METRIC_CONFIG[key].isMoney;
+                      return [isMoney ? brl(Number(v ?? 0)) : String(v ?? 0), label];
                     }}
                   />
                 }
               />
-              <Area
-                type="monotone"
-                dataKey="mrr"
-                name="MRR"
-                stroke={COLOR_MRR}
-                strokeWidth={2.5}
-                fill="url(#grad-mrr-area)"
-              />
-            </AreaChart>
+              {active.mrr ? (
+                <Area
+                  yAxisId="money"
+                  type="monotone"
+                  dataKey="mrr"
+                  name="MRR"
+                  stroke={METRIC_CONFIG.mrr.color}
+                  strokeWidth={2.5}
+                  fill="url(#grad-mrr-area)"
+                />
+              ) : null}
+              {active.mrrEfetivo ? (
+                <Area
+                  yAxisId="money"
+                  type="monotone"
+                  dataKey="mrrEfetivo"
+                  name="MRR efetivo"
+                  stroke={METRIC_CONFIG.mrrEfetivo.color}
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  fill="url(#grad-mrr-efetivo-area)"
+                />
+              ) : null}
+              {active.subs ? (
+                <Line
+                  yAxisId="count"
+                  type="monotone"
+                  dataKey="subs"
+                  name="Subs ativas"
+                  stroke={METRIC_CONFIG.subs.color}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              ) : null}
+              {active.novos ? (
+                <Bar
+                  yAxisId="count"
+                  dataKey="novos"
+                  name="Novos no dia"
+                  fill={METRIC_CONFIG.novos.color}
+                  opacity={0.7}
+                />
+              ) : null}
+              {active.cancelados ? (
+                <Bar
+                  yAxisId="count"
+                  dataKey="cancelados"
+                  name="Cancelados no dia"
+                  fill={METRIC_CONFIG.cancelados.color}
+                  opacity={0.7}
+                />
+              ) : null}
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </CardContent>

@@ -727,7 +727,14 @@ export async function getMrrHistory(
   days = 30,
   produtoId: number | null = null,
   gateway: string | null = null,
-): Promise<Array<{ date: string; mrr: number; subs: number }>> {
+): Promise<Array<{
+  date: string;
+  mrr: number;
+  mrrEfetivo: number;
+  subs: number;
+  novos: number;
+  cancelados: number;
+}>> {
   const TZ = "America/Sao_Paulo";
   function dateToISOBR(d: Date): string {
     return new Intl.DateTimeFormat("sv-SE", {
@@ -755,20 +762,25 @@ export async function getMrrHistory(
   // gráfico mostra o snapshot real do MOMENTO ATUAL (= o mesmo número que
   // o card "MRR atual" mostra), em vez de parar no fim do dia anterior.
   const nowIso = new Date().toISOString();
-  const rows = await db.execute<{ day: string; mrr: number; subs: number }>(sql`
+  // Helper SQL pro filtro de produto sem usar alias 's' (pra subqueries)
+  const produtoFilter2 = produtoId != null
+    ? sql`AND produto_id = ${produtoId}`
+    : sql`AND (produto_id IS NULL OR produto_id IN (SELECT id FROM produtos WHERE ativo = true))`;
+  const gatewayFilter2 = gateway != null ? sql`AND gateway = ${gateway}` : sql``;
+
+  const rows = await db.execute(sql`
     WITH dias AS (
-      -- Pontos passados: 23:59 BRT de cada dia (snapshot end-of-day)
       SELECT generate_series(
         ${sinceBR.toISOString()}::timestamptz,
         ${nowIso}::timestamptz,
         '1 day'::interval
       ) AS d
       UNION ALL
-      -- Adiciona o "agora" como ponto extra (= snapshot live de hoje)
       SELECT ${nowIso}::timestamptz AS d
     )
     SELECT
       to_char(dias.d AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS day,
+      -- MRR atual: subs ativas no fim do dia
       COUNT(s.id)::int AS subs,
       COALESCE(SUM(
         CASE
@@ -776,7 +788,32 @@ export async function getMrrHistory(
           WHEN s.periodicidade IN ('vitalicio', 'gratis') THEN 0
           ELSE s.valor
         END
-      ), 0)::float AS mrr
+      ), 0)::float AS mrr,
+      -- MRR efetivo: subs ativas SEM cancel_at agendado (que vão sair)
+      COALESCE(SUM(
+        CASE
+          WHEN s.cancel_at IS NOT NULL AND s.cancel_at > dias.d THEN 0
+          WHEN s.periodicidade = 'anual' THEN s.valor / 12.0
+          WHEN s.periodicidade IN ('vitalicio', 'gratis') THEN 0
+          ELSE s.valor
+        END
+      ), 0)::float AS mrr_efetivo,
+      -- Novos no dia (subs com pagou_em nesse dia)
+      (
+        SELECT COUNT(*)::int FROM subscriptions
+        WHERE pagou_em >= date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo')
+          AND pagou_em < date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '1 day'
+          ${produtoFilter2}
+          ${gatewayFilter2}
+      ) AS novos,
+      -- Cancelados no dia (cancelado_em nesse dia)
+      (
+        SELECT COUNT(*)::int FROM subscriptions
+        WHERE cancelado_em >= date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo')
+          AND cancelado_em < date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '1 day'
+          ${produtoFilter2}
+          ${gatewayFilter2}
+      ) AS cancelados
     FROM dias
     LEFT JOIN subscriptions s ON
       s.pagou_em <= dias.d
@@ -788,10 +825,13 @@ export async function getMrrHistory(
     ORDER BY dias.d
   `);
 
-  return (rows as unknown as Array<{ day: string; mrr: number; subs: number }>).map((r) => ({
+  return (rows as unknown as Array<{ day: string; mrr: number; mrr_efetivo: number; subs: number; novos: number; cancelados: number }>).map((r) => ({
     date: r.day,
     mrr: Number(r.mrr),
+    mrrEfetivo: Number(r.mrr_efetivo),
     subs: Number(r.subs),
+    novos: Number(r.novos),
+    cancelados: Number(r.cancelados),
   }));
 }
 
