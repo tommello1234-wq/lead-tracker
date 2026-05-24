@@ -53,12 +53,49 @@ const TIPO_LABEL: Record<Tipo, string> = {
   carrossel: "🎠 Carrossel",
 };
 
+/**
+ * Faz upload de um arquivo direto pro Supabase Storage via signed URL.
+ * Retorna a publicUrl + contentType. Joga exceção em erro.
+ */
+async function uploadFileToSupabase(file: File): Promise<{ url: string; contentType: string }> {
+  if (file.size > 50 * 1024 * 1024) {
+    throw new Error(`${file.name}: > 50MB (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+  }
+  if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+    throw new Error(`${file.name}: tipo não suportado (${file.type || "desconhecido"})`);
+  }
+  const urlRes = await fetch("/api/criativos-kanban/upload-url", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, contentType: file.type, size: file.size }),
+  });
+  const urlData = (await urlRes.json()) as { signedUrl?: string; publicUrl?: string; error?: string };
+  if (!urlRes.ok || !urlData.signedUrl || !urlData.publicUrl) {
+    throw new Error(urlData.error || `HTTP ${urlRes.status}`);
+  }
+  const uploadRes = await fetch(urlData.signedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!uploadRes.ok) throw new Error(`Upload falhou: HTTP ${uploadRes.status}`);
+  return { url: urlData.publicUrl, contentType: file.type };
+}
+
 export function CriativosPage() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<CriativoKanban | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [defaultEtapa, setDefaultEtapa] = useState<Etapa>("ideia");
   const [dragOver, setDragOver] = useState<Etapa | null>(null);
+  const [uploadingCol, setUploadingCol] = useState<Record<Etapa, { done: number; total: number } | null>>({
+    ideia: null,
+    produzido: null,
+    testado: null,
+    recusado: null,
+  });
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["criativos-kanban"],
@@ -75,6 +112,39 @@ export function CriativosPage() {
     mutationFn: (id: number) => api.delete(`/api/criativos-kanban/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["criativos-kanban"] }),
   });
+
+  const createMutation = useMutation({
+    mutationFn: (data: Partial<CriativoKanban>) =>
+      api.post<CriativoKanban>("/api/criativos-kanban", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["criativos-kanban"] }),
+  });
+
+  /** Faz upload de N arquivos e cria 1 card por arquivo na etapa alvo */
+  async function handleFilesDrop(files: File[], etapa: Etapa) {
+    setUploadError(null);
+    setUploadingCol((s) => ({ ...s, [etapa]: { done: 0, total: files.length } }));
+    let done = 0;
+    for (const file of files) {
+      try {
+        const { url, contentType } = await uploadFileToSupabase(file);
+        const tipo: Tipo = contentType.startsWith("video/") ? "video" : "imagem";
+        const isImg = /^image\//.test(contentType);
+        await createMutation.mutateAsync({
+          titulo: file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Sem título",
+          tipo,
+          etapa,
+          url,
+          thumbUrl: isImg ? url : null,
+        });
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : "Falha no upload");
+      } finally {
+        done++;
+        setUploadingCol((s) => ({ ...s, [etapa]: { done, total: files.length } }));
+      }
+    }
+    setUploadingCol((s) => ({ ...s, [etapa]: null }));
+  }
 
   function openNew(etapa: Etapa) {
     setDefaultEtapa(etapa);
@@ -105,6 +175,15 @@ export function CriativosPage() {
   function handleDrop(e: DragEvent<HTMLDivElement>, etapa: Etapa) {
     e.preventDefault();
     setDragOver(null);
+    // Arquivos do desktop → upload + criação automática
+    const files = Array.from(e.dataTransfer.files || []).filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
+    );
+    if (files.length > 0) {
+      void handleFilesDrop(files, etapa);
+      return;
+    }
+    // Card arrastado de outra coluna → muda etapa
     const id = Number(e.dataTransfer.getData("text/plain"));
     if (!Number.isFinite(id)) return;
     const item = items.find((it) => it.id === id);
@@ -126,7 +205,7 @@ export function CriativosPage() {
         <div>
           <h1 className="text-2xl font-bold mb-1">Criativos</h1>
           <p className="text-sm text-muted-foreground">
-            Pipeline de produção · {items.length} {items.length === 1 ? "criativo" : "criativos"} · arraste pra mover entre colunas
+            Pipeline de produção · {items.length} {items.length === 1 ? "criativo" : "criativos"} · arraste cards pra mover · arraste imagens/vídeos do desktop pra criar
           </p>
         </div>
       </header>
@@ -166,6 +245,12 @@ export function CriativosPage() {
 
               {/* Cards */}
               <div className="flex-1 p-2 space-y-2 min-h-[400px]">
+                {uploadingCol[col.etapa] && (
+                  <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-muted/50 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Enviando {uploadingCol[col.etapa]!.done}/{uploadingCol[col.etapa]!.total}...
+                  </div>
+                )}
                 {colItems.map((item) => (
                   <Card
                     key={item.id}
@@ -177,9 +262,11 @@ export function CriativosPage() {
                     onDragStart={(e) => handleDragStart(e, item.id)}
                   />
                 ))}
-                {colItems.length === 0 && (
-                  <div className="text-xs text-muted-foreground/50 text-center py-8">
-                    Vazio
+                {colItems.length === 0 && !uploadingCol[col.etapa] && (
+                  <div className={`text-xs text-center py-8 transition-colors ${
+                    isDragOver ? "text-foreground font-medium" : "text-muted-foreground/50"
+                  }`}>
+                    {isDragOver ? "Solte pra enviar" : "Vazio"}
                   </div>
                 )}
               </div>
@@ -187,6 +274,15 @@ export function CriativosPage() {
           );
         })}
       </div>
+
+      {uploadError && (
+        <div className="mt-4 p-3 rounded border border-rose-500/30 bg-rose-500/5 text-xs text-rose-400 flex items-center justify-between">
+          <span>Erro no upload: {uploadError}</span>
+          <button onClick={() => setUploadError(null)} className="hover:opacity-70">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       <CriativoDialog
         open={dialogOpen}
@@ -289,42 +385,11 @@ function UploadField({
       return;
     }
     setUploading(true);
-    setProgress(`Preparando upload de ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
+    setProgress(`Enviando ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
     try {
-      // 1. Pede URL assinada pro backend (passa só metadata, não o arquivo)
-      const urlRes = await fetch("/api/criativos-kanban/upload-url", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type,
-          size: file.size,
-        }),
-      });
-      const urlData = (await urlRes.json()) as {
-        signedUrl?: string;
-        publicUrl?: string;
-        error?: string;
-      };
-      if (!urlRes.ok || !urlData.signedUrl || !urlData.publicUrl) {
-        throw new Error(urlData.error || `HTTP ${urlRes.status}`);
-      }
-
-      // 2. Upload DIRETO pro Supabase Storage (evita limite 4.5MB do Vercel)
-      setProgress(`Enviando ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
-      const uploadRes = await fetch(urlData.signedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!uploadRes.ok) {
-        throw new Error(`Upload falhou: HTTP ${uploadRes.status}`);
-      }
-
-      // 3. Usa a publicUrl
-      onUrlChange(urlData.publicUrl);
-      if (file.type) onTypeDetected(file.type);
+      const { url: publicUrl, contentType } = await uploadFileToSupabase(file);
+      onUrlChange(publicUrl);
+      if (contentType) onTypeDetected(contentType);
       setProgress(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha no upload");
