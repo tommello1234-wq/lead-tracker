@@ -199,61 +199,71 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
               : "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
         }}
       >
-        {/* Toggle button (top-right) */}
-        {data.hasChildren ? (
-          <button
-            type="button"
-            data-toggle="1"
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onToggle?.();
-            }}
-            className="absolute -top-2 -right-2 size-5 grid place-items-center rounded-full border bg-background hover:scale-110 transition-transform z-10 shadow-sm"
-            style={{ borderColor: cor, color: cor }}
-            title={data.expanded ? "Recolher" : "Expandir"}
-          >
-            {data.expanded ? (
-              <ChevronDown className="size-3" strokeWidth={2.5} />
-            ) : (
-              <ChevronRight className="size-3" strokeWidth={2.5} />
-            )}
-          </button>
-        ) : null}
-
-        {/* Toolbar de ações (top-left) — aparece no hover */}
-        {data.actions && data.actions.length > 0 && !placeholder ? (
+        {/* Toolbar interna no hover — ações + toggle, tudo dentro do card */}
+        {(data.hasChildren || (data.actions && data.actions.length > 0 && !placeholder)) ? (
           <div
             data-toggle="1"
-            className="absolute -top-3 left-2 hidden group-hover:flex items-center gap-1 z-10"
+            className="absolute top-2 right-2 flex items-center gap-0.5 z-10"
           >
-            {data.actions.map((action) => (
+            {/* Ações (edit/add/delete) — só no hover */}
+            {data.actions && data.actions.length > 0 && !placeholder ? (
+              <div className="hidden group-hover:flex items-center gap-0.5 mr-0.5">
+                {data.actions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    data-toggle="1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      action.onClick();
+                    }}
+                    className={`size-6 grid place-items-center rounded-lg transition-colors ${
+                      action.danger
+                        ? "text-rose-500 hover:bg-rose-500/10"
+                        : isRoot
+                          ? "text-white/80 hover:bg-white/15 hover:text-white"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                    title={action.label}
+                    aria-label={action.label}
+                  >
+                    {action.icon === "edit" ? (
+                      <Pencil className="size-3.5" strokeWidth={2} />
+                    ) : action.icon === "delete" ? (
+                      <Trash2 className="size-3.5" strokeWidth={2} />
+                    ) : action.icon === "add" ? (
+                      <Plus className="size-3.5" strokeWidth={2.5} />
+                    ) : (
+                      <Eye className="size-3.5" strokeWidth={2} />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Toggle expandir/recolher — sempre visível, sutil */}
+            {data.hasChildren ? (
               <button
-                key={action.label}
                 type="button"
                 data-toggle="1"
                 onClick={(e) => {
                   e.stopPropagation();
-                  action.onClick();
+                  data.onToggle?.();
                 }}
-                className={`size-6 grid place-items-center rounded-md border shadow-sm hover:scale-110 transition-transform ${
-                  action.danger
-                    ? "bg-rose-500/95 border-rose-600 text-white"
-                    : "bg-background border-border text-foreground/70 hover:text-foreground"
+                className={`size-6 grid place-items-center rounded-lg transition-colors ${
+                  isRoot
+                    ? "text-white/70 hover:bg-white/15 hover:text-white"
+                    : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
                 }`}
-                title={action.label}
-                aria-label={action.label}
+                title={data.expanded ? "Recolher" : "Expandir"}
               >
-                {action.icon === "edit" ? (
-                  <Pencil className="size-3" strokeWidth={2.2} />
-                ) : action.icon === "delete" ? (
-                  <Trash2 className="size-3" strokeWidth={2.2} />
-                ) : action.icon === "add" ? (
-                  <Plus className="size-3.5" strokeWidth={2.5} />
+                {data.expanded ? (
+                  <ChevronDown className="size-3.5" strokeWidth={2} />
                 ) : (
-                  <Eye className="size-3" strokeWidth={2.2} />
+                  <ChevronRight className="size-3.5" strokeWidth={2} />
                 )}
               </button>
-            ))}
+            ) : null}
           </div>
         ) : null}
 
@@ -297,7 +307,7 @@ function MindMapNode({ data }: NodeProps<MindNode>) {
         >
           {/* Header: tag + (status badge pra criativo) + childCount badge */}
           <div
-            className="text-[9px] font-semibold tracking-wider uppercase leading-tight flex items-center justify-between gap-2"
+            className="text-[9px] font-semibold tracking-wider uppercase leading-tight flex items-center justify-between gap-2 pr-8"
             style={{
               color: isRoot ? "rgba(255,255,255,0.9)" : cor,
               opacity: isRoot ? 1 : placeholder ? 0.55 : 0.85,
