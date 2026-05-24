@@ -392,17 +392,28 @@ webhookRoutes.post("/stripe", async (c) => {
   try {
     const result = await handleGatewayEvent(eventInput);
 
-    // CAPI Meta — só pra compra aprovada. Roda em paralelo, não bloqueia 200 pro Stripe.
-    // event_id: prioriza gatewayLastOrderId (sub_* pra assinatura, payment_intent pra
-    // one-time). Crítico: Stripe dispara checkout.session.completed (id=cs_live_*) E
-    // invoice.paid (id=in_*) na 1ª fatura de assinatura. Se usarmos extras.session_id
-    // (obj.id cru), cada webhook manda event_id diferente e o Meta conta como 2
-    // conversões distintas (inflação ~25% do Gerenciador). gatewayLastOrderId é o
-    // sub_* idêntico nos 2 webhooks → Meta deduplica nativamente.
-    if (eventInput.eventType === "compra_aprovada" && eventInput.valor) {
+    // CAPI Meta — só pra 1ª compra aprovada. Roda em paralelo, não bloqueia 200 pro Stripe.
+    //
+    // event_id = stripe session_id (cs_live_*) PRECISA bater com o `eventID` do Pixel
+    // browser na /obrigado (que lê `?session_id=` da success_url do Stripe). Sem isso,
+    // Meta vê CAPI server e Pixel browser como 2 conversões distintas pra mesma venda.
+    //
+    // Guard `stripeEventType === "checkout.session.completed"`: Stripe dispara
+    // checkout.session.completed E invoice.payment_succeeded (subscription_create) na
+    // 1ª fatura de assinatura, ambos viram "compra_aprovada" no parser. Sem esse
+    // filtro, mandamos 2 CAPI events pra mesma venda (inflação ~25% do Gerenciador
+    // observada em 2026-05-23). Renovações (invoice subscription_cycle) já não caem
+    // aqui porque viram "assinatura_renovada", não "compra_aprovada".
+    const stripeEventType =
+      (eventInput.rawPayload as { type?: string } | null)?.type ?? "";
+    if (
+      eventInput.eventType === "compra_aprovada" &&
+      eventInput.valor &&
+      stripeEventType === "checkout.session.completed"
+    ) {
       const cri = String(eventInput.extras?.client_reference_id ?? "");
       const attr = decodeAttribution(cri);
-      const sessionId = eventInput.gatewayLastOrderId || String(eventInput.extras?.session_id ?? "") || "";
+      const sessionId = String(eventInput.extras?.session_id ?? "") || eventInput.gatewayLastOrderId || "";
       const capiResult = await sendPurchaseToMeta({
         eventId: sessionId,
         eventTime: Math.floor(Date.now() / 1000),
