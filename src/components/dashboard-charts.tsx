@@ -1123,21 +1123,25 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
                 />
               ) : null}
               {active.novos ? (
-                <Bar
+                <Line
                   yAxisId="count"
+                  type="monotone"
                   dataKey="novos"
                   name="Novos no dia"
-                  fill={METRIC_CONFIG.novos.color}
-                  opacity={0.7}
+                  stroke={METRIC_CONFIG.novos.color}
+                  strokeWidth={2}
+                  dot={false}
                 />
               ) : null}
               {active.cancelados ? (
-                <Bar
+                <Line
                   yAxisId="count"
+                  type="monotone"
                   dataKey="cancelados"
                   name="Cancelados no dia"
-                  fill={METRIC_CONFIG.cancelados.color}
-                  opacity={0.7}
+                  stroke={METRIC_CONFIG.cancelados.color}
+                  strokeWidth={2}
+                  dot={false}
                 />
               ) : null}
             </ComposedChart>
