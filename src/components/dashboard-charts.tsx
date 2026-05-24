@@ -440,7 +440,15 @@ export type DailyRevenue = {
   lucro: number;
 };
 
-export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
+export function DailyRevenueChart({
+  data,
+  days,
+  onDaysChange,
+}: {
+  data: DailyRevenue[];
+  days?: number;
+  onDaysChange?: (d: number) => void;
+}) {
   const hasData = data.some((d) => d.total > 0 || d.gasto > 0 || d.reembolso > 0);
   const totalBruto = data.reduce((acc, d) => acc + d.bruto, 0);
   const totalReembolso = data.reduce((acc, d) => acc + d.reembolso, 0);
@@ -464,8 +472,26 @@ export function DailyRevenueChart({ data }: { data: DailyRevenue[] }) {
               Faturamento × Lucro
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Receita líquida vs. gasto Meta Ads · últimos 30 dias
+              Receita líquida vs. gasto Meta Ads · últimos {days ?? 30} dias
             </p>
+            {onDaysChange ? (
+              <div className="flex gap-1 mt-2">
+                {[7, 30, 90].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => onDaysChange(d)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      (days ?? 30) === d
+                        ? "bg-foreground text-background"
+                        : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {hasData ? (
             <div className="flex items-center gap-5 text-right flex-wrap justify-end">
@@ -918,7 +944,15 @@ const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: 
  * aqui é stock de receita recorrente. Sobe quando entra cliente novo, cai
  * quando sai. Útil pra ver trajetória de crescimento da base.
  */
-export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
+export function MrrHistoryChart({
+  data,
+  days,
+  onDaysChange,
+}: {
+  data: MrrHistoryPoint[];
+  days?: number;
+  onDaysChange?: (d: number) => void;
+}) {
   // Toggles: quais séries mostrar. MRR sempre ON por default.
   const [active, setActive] = useState<Record<MetricKey, boolean>>({
     mrr: true,
@@ -951,6 +985,24 @@ export function MrrHistoryChart({ data }: { data: MrrHistoryPoint[] }) {
             <p className="text-xs text-muted-foreground mt-0.5">
               Snapshot por dia · clique nas séries pra ligar/desligar
             </p>
+            {onDaysChange ? (
+              <div className="flex gap-1 mt-2">
+                {[7, 30, 90].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => onDaysChange(d)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      (days ?? 30) === d
+                        ? "bg-foreground text-background"
+                        : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {hasData && last ? (
             <div className="flex items-center gap-5 text-right">

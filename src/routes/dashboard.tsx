@@ -74,6 +74,8 @@ export function DashboardPage() {
   const [mrrAtualOpen, setMrrAtualOpen] = useState(false);
   const [ltvOpen, setLtvOpen] = useState(false);
   const [churnOpen, setChurnOpen] = useState(false);
+  const [revenueChartDays, setRevenueChartDays] = useState(30);
+  const [mrrChartDays, setMrrChartDays] = useState(30);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
@@ -104,17 +106,17 @@ export function DashboardPage() {
     queryFn: () => api.get<DailyMetric[]>(`/api/dashboard/daily?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`),
   });
   const dailyRevenue = useQuery({
-    queryKey: ["dashboard", "daily-revenue", produtoParam, gatewayParam],
+    queryKey: ["dashboard", "daily-revenue", produtoParam, gatewayParam, revenueChartDays],
     queryFn: () =>
       api.get<DailyRevenue[]>(
-        `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`,
+        `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=${revenueChartDays}&gateway=${gatewayParam}`,
       ),
   });
   const mrrHistory = useQuery({
-    queryKey: ["dashboard", "mrr-history", produtoParam, gatewayParam],
+    queryKey: ["dashboard", "mrr-history", produtoParam, gatewayParam, mrrChartDays],
     queryFn: () =>
       api.get<MrrHistoryPoint[]>(
-        `/api/dashboard/mrr-history?produtoId=${produtoParam}&days=30&gateway=${gatewayParam}`,
+        `/api/dashboard/mrr-history?produtoId=${produtoParam}&days=${mrrChartDays}&gateway=${gatewayParam}`,
       ),
   });
   const vendasPorLp = useQuery({
@@ -347,13 +349,21 @@ export function DashboardPage() {
           {/* Evolução MRR — full width (snapshot estoque de receita recorrente) */}
           {mrrHistory.data ? (
             <div className="lg:col-span-2">
-              <MrrHistoryChart data={mrrHistory.data} />
+              <MrrHistoryChart
+                data={mrrHistory.data}
+                days={mrrChartDays}
+                onDaysChange={setMrrChartDays}
+              />
             </div>
           ) : null}
           {/* Faturamento por dia — full width (fluxo de entradas no caixa) */}
           {dailyRevenue.data ? (
             <div className="lg:col-span-2">
-              <DailyRevenueChart data={dailyRevenue.data} />
+              <DailyRevenueChart
+                data={dailyRevenue.data}
+                days={revenueChartDays}
+                onDaysChange={setRevenueChartDays}
+              />
             </div>
           ) : null}
           <PlanoBreakdownChart data={breakdowns.data.planos} />
