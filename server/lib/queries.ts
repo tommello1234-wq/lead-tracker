@@ -750,13 +750,22 @@ export async function getMrrHistory(
   // Pra cada dia, conta subs ativas no fim do dia (23:59 BRT).
   // Sub estava ativa se: pagou_em <= fim_do_dia E (cancelado_em > fim_do_dia OU NULL).
   // Considera reembolsos: subs reembolsadas (status='reembolsada') não contam após reembolsado_em.
+  //
+  // O último ponto da série usa NOW() em vez de "23:59 do dia"  — assim o
+  // gráfico mostra o snapshot real do MOMENTO ATUAL (= o mesmo número que
+  // o card "MRR atual" mostra), em vez de parar no fim do dia anterior.
+  const nowIso = new Date().toISOString();
   const rows = await db.execute<{ day: string; mrr: number; subs: number }>(sql`
     WITH dias AS (
+      -- Pontos passados: 23:59 BRT de cada dia (snapshot end-of-day)
       SELECT generate_series(
         ${sinceBR.toISOString()}::timestamptz,
-        ${new Date().toISOString()}::timestamptz,
+        ${nowIso}::timestamptz,
         '1 day'::interval
       ) AS d
+      UNION ALL
+      -- Adiciona o "agora" como ponto extra (= snapshot live de hoje)
+      SELECT ${nowIso}::timestamptz AS d
     )
     SELECT
       to_char(dias.d AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS day,
