@@ -3,7 +3,7 @@
  * CRUD do Kanban de produção de criativos (ideia → produzido → testado → recusado).
  */
 import { Hono } from "hono";
-import { put } from "@vercel/blob";
+import { createClient } from "@supabase/supabase-js";
 import { db } from "../../db/client.js";
 import {
   criativoKanban,
@@ -18,14 +18,34 @@ export const criativosKanbanRoutes = new Hono();
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 const ALLOWED_PREFIXES = ["image/", "video/"];
+const BUCKET_NAME = "criativos-kanban";
+
+/**
+ * Cliente Supabase pra Storage. Usa SERVICE_ROLE_KEY (bypass RLS) pra
+ * permitir upload server-side sem precisar de policies complexas.
+ *
+ * Envs necessárias (já configuradas no Vercel):
+ * - SUPABASE_URL: https://<ref>.supabase.co
+ * - SUPABASE_SERVICE_ROLE_KEY: service role key do projeto Supabase
+ */
+function getSupabaseClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configurados",
+    );
+  }
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 /**
  * POST /api/criativos-kanban/upload
- * Multipart upload pra Vercel Blob. Aceita image/* ou video/*, até 50MB.
- * Retorna { url, contentType, size }.
+ * Multipart upload pra Supabase Storage (bucket "criativos-kanban").
+ * Aceita image/* ou video/*, até 50MB. Retorna { url, contentType, size }.
  *
- * Env necessária: BLOB_READ_WRITE_TOKEN (auto-injetado pela Vercel quando
- * o projeto tem Blob enabled em Vercel → Storage → Blob).
+ * Bucket precisa estar criado como PUBLIC no painel Supabase
+ * (Storage → New bucket → criativos-kanban → Public).
  */
 criativosKanbanRoutes.post("/upload", async (c) => {
   const formData = await c.req.formData().catch(() => null);
@@ -41,17 +61,26 @@ criativosKanbanRoutes.post("/upload", async (c) => {
     return c.json({ error: `tipo não suportado (${ct}). Apenas image/* e video/*` }, 415);
   }
 
-  // Path único: criativos-kanban/<timestamp>-<safe-name>
+  // Path único dentro do bucket: <timestamp>-<random>-<safe-name>
   const safe = (file.name || "arquivo").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  const path = `criativos-kanban/${Date.now()}-${safe}`;
+  const random = Math.random().toString(36).slice(2, 10);
+  const path = `${Date.now()}-${random}-${safe}`;
 
   try {
-    const blob = await put(path, file, {
-      access: "public",
-      addRandomSuffix: true,
-      contentType: ct,
-    });
-    return c.json({ url: blob.url, contentType: ct, size: file.size });
+    const supabase = getSupabaseClient();
+    const buffer = await file.arrayBuffer();
+    const { error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(path, buffer, {
+        contentType: ct,
+        cacheControl: "31536000", // 1 year — arquivos são imutáveis (path único)
+        upsert: false,
+      });
+    if (error) return c.json({ error: error.message }, 500);
+
+    // URL pública do arquivo (bucket precisa ser public)
+    const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path);
+    return c.json({ url: data.publicUrl, contentType: ct, size: file.size });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "upload falhou";
     return c.json({ error: msg }, 500);
