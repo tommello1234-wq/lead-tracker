@@ -1590,6 +1590,9 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
           },
         },
       };
+      // row.received_at vem como string ou Date dependendo do driver — normaliza
+      const receivedAtDate =
+        row.received_at instanceof Date ? row.received_at : new Date(row.received_at as unknown as string);
       const [newEvent] = await db
         .insert(eventos)
         .values({
@@ -1598,7 +1601,7 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
           eventType: "compra_aprovada",
           payload: fakePayload,
           processedOk: true,
-          receivedAt: row.received_at,
+          receivedAt: receivedAtDate,
           produtoId: 1,
         })
         .returning({ id: eventos.id });
