@@ -376,14 +376,12 @@ export function DashboardPage() {
             </div>
           ) : null}
           <PlanoBreakdownChart data={breakdowns.data.planos} />
-          <DailyVolumeChart data={daily.data} />
           {vendasPorLp.data ? (
             <VendasPorLpChart
               data={vendasPorLp.data}
               periodLabel={PERIOD_LABELS[period].toLowerCase()}
             />
           ) : null}
-          <ConversionTrendChart data={daily.data} />
           <TipoBreakdownChart data={breakdowns.data.tipos} />
           {cohort.data ? (
             <div className="lg:col-span-2">
