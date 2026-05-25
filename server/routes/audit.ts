@@ -2630,6 +2630,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
 
     let page = 1;
     let sampleOrder: TictoOrder | null = null;
+    const productNames = new Map<string, { count: number; valor: number }>();
     while (true) {
       const resp = (await getOrdersHistory(page, {
         status: "authorized",
@@ -2641,6 +2642,21 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
         const valueCents = tictoValueCents(o);
         tictoRes.grossReais += valueCents / 100;
         tictoRes.paidCount++;
+        // Tenta achar nome do produto em vários lugares possíveis
+        const oo = o as unknown as Record<string, unknown> & {
+          item?: { product_name?: string };
+          product?: { name?: string };
+          offer?: { product_name?: string; name?: string };
+        };
+        const pname = oo.item?.product_name
+          ?? oo.product?.name
+          ?? oo.offer?.product_name
+          ?? oo.offer?.name
+          ?? "(sem nome)";
+        const cur = productNames.get(pname) ?? { count: 0, valor: 0 };
+        cur.count++;
+        cur.valor += valueCents / 100;
+        productNames.set(pname, cur);
       }
       const last = resp.meta?.last_page ?? 1;
       if (page >= last || list.length === 0) break;
@@ -2667,6 +2683,9 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     }
     tictoRes.netReais = tictoRes.grossReais - tictoRes.refundReais;
     (tictoRes as unknown as { sample?: unknown }).sample = sampleOrder ? Object.keys(sampleOrder) : null;
+    (tictoRes as unknown as { porProduto?: unknown }).porProduto = Array.from(productNames.entries())
+      .map(([nome, v]) => ({ nome, vendas: v.count, brutoBRL: Number(v.valor.toFixed(2)) }))
+      .sort((a, b) => b.brutoBRL - a.brutoBRL);
   } catch (e) {
     tictoRes.error = String(e);
   }
