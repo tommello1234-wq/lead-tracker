@@ -1475,6 +1475,33 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
     }, 500);
   }
 
+  // Debug: conta total de invoice.payment_succeeded subscription_create na janela
+  const debugCount = await db.execute<{ total_invoices: number; orphan_count: number; sample_sub_id: string | null }>(sql`
+    SELECT
+      (SELECT count(*)::int FROM eventos e
+        WHERE e.source = 'stripe' AND e.event_type = 'invoice.payment_succeeded'
+          AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
+          AND e.received_at > NOW() - make_interval(days => ${sinceDays})
+      ) as total_invoices,
+      (SELECT count(*)::int FROM eventos e
+        WHERE e.source = 'stripe' AND e.event_type = 'invoice.payment_succeeded'
+          AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
+          AND e.received_at > NOW() - make_interval(days => ${sinceDays})
+          AND NOT EXISTS (
+            SELECT 1 FROM eventos e2
+            WHERE e2.source = 'stripe' AND e2.event_type = 'compra_aprovada'
+              AND (e2.payload->'data'->'object'->>'subscription' = e.payload->'data'->'object'->>'subscription'
+                   OR e2.payload->'data'->'object'->>'id' = e.payload->'data'->'object'->>'subscription')
+          )
+      ) as orphan_count,
+      (SELECT e.payload->'data'->'object'->>'subscription' FROM eventos e
+        WHERE e.source = 'stripe' AND e.event_type = 'invoice.payment_succeeded'
+          AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
+        ORDER BY e.received_at DESC LIMIT 1
+      ) as sample_sub_id
+  `);
+  const debug = (debugCount.rows ?? debugCount)[0] as unknown as { total_invoices: number; orphan_count: number; sample_sub_id: string | null };
+
   type Result = { invoiceId: string; subId: string; email: string; valor: number; eventoId: number };
   const created: Result[] = [];
   const failed: Array<{ invoiceId: string; reason: string }> = [];
@@ -1595,6 +1622,7 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
 
   return c.json({
     orphanInvoices: (orphanInvoices.rows ?? []).length,
+    debug,
     createdCount: created.length,
     failedCount: failed.length,
     created,
