@@ -329,57 +329,69 @@ function Card({
     <div
       draggable
       onDragStart={onDragStart}
-      className="group relative bg-card border border-border rounded-md p-3 cursor-move hover:border-foreground/30 hover:shadow-md transition-all"
+      className="group relative bg-card border border-border rounded-md overflow-hidden cursor-move hover:border-foreground/30 hover:shadow-md transition-all"
     >
-      <div className="flex items-start gap-2 mb-2">
-        <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 mt-0.5 flex-shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="text-xs text-muted-foreground mb-1">{TIPO_LABEL[item.tipo]}</div>
-          <div className="text-sm font-medium text-foreground line-clamp-2">{item.titulo}</div>
-        </div>
-      </div>
-
-      {item.thumbUrl && (
-        <div className="relative aspect-video bg-muted rounded mb-2 overflow-hidden">
+      {/* Mídia ocupa o card inteiro em 4:5 */}
+      <div className="relative aspect-[4/5] bg-muted">
+        {item.thumbUrl ? (
           <img src={item.thumbUrl} alt={item.titulo} className="w-full h-full object-cover" />
-          {item.media && item.media.length > 1 && (
-            <div className="absolute top-1.5 right-1.5 bg-black/70 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
-              +{item.media.length - 1}
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground/60">
+            sem mídia
+          </div>
+        )}
+        {item.media && item.media.length > 1 && (
+          <div className="absolute top-2 right-2 bg-black/70 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+            +{item.media.length - 1}
+          </div>
+        )}
+
+        {/* Overlay com info + ações — aparece só no hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col">
+          {/* topo: grip + tipo */}
+          <div className="flex items-center justify-between p-2">
+            <GripVertical className="w-4 h-4 text-white/70" />
+            <span className="text-[10px] font-medium text-white/90 bg-black/40 backdrop-blur px-2 py-0.5 rounded-full">
+              {TIPO_LABEL[item.tipo]}
+            </span>
+          </div>
+
+          {/* base: título + ações */}
+          <div className="mt-auto p-3 space-y-2">
+            <div className="text-sm font-semibold text-white line-clamp-2">{item.titulo}</div>
+            {item.descricao && (
+              <p className="text-[11px] text-white/80 line-clamp-2">{item.descricao}</p>
+            )}
+            <div className="flex items-center justify-between gap-1">
+              {item.url ? (
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-[11px] text-blue-300 hover:underline"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Abrir mídia
+                </a>
+              ) : <span />}
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-white hover:bg-white/15 hover:text-white" onClick={onEdit} title="Editar">
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-rose-300 hover:bg-white/15 hover:text-rose-200"
+                  onClick={onDelete}
+                  title="Excluir"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
-          )}
+          </div>
         </div>
-      )}
-
-      {item.descricao && (
-        <p className="text-xs text-muted-foreground line-clamp-3 mb-2">{item.descricao}</p>
-      )}
-
-      {item.url && (
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline mb-2"
-        >
-          <ExternalLink className="w-3 h-3" />
-          Abrir mídia
-        </a>
-      )}
-
-      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Editar">
-          <Pencil className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 w-7 p-0 text-rose-400 hover:text-rose-300"
-          onClick={onDelete}
-          title="Excluir"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
       </div>
     </div>
   );
