@@ -1430,7 +1430,8 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
   if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
 
   const sinceDays = Number(c.req.query("sinceDays") ?? "7");
-  const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+  // Driver pg neon-serverless não aceita Date como binding — usa ISO string.
+  const sinceIso = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString();
 
   // 1. Acha invoices Stripe com subscription_create que não viraram compra
   let orphanInvoices;
@@ -1454,7 +1455,7 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
     WHERE e.source = 'stripe'
       AND e.event_type = 'invoice.payment_succeeded'
       AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
-      AND e.received_at > ${sinceDate}
+      AND e.received_at > ${sinceIso}::timestamptz
       AND NOT EXISTS (
         SELECT 1 FROM eventos e2
         WHERE e2.source = 'stripe'
