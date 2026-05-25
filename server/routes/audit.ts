@@ -2099,6 +2099,16 @@ auditRoutes.post("/resend-capi-event", async (c) => {
   const fbp = attr.fbp ? String(attr.fbp).replace(/_/g, ".") : null;
   const fbc = attr.fbc ? String(attr.fbc).replace(/_/g, ".") : null;
 
+  // Extrai IDs numéricos do Meta (mesmo helper do webhook handler).
+  const extractMetaId = (raw: string | null | undefined): string | null => {
+    if (!raw) return null;
+    const m = String(raw).match(/(\d{15,18})(?!\d)/);
+    return m ? m[1] : null;
+  };
+  const campaignIdNumeric = extractMetaId(attr.cmp);
+  const adsetIdNumeric = extractMetaId(attr.adset);
+  const adIdNumeric = extractMetaId(attr.ad);
+
   // Nome → first + last
   const nome = String(cd.name ?? lead.nome);
   const parts = nome.trim().split(/\s+/);
@@ -2124,6 +2134,9 @@ auditRoutes.post("/resend-capi-event", async (c) => {
     campaign: attr.cmp ?? null,
     adset: attr.adset ?? null,
     ad: attr.ad ?? null,
+    campaignIdNumeric,
+    adsetIdNumeric,
+    adIdNumeric,
     plan: attr.plan ?? lead.planoNome ?? null,
   };
 
@@ -2148,6 +2161,9 @@ auditRoutes.post("/resend-capi-event", async (c) => {
     campaign: signals.campaign,
     adset: signals.adset,
     ad: signals.ad,
+    campaignIdNumeric: signals.campaignIdNumeric,
+    adsetIdNumeric: signals.adsetIdNumeric,
+    adIdNumeric: signals.adIdNumeric,
   });
 
   return c.json({

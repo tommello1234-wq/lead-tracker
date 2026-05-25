@@ -66,11 +66,19 @@ export type CapiPurchaseInput = {
   value: number;
   currency?: string; // default "BRL"
   plan?: string | null;
-  // Atribuição opcional — Meta usa pra correlacionar com campanha (não vai no evento,
-  // só log local; o `fbc` é o que liga ao click do ad).
+  // Nomes de atribuição vindos do client_reference_id da LP. NÃO vão no evento Meta
+  // (Meta não aceita nomes, só IDs numéricos). Mantemos pra log local em eventos.payload
+  // — auditoria do funil real (qual ad gerou a venda) independente do que o Meta diz.
   campaign?: string | null;
   adset?: string | null;
   ad?: string | null;
+  // IDs NUMÉRICOS do Meta (extraídos do cri ou do utm_id da URL final do anúncio).
+  // Vão no body como `attribution_data` — Meta usa como HINT pra atribuição quando
+  // fbp/fbc estão ausentes. Não substitui Advanced Matching mas força o respeito
+  // à campanha-origem. Crítico pra tráfego mobile in-app sem cookies.
+  campaignIdNumeric?: string | null;
+  adsetIdNumeric?: string | null;
+  adIdNumeric?: string | null;
 };
 
 function sha256(input: string): string {
@@ -164,18 +172,29 @@ export async function sendPurchaseToMeta(
     custom_data.content_name = `GRAVYX ${input.plan}`;
   }
 
+  // attribution_data: Meta usa como hint pra atribuir conversão à campanha-origem
+  // quando fbp/fbc estão ausentes. Precisa de IDs numéricos (15-18 dígitos do Meta).
+  // Doc: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/server-event#attribution-data
+  const attribution_data: Record<string, string> = {};
+  if (input.campaignIdNumeric) attribution_data.campaign_id = input.campaignIdNumeric;
+  if (input.adsetIdNumeric) attribution_data.adset_id = input.adsetIdNumeric;
+  if (input.adIdNumeric) attribution_data.ad_id = input.adIdNumeric;
+
+  const event: Record<string, unknown> = {
+    event_name: "Purchase",
+    event_time: input.eventTime,
+    event_id: input.eventId,
+    event_source_url: input.eventSourceUrl ?? "https://gravyx.com.br/obrigado",
+    action_source: "website",
+    user_data,
+    custom_data,
+  };
+  if (Object.keys(attribution_data).length > 0) {
+    event.attribution_data = attribution_data;
+  }
+
   const body: Record<string, unknown> = {
-    data: [
-      {
-        event_name: "Purchase",
-        event_time: input.eventTime,
-        event_id: input.eventId,
-        event_source_url: input.eventSourceUrl ?? "https://gravyx.com.br/obrigado",
-        action_source: "website",
-        user_data,
-        custom_data,
-      },
-    ],
+    data: [event],
   };
   if (testCode) body.test_event_code = testCode;
 

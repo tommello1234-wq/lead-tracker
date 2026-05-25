@@ -425,6 +425,19 @@ webhookRoutes.post("/stripe", async (c) => {
         country?: string | null;
         externalId?: string | null;
       };
+      // Extrai IDs numéricos do Meta (15-18 dígitos) dos campos cmp/adset/ad do cri.
+      // Os nomes vêm como "_LP_AG__-_7_CRIATIVOS_120244360602820390" — o ID fica no
+      // fim. Quando presente, vai como `attribution_data.campaign_id` no body do CAPI,
+      // forçando o Meta a respeitar a campanha-origem mesmo sem fbp/fbc. Crítico pra
+      // tráfego mobile in-app onde os cookies do Pixel não persistem.
+      const extractMetaId = (raw: string | null | undefined): string | null => {
+        if (!raw) return null;
+        const m = String(raw).match(/(\d{15,18})(?!\d)/);
+        return m ? m[1] : null;
+      };
+      const campaignIdNumeric = extractMetaId(attr.cmp);
+      const adsetIdNumeric = extractMetaId(attr.adset);
+      const adIdNumeric = extractMetaId(attr.ad);
       const capiResult = await sendPurchaseToMeta({
         eventId: sessionId,
         eventTime: Math.floor(Date.now() / 1000),
@@ -446,6 +459,9 @@ webhookRoutes.post("/stripe", async (c) => {
         campaign: attr.cmp || null,
         adset: attr.adset || null,
         ad: attr.ad || null,
+        campaignIdNumeric,
+        adsetIdNumeric,
+        adIdNumeric,
       });
       // Log do CAPI no eventos pra auditar (não falha o webhook se CAPI errar)
       await db.insert(eventos).values({
@@ -458,6 +474,9 @@ webhookRoutes.post("/stripe", async (c) => {
           campaign: attr.cmp,
           adset: attr.adset,
           ad: attr.ad,
+          campaign_id_numeric: campaignIdNumeric,
+          adset_id_numeric: adsetIdNumeric,
+          ad_id_numeric: adIdNumeric,
           fbp: attr.fbp,
           fbc: attr.fbc ? attr.fbc.substring(0, 30) + "..." : null,
           response: capiResult.response,
