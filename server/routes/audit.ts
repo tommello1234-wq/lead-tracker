@@ -1433,7 +1433,9 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
   const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
 
   // 1. Acha invoices Stripe com subscription_create que não viraram compra
-  const orphanInvoices = await db.execute<{
+  let orphanInvoices;
+  try {
+  orphanInvoices = await db.execute<{
     evento_id: number;
     received_at: Date;
     sub_id: string;
@@ -1463,12 +1465,22 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
           )
       )
   `);
+  } catch (queryErr) {
+    const err = queryErr as { cause?: { message?: string; detail?: string; code?: string }; message?: string };
+    return c.json({
+      error: "query select falhou",
+      pgMessage: err.cause?.message,
+      pgDetail: err.cause?.detail,
+      pgCode: err.cause?.code,
+      drizzleMsg: err.message,
+    }, 500);
+  }
 
   type Result = { invoiceId: string; subId: string; email: string; valor: number; eventoId: number };
   const created: Result[] = [];
   const failed: Array<{ invoiceId: string; reason: string }> = [];
 
-  for (const row of orphanInvoices.rows ?? []) {
+  for (const row of (orphanInvoices.rows ?? []) as Array<{ evento_id: number; received_at: Date; sub_id: string; customer_id: string; invoice_id: string; amount_paid: string | null }>) {
     try {
       // Fetch customer pra pegar email + nome
       const custRes = await fetch(`https://api.stripe.com/v1/customers/${row.customer_id}`, {
