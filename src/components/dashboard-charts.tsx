@@ -946,47 +946,30 @@ const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: 
  * aqui é stock de receita recorrente. Sobe quando entra cliente novo, cai
  * quando sai. Útil pra ver trajetória de crescimento da base.
  */
-type ChartGateway = "all" | "stripe" | "ticto" | "asaas" | "pagarme";
-const CHART_GATEWAYS: { value: ChartGateway; label: string }[] = [
-  { value: "all", label: "Todos" },
-  { value: "stripe", label: "Stripe" },
-  { value: "ticto", label: "Ticto" },
-  { value: "asaas", label: "Asaas" },
-  { value: "pagarme", label: "Pagar.me" },
-];
-
 export function MrrHistoryChart({
   data,
   days,
   onDaysChange,
-  gateway,
-  onGatewayChange,
 }: {
   data: MrrHistoryPoint[];
   days?: number;
   onDaysChange?: (d: number) => void;
-  gateway?: ChartGateway;
-  onGatewayChange?: (g: ChartGateway) => void;
 }) {
-  // Toggles: quais séries mostrar. MRR sempre ON por default.
+  // Toggles default: foco em atividade de leads (entradas, cancelados, reembolsos).
   const [active, setActive] = useState<Record<MetricKey, boolean>>({
-    mrr: true,
+    mrr: false,
     mrrEfetivo: false,
     subs: false,
-    novos: false,
-    cancelados: false,
-    reembolsos: false,
+    novos: true,
+    cancelados: true,
+    reembolsos: true,
   });
 
   function toggle(key: MetricKey) {
     setActive((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  const hasData = data.some((d) => d.mrr > 0);
-  const last = data[data.length - 1] ?? null;
-  const first = data[0] ?? null;
-  const variacaoMrr = last && first ? last.mrr - first.mrr : 0;
-  const pctVar = first && first.mrr > 0 ? (variacaoMrr / first.mrr) * 100 : 0;
+  const hasData = data.some((d) => d.novos > 0 || d.cancelados > 0 || d.reembolsos > 0 || d.mrr > 0);
 
   // Detecta se tem séries em dinheiro E em count (precisa eixo Y duplo)
   const anyMoney = active.mrr || active.mrrEfetivo;
@@ -997,88 +980,70 @@ export function MrrHistoryChart({
       <CardHeader className="pb-3">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <CardTitle className="text-base font-semibold">Evolução do MRR</CardTitle>
+            <CardTitle className="text-base font-semibold">Atividade da base</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Snapshot por dia · clique nas séries pra ligar/desligar
+              Novos, cancelados e reembolsos por dia · clique nas séries pra alternar
             </p>
-            <div className="flex flex-wrap gap-3 mt-2">
-              {onDaysChange ? (
-                <div className="flex gap-1">
-                  {[7, 30, 90].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => onDaysChange(d)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                        (days ?? 30) === d
-                          ? "bg-foreground text-background"
-                          : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-                      }`}
-                    >
-                      {d}d
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {onGatewayChange ? (
-                <div className="flex gap-1">
-                  {CHART_GATEWAYS.map((g) => (
-                    <button
-                      key={g.value}
-                      type="button"
-                      onClick={() => onGatewayChange(g.value)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                        (gateway ?? "all") === g.value
-                          ? "bg-foreground text-background"
-                          : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-                      }`}
-                    >
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            {onDaysChange ? (
+              <div className="flex gap-1 mt-2">
+                {[7, 30, 90].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => onDaysChange(d)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      (days ?? 30) === d
+                        ? "bg-foreground text-background"
+                        : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
-          {hasData && last ? (
+          {hasData ? (
             <div className="flex items-center gap-5 text-right">
+              <div>
+                <p className="text-xl font-bold tabular-nums leading-none text-foreground">
+                  {data.reduce((s, d) => s + d.novos, 0)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                  Novos no período
+                </p>
+              </div>
+              <div className="w-px h-8 bg-border" />
               <div>
                 <p
                   className="text-xl font-bold tabular-nums leading-none"
-                  style={{ color: METRIC_CONFIG.mrr.color }}
+                  style={{ color: METRIC_CONFIG.cancelados.color }}
                 >
-                  {brl(last.mrr)}
+                  {data.reduce((s, d) => s + d.cancelados, 0)}
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
-                  MRR atual · {last.subs} subs
+                  Cancelados
                 </p>
               </div>
-              {variacaoMrr !== 0 && first && first.mrr > 0 ? (
-                <>
-                  <div className="w-px h-8 bg-border" />
-                  <div>
-                    <p
-                      className={`text-xl font-bold tabular-nums leading-none ${
-                        variacaoMrr >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {variacaoMrr >= 0 ? "+" : ""}
-                      {brl(variacaoMrr)}
-                    </p>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
-                      Variação · {pctVar >= 0 ? "+" : ""}
-                      {pctVar.toFixed(1)}%
-                    </p>
-                  </div>
-                </>
-              ) : null}
+              <div className="w-px h-8 bg-border" />
+              <div>
+                <p
+                  className="text-xl font-bold tabular-nums leading-none"
+                  style={{ color: METRIC_CONFIG.reembolsos.color }}
+                >
+                  {data.reduce((s, d) => s + d.reembolsos, 0)}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                  Reembolsos
+                </p>
+              </div>
             </div>
           ) : null}
         </div>
 
-        {/* Toggles das séries */}
+        {/* Toggles das séries — só atividade (novos/cancelados/reembolsos) */}
         <div className="flex flex-wrap gap-2 mt-4">
-          {(Object.keys(METRIC_CONFIG) as MetricKey[]).map((key) => {
+          {(["novos", "cancelados", "reembolsos"] as MetricKey[]).map((key) => {
             const cfg = METRIC_CONFIG[key];
             const isActive = active[key];
             return (
