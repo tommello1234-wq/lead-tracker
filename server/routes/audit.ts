@@ -1457,7 +1457,10 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
         SELECT 1 FROM eventos e2
         WHERE e2.source = 'stripe'
           AND e2.event_type = 'compra_aprovada'
-          AND e2.gateway_last_order_id = e.payload->'data'->'object'->>'subscription'
+          AND (
+            e2.payload->'data'->'object'->>'subscription' = e.payload->'data'->'object'->>'subscription'
+            OR e2.payload->'data'->'object'->>'id' = e.payload->'data'->'object'->>'subscription'
+          )
       )
   `);
 
@@ -1556,7 +1559,6 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
           eventType: "compra_aprovada",
           payload: fakePayload,
           processedOk: true,
-          gatewayLastOrderId: row.sub_id,
           receivedAt: row.received_at,
           produtoId: 1,
         })
