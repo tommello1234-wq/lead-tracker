@@ -1506,7 +1506,8 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
   const created: Result[] = [];
   const failed: Array<{ invoiceId: string; reason: string }> = [];
 
-  for (const row of (orphanInvoices.rows ?? []) as Array<{ evento_id: number; received_at: Date; sub_id: string; customer_id: string; invoice_id: string; amount_paid: string | null }>) {
+  const orphanRows = ((orphanInvoices as unknown as { rows?: unknown[] }).rows ?? (orphanInvoices as unknown as unknown[])) as Array<{ evento_id: number; received_at: Date; sub_id: string; customer_id: string; invoice_id: string; amount_paid: string | null }>;
+  for (const row of orphanRows) {
     try {
       // Fetch customer pra pegar email + nome
       const custRes = await fetch(`https://api.stripe.com/v1/customers/${row.customer_id}`, {
@@ -1621,7 +1622,7 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
   }
 
   return c.json({
-    orphanInvoices: (orphanInvoices.rows ?? []).length,
+    orphanInvoices: orphanRows.length,
     debug,
     createdCount: created.length,
     failedCount: failed.length,
