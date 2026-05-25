@@ -2575,12 +2575,17 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     error?: string;
   } = { grossReais: 0, refundReais: 0, netReais: 0, paidCount: 0, refundCount: 0 };
   try {
+    // Ticto: filter[betweenDates] formato MM/DD/YYYY,MM/DD/YYYY
+    const [sy, sm, sd] = sinceStr.split("-");
+    const [uy, um, ud] = untilStr.split("-");
+    const betweenDates = `${sm}/${sd}/${sy},${um}/${ud}/${uy}`;
+    const { getOrdersHistory } = await import("../lib/ticto-api.js");
+
     let page = 1;
     while (true) {
-      const resp = (await (await import("../lib/ticto-api.js")).getOrdersHistory(page, {
+      const resp = (await getOrdersHistory(page, {
         status: "authorized",
-        paid_at_from: sinceStr,
-        paid_at_to: untilStr,
+        betweenDates,
       })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
       const list = resp.data ?? [];
       for (const o of list) {
@@ -2596,10 +2601,9 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     // Reembolsos
     page = 1;
     while (true) {
-      const resp = (await (await import("../lib/ticto-api.js")).getOrdersHistory(page, {
+      const resp = (await getOrdersHistory(page, {
         status: "refunded",
-        refunded_at_from: sinceStr,
-        refunded_at_to: untilStr,
+        betweenDates,
       })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
       const list = resp.data ?? [];
       for (const o of list) {
