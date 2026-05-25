@@ -1,6 +1,6 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2 } from "lucide-react";
+import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2, Link as LinkIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,22 @@ async function uploadFileToSupabase(file: File): Promise<{ url: string; contentT
   });
   if (!uploadRes.ok) throw new Error(`Upload falhou: HTTP ${uploadRes.status}`);
   return { url: urlData.publicUrl, contentType: file.type };
+}
+
+/**
+ * Detecta link público do Google Drive e devolve URLs derivadas pra embed/thumb.
+ * Suporta formatos: /file/d/{ID}/view, ?id={ID}, /open?id={ID}.
+ */
+function parseDriveUrl(u: string): { fileId: string; embedUrl: string; thumbUrl: string } | null {
+  if (!u || !/drive\.google\.com/i.test(u)) return null;
+  const m = u.match(/\/d\/([a-zA-Z0-9_-]{20,})/) || u.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+  if (!m) return null;
+  const id = m[1];
+  return {
+    fileId: id,
+    embedUrl: `https://drive.google.com/file/d/${id}/preview`,
+    thumbUrl: `https://drive.google.com/thumbnail?id=${id}&sz=w800`,
+  };
 }
 
 export function CriativosPage() {
@@ -364,15 +380,32 @@ function UploadField({
   url,
   onUrlChange,
   onTypeDetected,
+  onThumbDetected,
 }: {
   url: string;
   onUrlChange: (u: string) => void;
   onTypeDetected: (contentType: string) => void;
+  onThumbDetected?: (thumbUrl: string) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const [mode, setMode] = useState<"upload" | "link">("upload");
+  const [linkInput, setLinkInput] = useState("");
+
+  function submitLink(raw: string) {
+    setError(null);
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const drive = parseDriveUrl(trimmed);
+    onUrlChange(trimmed);
+    if (drive) {
+      onTypeDetected("video/drive");
+      onThumbDetected?.(drive.thumbUrl);
+    }
+    setLinkInput("");
+  }
 
   async function handleFile(file: File) {
     setError(null);
@@ -406,8 +439,9 @@ function UploadField({
     e.target.value = "";
   }
 
-  const isVideo = url && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
-  const isImage = url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  const drive = url ? parseDriveUrl(url) : null;
+  const isVideo = !drive && url && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+  const isImage = !drive && url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
 
   return (
     <div>
@@ -420,28 +454,84 @@ function UploadField({
         className="hidden"
       />
       {!url && (
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          disabled={uploading}
-          className="w-full border-2 border-dashed border-border hover:border-foreground/40 rounded-md p-6 flex flex-col items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {uploading ? (
-            <>
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">{progress || "Enviando..."}</span>
-            </>
+        <div className="space-y-2">
+          <div className="flex gap-1 p-1 bg-muted/50 rounded-md w-fit">
+            <button
+              type="button"
+              onClick={() => setMode("upload")}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                mode === "upload" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Upload className="w-3 h-3 inline mr-1" /> Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("link")}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                mode === "link" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LinkIcon className="w-3 h-3 inline mr-1" /> Link (Drive, etc)
+            </button>
+          </div>
+
+          {mode === "upload" ? (
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading}
+              className="w-full border-2 border-dashed border-border hover:border-foreground/40 rounded-md p-6 flex flex-col items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">{progress || "Enviando..."}</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-sm font-medium">Clique pra enviar imagem ou vídeo</span>
+                  <span className="text-xs text-muted-foreground">PNG, JPG, WebP, MP4, WebM · até 50MB</span>
+                </>
+              )}
+            </button>
           ) : (
-            <>
-              <Upload className="w-6 h-6 text-muted-foreground" />
-              <span className="text-sm font-medium">Clique pra enviar imagem ou vídeo</span>
-              <span className="text-xs text-muted-foreground">PNG, JPG, WebP, MP4, WebM · até 50MB</span>
-            </>
+            <div className="space-y-1.5">
+              <div className="flex gap-2">
+                <Input
+                  value={linkInput}
+                  onChange={(e) => setLinkInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitLink(linkInput);
+                    }
+                  }}
+                  placeholder="Cole a URL pública do Drive ou outra mídia"
+                  className="text-sm"
+                />
+                <Button type="button" size="sm" onClick={() => submitLink(linkInput)} disabled={!linkInput.trim()}>
+                  Usar
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Drive: deixe o vídeo como <span className="font-medium">"Qualquer pessoa com o link"</span> pro preview funcionar.
+              </p>
+            </div>
           )}
-        </button>
+        </div>
       )}
       {url && (
         <div className="border border-border rounded-md p-3 space-y-2">
+          {drive && (
+            <iframe
+              src={drive.embedUrl}
+              className="w-full aspect-video rounded"
+              allow="autoplay"
+              title="preview"
+            />
+          )}
           {isImage && (
             <img src={url} alt="preview" className="max-h-48 mx-auto rounded" />
           )}
@@ -614,13 +704,14 @@ function CriativoDialog({
             url={url}
             onUrlChange={(u) => {
               setUrl(u);
-              // se for imagem, auto-popula a thumb também
+              // se for imagem direta, auto-popula a thumb também
               if (u && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u)) setThumbUrl(u);
             }}
             onTypeDetected={(t) => {
               if (t.startsWith("video/")) setTipo("video");
               else if (t.startsWith("image/")) setTipo("imagem");
             }}
+            onThumbDetected={(t) => setThumbUrl(t)}
           />
           <div>
             <Label className="text-xs text-muted-foreground">URL da thumb (opcional, sobrepõe preview)</Label>
