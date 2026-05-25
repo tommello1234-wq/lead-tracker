@@ -738,6 +738,7 @@ export async function getMrrHistory(
   subs: number;
   novos: number;
   cancelados: number;
+  reembolsos: number;
 }>> {
   const TZ = "America/Sao_Paulo";
   function dateToISOBR(d: Date): string {
@@ -817,7 +818,16 @@ export async function getMrrHistory(
           AND cancelado_em < date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '1 day'
           ${produtoFilter2}
           ${gatewayFilter2}
-      ) AS cancelados
+      ) AS cancelados,
+      -- Reembolsos no dia (eventos reembolso processed_ok = true)
+      (
+        SELECT COUNT(*)::int FROM eventos e
+        WHERE e.event_type = 'reembolso' AND e.processed_ok = true
+          AND e.received_at >= date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo')
+          AND e.received_at < date_trunc('day', dias.d AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '1 day'
+          ${produtoId != null ? sql`AND e.produto_id = ${produtoId}` : sql``}
+          ${gateway != null ? sql`AND e.source IN (${gateway}, ${gateway + "-sync"})` : sql``}
+      ) AS reembolsos
     FROM dias
     LEFT JOIN subscriptions s ON
       s.pagou_em <= dias.d
@@ -829,13 +839,14 @@ export async function getMrrHistory(
     ORDER BY dias.d
   `);
 
-  return (rows as unknown as Array<{ day: string; mrr: number; mrr_efetivo: number; subs: number; novos: number; cancelados: number }>).map((r) => ({
+  return (rows as unknown as Array<{ day: string; mrr: number; mrr_efetivo: number; subs: number; novos: number; cancelados: number; reembolsos: number }>).map((r) => ({
     date: r.day,
     mrr: Number(r.mrr),
     mrrEfetivo: Number(r.mrr_efetivo),
     subs: Number(r.subs),
     novos: Number(r.novos),
     cancelados: Number(r.cancelados),
+    reembolsos: Number(r.reembolsos),
   }));
 }
 

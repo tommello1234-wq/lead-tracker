@@ -924,9 +924,10 @@ export type MrrHistoryPoint = {
   subs: number;
   novos: number;
   cancelados: number;
+  reembolsos: number;
 };
 
-type MetricKey = "mrr" | "mrrEfetivo" | "subs" | "novos" | "cancelados";
+type MetricKey = "mrr" | "mrrEfetivo" | "subs" | "novos" | "cancelados" | "reembolsos";
 
 const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: boolean }> = {
   mrr: { label: "MRR", color: "oklch(0.55 0.20 270)", isMoney: true },
@@ -934,6 +935,7 @@ const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: 
   subs: { label: "Subs ativas", color: "oklch(0.6 0.15 200)", isMoney: false },
   novos: { label: "Novos no dia", color: "oklch(0.7 0.18 130)", isMoney: false },
   cancelados: { label: "Cancelados no dia", color: "oklch(0.65 0.20 25)", isMoney: false },
+  reembolsos: { label: "Reembolsos no dia", color: "oklch(0.6 0.22 5)", isMoney: false },
 };
 
 /**
@@ -973,6 +975,7 @@ export function MrrHistoryChart({
     subs: false,
     novos: false,
     cancelados: false,
+    reembolsos: false,
   });
 
   function toggle(key: MetricKey) {
@@ -987,7 +990,7 @@ export function MrrHistoryChart({
 
   // Detecta se tem séries em dinheiro E em count (precisa eixo Y duplo)
   const anyMoney = active.mrr || active.mrrEfetivo;
-  const anyCount = active.subs || active.novos || active.cancelados;
+  const anyCount = active.subs || active.novos || active.cancelados || active.reembolsos;
 
   return (
     <Card className="border-0 shadow-sm rounded-3xl overflow-hidden">
@@ -1226,6 +1229,18 @@ export function MrrHistoryChart({
                   name="Cancelados no dia"
                   stroke={METRIC_CONFIG.cancelados.color}
                   strokeWidth={2}
+                  dot={false}
+                />
+              ) : null}
+              {active.reembolsos ? (
+                <Line
+                  yAxisId="count"
+                  type="monotone"
+                  dataKey="reembolsos"
+                  name="Reembolsos no dia"
+                  stroke={METRIC_CONFIG.reembolsos.color}
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
                   dot={false}
                 />
               ) : null}
