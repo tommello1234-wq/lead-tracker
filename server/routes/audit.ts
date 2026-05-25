@@ -2732,6 +2732,8 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       compras: tictoRes.paidCount,
       refunds: tictoRes.refundCount,
       error: tictoRes.error,
+      porProduto: (tictoRes as unknown as { porProduto?: unknown }).porProduto ?? [],
+      sample: (tictoRes as unknown as { sample?: unknown }).sample ?? null,
     },
     total: {
       brutoBRL: Number(totalGross.toFixed(2)),
