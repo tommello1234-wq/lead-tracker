@@ -396,6 +396,11 @@ function LeadGroupRow({
             <span>·</span>
             <span className="shrink-0">{relativeTime(latest.receivedAt)}</span>
           </div>
+          {latest.meta?.messagePreview ? (
+            <p className="text-xs text-foreground/80 mt-1 line-clamp-2 italic">
+              “{latest.meta.messagePreview}”
+            </p>
+          ) : null}
         </div>
         {count > 1 ? (
           <span
@@ -462,6 +467,11 @@ function NestedRow({ item }: { item: ActivityItem }) {
           <span>·</span>
           <span className="shrink-0">{relativeTime(item.receivedAt)}</span>
         </div>
+        {item.meta?.messagePreview ? (
+          <p className="text-xs text-foreground/80 mt-1 line-clamp-2 italic">
+            “{item.meta.messagePreview}”
+          </p>
+        ) : null}
         {item.meta?.erro ? (
           <p className="text-xs text-muted-foreground/80 mt-0.5 italic truncate">
             {item.meta.erro}

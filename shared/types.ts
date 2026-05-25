@@ -165,6 +165,8 @@ export type ActivityItem = {
     template?: string | null;
     erro?: string | null;
     paymentMethod?: string | null;
+    /** Texto enviado pelo cliente (eventos cliente_respondeu*) */
+    messagePreview?: string | null;
   };
 };
 

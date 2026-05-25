@@ -75,7 +75,16 @@ export async function getRecentActivity(
         ((e.payload->'item'->>'amount')::numeric / 100),
         l.valor_assinatura
       ) as valor,
-      e.payload->>'payment_method' as payment_method
+      e.payload->>'payment_method' as payment_method,
+      -- Texto da mensagem do cliente (vários formatos do Baileys/Evolution)
+      coalesce(
+        e.payload->'data'->'message'->>'conversation',
+        e.payload->'data'->'message'->'extendedTextMessage'->>'text',
+        e.payload->'data'->'message'->'imageMessage'->>'caption',
+        e.payload->'data'->'message'->'videoMessage'->>'caption',
+        e.payload->'data'->'message'->'documentMessage'->>'caption',
+        e.payload->'data'->'message'->'audioMessage'->>'mimetype'
+      ) as message_preview
     from eventos e
     left join leads l on l.id = e.lead_id
     left join produtos p on p.id = coalesce(e.produto_id, l.produto_id)
@@ -136,6 +145,7 @@ export async function getRecentActivity(
       produto_nome: string | null;
       valor: number | null;
       payment_method: string | null;
+      message_preview: string | null;
     }>).map((e) => ({
       id: e.id,
       tipo: "evento" as const,
@@ -149,6 +159,7 @@ export async function getRecentActivity(
       meta: {
         valor: e.valor != null ? Number(e.valor) : null,
         paymentMethod: e.payment_method,
+        messagePreview: e.message_preview,
       },
     })),
     ...(msgsResult as unknown as Array<{
