@@ -79,6 +79,7 @@ export function DashboardPage() {
   const [churnOpen, setChurnOpen] = useState(false);
   const [revenueChartDays, setRevenueChartDays] = useState(30);
   const [mrrChartDays, setMrrChartDays] = useState(30);
+  const [mrrChartGateway, setMrrChartGateway] = useState<"all" | "stripe" | "ticto" | "asaas" | "pagarme">("all");
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const { produtoId, period, customDate, customRange, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
@@ -115,11 +116,14 @@ export function DashboardPage() {
         `/api/dashboard/daily-revenue?produtoId=${produtoParam}&days=${revenueChartDays}&gateway=${gatewayParam}`,
       ),
   });
+  // Override do gateway só pro chart de MRR — permite trocar gateway sem
+  // mexer no resto do dashboard. "all" usa o gateway global; senão override.
+  const mrrChartGwParam = mrrChartGateway === "all" ? gatewayParam : mrrChartGateway;
   const mrrHistory = useQuery({
-    queryKey: ["dashboard", "mrr-history", produtoParam, gatewayParam, mrrChartDays],
+    queryKey: ["dashboard", "mrr-history", produtoParam, mrrChartGwParam, mrrChartDays],
     queryFn: () =>
       api.get<MrrHistoryPoint[]>(
-        `/api/dashboard/mrr-history?produtoId=${produtoParam}&days=${mrrChartDays}&gateway=${gatewayParam}`,
+        `/api/dashboard/mrr-history?produtoId=${produtoParam}&days=${mrrChartDays}&gateway=${mrrChartGwParam}`,
       ),
   });
   const vendasPorLp = useQuery({
@@ -356,6 +360,8 @@ export function DashboardPage() {
                 data={mrrHistory.data}
                 days={mrrChartDays}
                 onDaysChange={setMrrChartDays}
+                gateway={mrrChartGateway}
+                onGatewayChange={setMrrChartGateway}
               />
             </div>
           ) : null}

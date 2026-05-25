@@ -944,14 +944,27 @@ const METRIC_CONFIG: Record<MetricKey, { label: string; color: string; isMoney: 
  * aqui é stock de receita recorrente. Sobe quando entra cliente novo, cai
  * quando sai. Útil pra ver trajetória de crescimento da base.
  */
+type ChartGateway = "all" | "stripe" | "ticto" | "asaas" | "pagarme";
+const CHART_GATEWAYS: { value: ChartGateway; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "stripe", label: "Stripe" },
+  { value: "ticto", label: "Ticto" },
+  { value: "asaas", label: "Asaas" },
+  { value: "pagarme", label: "Pagar.me" },
+];
+
 export function MrrHistoryChart({
   data,
   days,
   onDaysChange,
+  gateway,
+  onGatewayChange,
 }: {
   data: MrrHistoryPoint[];
   days?: number;
   onDaysChange?: (d: number) => void;
+  gateway?: ChartGateway;
+  onGatewayChange?: (g: ChartGateway) => void;
 }) {
   // Toggles: quais séries mostrar. MRR sempre ON por default.
   const [active, setActive] = useState<Record<MetricKey, boolean>>({
@@ -985,24 +998,44 @@ export function MrrHistoryChart({
             <p className="text-xs text-muted-foreground mt-0.5">
               Snapshot por dia · clique nas séries pra ligar/desligar
             </p>
-            {onDaysChange ? (
-              <div className="flex gap-1 mt-2">
-                {[7, 30, 90].map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => onDaysChange(d)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                      (days ?? 30) === d
-                        ? "bg-foreground text-background"
-                        : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    {d}d
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <div className="flex flex-wrap gap-3 mt-2">
+              {onDaysChange ? (
+                <div className="flex gap-1">
+                  {[7, 30, 90].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => onDaysChange(d)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                        (days ?? 30) === d
+                          ? "bg-foreground text-background"
+                          : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {onGatewayChange ? (
+                <div className="flex gap-1">
+                  {CHART_GATEWAYS.map((g) => (
+                    <button
+                      key={g.value}
+                      type="button"
+                      onClick={() => onGatewayChange(g.value)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                        (gateway ?? "all") === g.value
+                          ? "bg-foreground text-background"
+                          : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
           {hasData && last ? (
             <div className="flex items-center gap-5 text-right">
