@@ -1453,7 +1453,7 @@ auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
     WHERE e.source = 'stripe'
       AND e.event_type = 'invoice.payment_succeeded'
       AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
-      AND e.received_at > NOW() - (${sinceDays} || ' days')::interval
+      AND e.received_at > NOW() - make_interval(days => ${sinceDays})
       AND NOT EXISTS (
         SELECT 1 FROM eventos e2
         WHERE e2.source = 'stripe'
