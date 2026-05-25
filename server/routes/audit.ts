@@ -2400,3 +2400,262 @@ auditRoutes.post("/resend-capi-event", async (c) => {
     meta,
   });
 });
+
+/**
+ * GET /api/audit/faturamento-gateways?since=YYYY-MM-DD&until=YYYY-MM-DD&token=<CRON_SECRET>
+ *
+ * Audita o faturamento consultando DIRETAMENTE as APIs de Stripe, Asaas
+ * e Ticto — não passa pelo nosso banco. Útil pra validar números do
+ * dashboard contra a fonte da verdade.
+ *
+ * Retorna, por gateway: vendas brutas, reembolsos, líquido + counts.
+ * Datas em BRT (timezone fixo America/Sao_Paulo).
+ */
+auditRoutes.get("/faturamento-gateways", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const sinceStr = c.req.query("since");
+  const untilStr = c.req.query("until");
+  if (!sinceStr || !untilStr) return c.json({ error: "since e until obrigatórios (YYYY-MM-DD)" }, 400);
+
+  // Converte YYYY-MM-DD BRT pra timestamps UTC (start of day BRT = 03:00 UTC)
+  const sinceUtc = new Date(`${sinceStr}T00:00:00-03:00`);
+  const untilUtc = new Date(`${untilStr}T23:59:59-03:00`);
+  if (Number.isNaN(sinceUtc.getTime()) || Number.isNaN(untilUtc.getTime())) {
+    return c.json({ error: "datas inválidas" }, 400);
+  }
+  const sinceUnix = Math.floor(sinceUtc.getTime() / 1000);
+  const untilUnix = Math.floor(untilUtc.getTime() / 1000);
+
+  // ─── STRIPE ─────────────────────────────────────────────
+  // Usa balance_transactions pra pegar valor líquido (sem taxa Stripe ainda — net é em centavos
+  // já descontado o fee da Stripe). Mas pra paridade com Stripe Dashboard "Receita líquida",
+  // somamos amount (bruto) e amount refundado separadamente.
+  type StripeBxn = {
+    id: string;
+    type: string;
+    amount: number;
+    currency: string;
+    created: number;
+    status: string;
+  };
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const stripeRes: {
+    grossCents: number;
+    refundCents: number;
+    netCents: number;
+    chargeCount: number;
+    refundCount: number;
+    error?: string;
+  } = { grossCents: 0, refundCents: 0, netCents: 0, chargeCount: 0, refundCount: 0 };
+  if (!stripeKey) {
+    stripeRes.error = "STRIPE_SECRET_KEY ausente";
+  } else {
+    let starting_after: string | undefined;
+    const seen = new Set<string>();
+    while (true) {
+      const p = new URLSearchParams({
+        limit: "100",
+        "created[gte]": String(sinceUnix),
+        "created[lte]": String(untilUnix),
+      });
+      if (starting_after) p.set("starting_after", starting_after);
+      const r = await fetch(`https://api.stripe.com/v1/balance_transactions?${p}`, {
+        headers: { Authorization: `Bearer ${stripeKey}` },
+      });
+      if (!r.ok) { stripeRes.error = `Stripe HTTP ${r.status}`; break; }
+      const body = (await r.json()) as { data: StripeBxn[]; has_more: boolean };
+      for (const tx of body.data) {
+        if (seen.has(tx.id)) continue;
+        seen.add(tx.id);
+        if (tx.currency !== "brl") continue;
+        if (tx.status !== "available" && tx.status !== "pending") continue;
+        if (tx.type === "charge" || tx.type === "payment") {
+          stripeRes.grossCents += tx.amount;
+          stripeRes.chargeCount++;
+        } else if (tx.type === "refund" || tx.type === "payment_refund") {
+          // amount vem negativo
+          stripeRes.refundCents += Math.abs(tx.amount);
+          stripeRes.refundCount++;
+        }
+      }
+      if (!body.has_more || body.data.length === 0) break;
+      starting_after = body.data[body.data.length - 1].id;
+      if (seen.size > 5000) break;
+    }
+    stripeRes.netCents = stripeRes.grossCents - stripeRes.refundCents;
+  }
+
+  // ─── ASAAS ──────────────────────────────────────────────
+  // GET /api/v3/payments com filtro status + paymentDate (data de recebimento real)
+  type AsaasPayment = {
+    id: string;
+    status: string;
+    value: number;
+    netValue: number;
+    paymentDate?: string | null;
+    refundedValue?: number;
+  };
+  const asaasKey = process.env.ASAAS_API_KEY;
+  const asaasRes: {
+    grossReais: number;
+    refundReais: number;
+    netReais: number;
+    receivedCount: number;
+    refundCount: number;
+    error?: string;
+  } = { grossReais: 0, refundReais: 0, netReais: 0, receivedCount: 0, refundCount: 0 };
+  if (!asaasKey) {
+    asaasRes.error = "ASAAS_API_KEY ausente";
+  } else {
+    // Pagamentos recebidos no período
+    let offset = 0;
+    const limit = 100;
+    while (true) {
+      const p = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+        status: "RECEIVED",
+        "paymentDate[ge]": sinceStr,
+        "paymentDate[le]": untilStr,
+      });
+      const r = await fetch(`https://api.asaas.com/v3/payments?${p}`, {
+        headers: { access_token: asaasKey, "Content-Type": "application/json" },
+      });
+      if (!r.ok) { asaasRes.error = `Asaas RECEIVED HTTP ${r.status}`; break; }
+      const body = (await r.json()) as { data: AsaasPayment[]; hasMore: boolean };
+      for (const pmt of body.data) {
+        asaasRes.grossReais += pmt.value;
+        asaasRes.receivedCount++;
+      }
+      if (!body.hasMore || body.data.length === 0) break;
+      offset += limit;
+      if (offset > 5000) break;
+    }
+    // Reembolsos no período (status REFUNDED + refundedDate)
+    // OBS: Asaas não filtra direto por refundedDate, então puxa REFUNDED + filtra no app
+    offset = 0;
+    while (true) {
+      const p = new URLSearchParams({ limit: String(limit), offset: String(offset), status: "REFUNDED" });
+      const r = await fetch(`https://api.asaas.com/v3/payments?${p}`, {
+        headers: { access_token: asaasKey, "Content-Type": "application/json" },
+      });
+      if (!r.ok) { asaasRes.error = (asaasRes.error ?? "") + ` | REFUNDED HTTP ${r.status}`; break; }
+      const body = (await r.json()) as { data: Array<AsaasPayment & { refundedDate?: string | null }>; hasMore: boolean };
+      for (const pmt of body.data) {
+        const rDate = pmt.refundedDate ?? pmt.paymentDate;
+        if (!rDate) continue;
+        if (rDate >= sinceStr && rDate <= untilStr) {
+          asaasRes.refundReais += pmt.refundedValue ?? pmt.value;
+          asaasRes.refundCount++;
+        }
+      }
+      if (!body.hasMore || body.data.length === 0) break;
+      offset += limit;
+      if (offset > 5000) break;
+    }
+    asaasRes.netReais = asaasRes.grossReais - asaasRes.refundReais;
+  }
+
+  // ─── TICTO ──────────────────────────────────────────────
+  // Usa o helper existente. Filtros: status=authorized/approved, paid_at no range.
+  type TictoOrder = {
+    id?: number;
+    status?: string;
+    amount?: number;            // centavos
+    paid_amount?: number;       // centavos
+    paid_at?: string | null;
+    refunded_at?: string | null;
+  };
+  const tictoRes: {
+    grossReais: number;
+    refundReais: number;
+    netReais: number;
+    paidCount: number;
+    refundCount: number;
+    error?: string;
+  } = { grossReais: 0, refundReais: 0, netReais: 0, paidCount: 0, refundCount: 0 };
+  try {
+    let page = 1;
+    while (true) {
+      const resp = (await (await import("../lib/ticto-api.js")).getOrdersHistory(page, {
+        status: "authorized",
+        paid_at_from: sinceStr,
+        paid_at_to: untilStr,
+      })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
+      const list = resp.data ?? [];
+      for (const o of list) {
+        const valueCents = o.paid_amount ?? o.amount ?? 0;
+        tictoRes.grossReais += valueCents / 100;
+        tictoRes.paidCount++;
+      }
+      const last = resp.meta?.last_page ?? 1;
+      if (page >= last || list.length === 0) break;
+      page++;
+      if (page > 50) break;
+    }
+    // Reembolsos
+    page = 1;
+    while (true) {
+      const resp = (await (await import("../lib/ticto-api.js")).getOrdersHistory(page, {
+        status: "refunded",
+        refunded_at_from: sinceStr,
+        refunded_at_to: untilStr,
+      })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
+      const list = resp.data ?? [];
+      for (const o of list) {
+        const valueCents = o.paid_amount ?? o.amount ?? 0;
+        tictoRes.refundReais += valueCents / 100;
+        tictoRes.refundCount++;
+      }
+      const last = resp.meta?.last_page ?? 1;
+      if (page >= last || list.length === 0) break;
+      page++;
+      if (page > 50) break;
+    }
+    tictoRes.netReais = tictoRes.grossReais - tictoRes.refundReais;
+  } catch (e) {
+    tictoRes.error = String(e);
+  }
+
+  const stripeReais = {
+    gross: stripeRes.grossCents / 100,
+    refund: stripeRes.refundCents / 100,
+    net: stripeRes.netCents / 100,
+  };
+  const totalGross = stripeReais.gross + asaasRes.grossReais + tictoRes.grossReais;
+  const totalRefund = stripeReais.refund + asaasRes.refundReais + tictoRes.refundReais;
+  const totalNet = totalGross - totalRefund;
+
+  return c.json({
+    periodo: { since: sinceStr, until: untilStr, timezone: "America/Sao_Paulo" },
+    stripe: {
+      brutoBRL: Number(stripeReais.gross.toFixed(2)),
+      reembolsosBRL: Number(stripeReais.refund.toFixed(2)),
+      liquidoBRL: Number(stripeReais.net.toFixed(2)),
+      compras: stripeRes.chargeCount,
+      refunds: stripeRes.refundCount,
+      error: stripeRes.error,
+    },
+    asaas: {
+      brutoBRL: Number(asaasRes.grossReais.toFixed(2)),
+      reembolsosBRL: Number(asaasRes.refundReais.toFixed(2)),
+      liquidoBRL: Number(asaasRes.netReais.toFixed(2)),
+      compras: asaasRes.receivedCount,
+      refunds: asaasRes.refundCount,
+      error: asaasRes.error,
+    },
+    ticto: {
+      brutoBRL: Number(tictoRes.grossReais.toFixed(2)),
+      reembolsosBRL: Number(tictoRes.refundReais.toFixed(2)),
+      liquidoBRL: Number(tictoRes.netReais.toFixed(2)),
+      compras: tictoRes.paidCount,
+      refunds: tictoRes.refundCount,
+      error: tictoRes.error,
+    },
+    total: {
+      brutoBRL: Number(totalGross.toFixed(2)),
+      reembolsosBRL: Number(totalRefund.toFixed(2)),
+      liquidoBRL: Number(totalNet.toFixed(2)),
+    },
+  });
+});
