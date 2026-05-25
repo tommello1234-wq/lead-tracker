@@ -137,54 +137,29 @@ export function CriativosPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["criativos-kanban"] }),
   });
 
-  /**
-   * Faz upload de N arquivos e cria UM card agrupando todos na etapa alvo.
-   * - 1 arquivo: tipo herda do contentType (imagem/video).
-   * - N arquivos com imagens: tipo = carrossel.
-   * - Misturado (img + vídeo): tipo = carrossel também.
-   * url/thumbUrl ficam apontando pro primeiro item; resto vai em media[].
-   */
+  /** Faz upload de N arquivos e cria 1 card POR arquivo na etapa alvo */
   async function handleFilesDrop(files: File[], etapa: Etapa) {
     setUploadError(null);
     setUploadingCol((s) => ({ ...s, [etapa]: { done: 0, total: files.length } }));
-    const uploaded: { url: string; contentType: string; name: string }[] = [];
     let done = 0;
     for (const file of files) {
       try {
-        const res = await uploadFileToSupabase(file);
-        uploaded.push({ url: res.url, contentType: res.contentType, name: file.name });
+        const { url, contentType } = await uploadFileToSupabase(file);
+        const tipo: Tipo = contentType.startsWith("video/") ? "video" : "imagem";
+        const isImg = /^image\//.test(contentType);
+        await createMutation.mutateAsync({
+          titulo: file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Sem título",
+          tipo,
+          etapa,
+          url,
+          thumbUrl: isImg ? url : null,
+        });
       } catch (e) {
         setUploadError(e instanceof Error ? e.message : "Falha no upload");
       } finally {
         done++;
         setUploadingCol((s) => ({ ...s, [etapa]: { done, total: files.length } }));
       }
-    }
-    if (uploaded.length > 0) {
-      const first = uploaded[0];
-      const allImages = uploaded.every((u) => u.contentType.startsWith("image/"));
-      const tipo: Tipo = uploaded.length > 1
-        ? "carrossel"
-        : first.contentType.startsWith("video/")
-          ? "video"
-          : "imagem";
-      const isImg = (ct: string) => ct.startsWith("image/");
-      const titulo = uploaded.length > 1
-        ? `${first.name.replace(/\.[^.]+$/, "").slice(0, 60) || "Conjunto"} (+${uploaded.length - 1})`
-        : first.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Sem título";
-      await createMutation.mutateAsync({
-        titulo,
-        tipo,
-        etapa,
-        url: first.url,
-        thumbUrl: isImg(first.contentType) ? first.url : null,
-        media: uploaded.map((u) => ({
-          url: u.url,
-          thumbUrl: isImg(u.contentType) ? u.url : undefined,
-          contentType: u.contentType,
-        })),
-      });
-      void allImages; // reservado pra lógica futura
     }
     setUploadingCol((s) => ({ ...s, [etapa]: null }));
   }
