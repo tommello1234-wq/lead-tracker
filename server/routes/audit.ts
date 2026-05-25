@@ -2447,6 +2447,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     refundCount: number;
     error?: string;
   } = { grossCents: 0, refundCents: 0, netCents: 0, chargeCount: 0, refundCount: 0 };
+  const stripeViaCharges: { brutoBRL: number; refundBRL: number; liquidoBRL: number; charges: number; oldest?: string; newest?: string } = { brutoBRL: 0, refundBRL: 0, liquidoBRL: 0, charges: 0 };
   if (!stripeKey) {
     stripeRes.error = "STRIPE_SECRET_KEY ausente";
   } else {
@@ -2483,6 +2484,37 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       if (seen.size > 5000) break;
     }
     stripeRes.netCents = stripeRes.grossCents - stripeRes.refundCents;
+
+    // Cross-check via /charges (sem filtro de período — pega histórico completo)
+    type StripeCharge = { id: string; amount: number; amount_refunded: number; currency: string; paid: boolean; status: string; created: number };
+    let sa: string | undefined;
+    let oldestTs = Infinity, newestTs = 0;
+    while (true) {
+      const p = new URLSearchParams({
+        limit: "100",
+        "created[gte]": String(sinceUnix),
+        "created[lte]": String(untilUnix),
+      });
+      if (sa) p.set("starting_after", sa);
+      const r2 = await fetch(`https://api.stripe.com/v1/charges?${p}`, { headers: { Authorization: `Bearer ${stripeKey}` } });
+      if (!r2.ok) { stripeViaCharges.brutoBRL = -1; break; }
+      const b2 = (await r2.json()) as { data: StripeCharge[]; has_more: boolean };
+      for (const ch of b2.data) {
+        if (ch.currency !== "brl") continue;
+        if (!ch.paid || ch.status !== "succeeded") continue;
+        stripeViaCharges.brutoBRL += ch.amount / 100;
+        stripeViaCharges.refundBRL += (ch.amount_refunded ?? 0) / 100;
+        stripeViaCharges.charges++;
+        if (ch.created < oldestTs) oldestTs = ch.created;
+        if (ch.created > newestTs) newestTs = ch.created;
+      }
+      if (!b2.has_more || b2.data.length === 0) break;
+      sa = b2.data[b2.data.length - 1].id;
+      if (stripeViaCharges.charges > 5000) break;
+    }
+    stripeViaCharges.liquidoBRL = stripeViaCharges.brutoBRL - stripeViaCharges.refundBRL;
+    if (oldestTs !== Infinity) stripeViaCharges.oldest = new Date(oldestTs * 1000).toISOString();
+    if (newestTs) stripeViaCharges.newest = new Date(newestTs * 1000).toISOString();
   }
 
   // ─── ASAAS ──────────────────────────────────────────────
@@ -2657,6 +2689,14 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       compras: stripeRes.chargeCount,
       refunds: stripeRes.refundCount,
       error: stripeRes.error,
+    },
+    stripeViaCharges: {
+      brutoBRL: Number(stripeViaCharges.brutoBRL.toFixed(2)),
+      reembolsosBRL: Number(stripeViaCharges.refundBRL.toFixed(2)),
+      liquidoBRL: Number(stripeViaCharges.liquidoBRL.toFixed(2)),
+      charges: stripeViaCharges.charges,
+      oldest: stripeViaCharges.oldest,
+      newest: stripeViaCharges.newest,
     },
     asaas: {
       brutoBRL: Number(asaasRes.grossReais.toFixed(2)),
