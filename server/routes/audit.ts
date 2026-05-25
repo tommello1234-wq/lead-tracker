@@ -1411,6 +1411,185 @@ auditRoutes.post("/stripe-import-missing", async (c) => {
 });
 
 /**
+ * POST /api/audit/stripe-backfill-orphan-invoices?token=<CRON_SECRET>
+ *
+ * Encontra invoices Stripe (`invoice.payment_succeeded` com
+ * billing_reason=subscription_create) que NÃO geraram `compra_aprovada`
+ * (porque o checkout.session.completed nunca chegou, ex: sub criada via
+ * Dashboard/API). Pra cada uma:
+ *   1. Busca o invoice + customer + subscription via API Stripe
+ *   2. Cria/usa o lead pelo email
+ *   3. Insere um evento `compra_aprovada` sintético com payload completo
+ *   4. Marca o invoice event original como processed_ok=true
+ *
+ * Conserva o cálculo de faturamento (que lê eventos).
+ */
+auditRoutes.post("/stripe-backfill-orphan-invoices", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return c.json({ error: "STRIPE_SECRET_KEY não configurada" }, 500);
+
+  const sinceDays = Number(c.req.query("sinceDays") ?? "7");
+  const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+
+  // 1. Acha invoices Stripe com subscription_create que não viraram compra
+  const orphanInvoices = await db.execute<{
+    evento_id: number;
+    received_at: Date;
+    sub_id: string;
+    customer_id: string;
+    invoice_id: string;
+    amount_paid: string | null;
+  }>(sql`
+    SELECT
+      e.id as evento_id,
+      e.received_at,
+      e.payload->'data'->'object'->>'subscription' as sub_id,
+      e.payload->'data'->'object'->>'customer' as customer_id,
+      e.payload->'data'->'object'->>'id' as invoice_id,
+      e.payload->'data'->'object'->>'amount_paid' as amount_paid
+    FROM eventos e
+    WHERE e.source = 'stripe'
+      AND e.event_type = 'invoice.payment_succeeded'
+      AND e.payload->'data'->'object'->>'billing_reason' = 'subscription_create'
+      AND e.received_at > ${sinceDate}
+      AND NOT EXISTS (
+        SELECT 1 FROM eventos e2
+        WHERE e2.source = 'stripe'
+          AND e2.event_type = 'compra_aprovada'
+          AND e2.gateway_last_order_id = e.payload->'data'->'object'->>'subscription'
+      )
+  `);
+
+  type Result = { invoiceId: string; subId: string; email: string; valor: number; eventoId: number };
+  const created: Result[] = [];
+  const failed: Array<{ invoiceId: string; reason: string }> = [];
+
+  for (const row of orphanInvoices.rows ?? []) {
+    try {
+      // Fetch customer pra pegar email + nome
+      const custRes = await fetch(`https://api.stripe.com/v1/customers/${row.customer_id}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!custRes.ok) {
+        failed.push({ invoiceId: row.invoice_id, reason: `customer HTTP ${custRes.status}` });
+        continue;
+      }
+      const cust = (await custRes.json()) as { email?: string | null; name?: string | null; phone?: string | null };
+      if (!cust.email) {
+        failed.push({ invoiceId: row.invoice_id, reason: "customer sem email" });
+        continue;
+      }
+
+      // Fetch subscription pra pegar valor + plano
+      const subRes = await fetch(`https://api.stripe.com/v1/subscriptions/${row.sub_id}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!subRes.ok) {
+        failed.push({ invoiceId: row.invoice_id, reason: `subscription HTTP ${subRes.status}` });
+        continue;
+      }
+      const sub = (await subRes.json()) as {
+        items?: { data: Array<{ price: { unit_amount: number; recurring?: { interval: string }; metadata?: Record<string, string> } }> };
+        metadata?: Record<string, string>;
+        created: number;
+      };
+      const item = sub.items?.data?.[0];
+      const cents = item?.price?.unit_amount ?? Number(row.amount_paid ?? 0);
+      const valor = cents / 100;
+      const interval = item?.price?.recurring?.interval;
+      const periodicidade: "mensal" | "anual" = interval === "year" ? "anual" : "mensal";
+      const planoNome =
+        item?.price?.metadata?.gravyx_tier ??
+        sub.metadata?.gravyx_tier ??
+        null;
+
+      // Acha ou cria lead
+      let leadId: number;
+      const existingLead = await db.query.leads.findFirst({
+        where: eq(leads.email, cust.email),
+      });
+      const pagouEm = new Date(sub.created * 1000);
+      if (existingLead) {
+        leadId = existingLead.id;
+      } else {
+        const [novoLead] = await db
+          .insert(leads)
+          .values({
+            nome: cust.name ?? cust.email.split("@")[0] ?? "Cliente",
+            email: cust.email,
+            contato: cust.phone ?? null,
+            gateway: "stripe",
+            gatewayCustomerId: row.customer_id,
+            status: "cliente_ativo",
+            subscriptionStatus: "ativa",
+            valorAssinatura: valor,
+            planoNome,
+            periodicidade,
+            pagouEm,
+            produtoId: 1,
+          })
+          .returning({ id: leads.id });
+        leadId = novoLead.id;
+      }
+
+      // Insere evento compra_aprovada sintético
+      const fakePayload = {
+        backfilled_from_invoice: row.invoice_id,
+        data: {
+          object: {
+            id: row.invoice_id,
+            subscription: row.sub_id,
+            customer: row.customer_id,
+            amount_total: cents,
+            amount_paid: cents,
+            customer_email: cust.email,
+            billing_reason: "subscription_create",
+          },
+        },
+      };
+      const [newEvent] = await db
+        .insert(eventos)
+        .values({
+          leadId,
+          source: "stripe",
+          eventType: "compra_aprovada",
+          payload: fakePayload,
+          processedOk: true,
+          gatewayLastOrderId: row.sub_id,
+          receivedAt: row.received_at,
+          produtoId: 1,
+        })
+        .returning({ id: eventos.id });
+
+      // Marca o invoice original como processado também (não orphan mais)
+      await db
+        .update(eventos)
+        .set({ processedOk: true, erro: `backfilled como compra_aprovada (evento ${newEvent.id})` })
+        .where(eq(eventos.id, row.evento_id));
+
+      created.push({
+        invoiceId: row.invoice_id,
+        subId: row.sub_id,
+        email: cust.email,
+        valor,
+        eventoId: newEvent.id,
+      });
+    } catch (e) {
+      failed.push({ invoiceId: row.invoice_id, reason: String(e) });
+    }
+  }
+
+  return c.json({
+    orphanInvoices: (orphanInvoices.rows ?? []).length,
+    createdCount: created.length,
+    failedCount: failed.length,
+    created,
+    failed,
+  });
+});
+
+/**
  * POST /api/audit/stripe-backfill-cancel-at?token=<CRON_SECRET>
  *
  * Pra cada sub Stripe ativa, busca via API se cancel_at_period_end=true e
