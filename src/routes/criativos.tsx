@@ -25,6 +25,7 @@ import {
 type Etapa = "ideia" | "produzido" | "testado" | "recusado";
 type Tipo = "imagem" | "video" | "carrossel";
 
+type MediaItem = { url: string; thumbUrl?: string; contentType?: string };
 type CriativoKanban = {
   id: number;
   titulo: string;
@@ -36,6 +37,7 @@ type CriativoKanban = {
   url: string | null;
   anguloId: number | null;
   notas: string | null;
+  media: MediaItem[] | null;
   criadoEm: string;
   atualizadoEm: string;
 };
@@ -135,29 +137,54 @@ export function CriativosPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["criativos-kanban"] }),
   });
 
-  /** Faz upload de N arquivos e cria 1 card por arquivo na etapa alvo */
+  /**
+   * Faz upload de N arquivos e cria UM card agrupando todos na etapa alvo.
+   * - 1 arquivo: tipo herda do contentType (imagem/video).
+   * - N arquivos com imagens: tipo = carrossel.
+   * - Misturado (img + vídeo): tipo = carrossel também.
+   * url/thumbUrl ficam apontando pro primeiro item; resto vai em media[].
+   */
   async function handleFilesDrop(files: File[], etapa: Etapa) {
     setUploadError(null);
     setUploadingCol((s) => ({ ...s, [etapa]: { done: 0, total: files.length } }));
+    const uploaded: { url: string; contentType: string; name: string }[] = [];
     let done = 0;
     for (const file of files) {
       try {
-        const { url, contentType } = await uploadFileToSupabase(file);
-        const tipo: Tipo = contentType.startsWith("video/") ? "video" : "imagem";
-        const isImg = /^image\//.test(contentType);
-        await createMutation.mutateAsync({
-          titulo: file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Sem título",
-          tipo,
-          etapa,
-          url,
-          thumbUrl: isImg ? url : null,
-        });
+        const res = await uploadFileToSupabase(file);
+        uploaded.push({ url: res.url, contentType: res.contentType, name: file.name });
       } catch (e) {
         setUploadError(e instanceof Error ? e.message : "Falha no upload");
       } finally {
         done++;
         setUploadingCol((s) => ({ ...s, [etapa]: { done, total: files.length } }));
       }
+    }
+    if (uploaded.length > 0) {
+      const first = uploaded[0];
+      const allImages = uploaded.every((u) => u.contentType.startsWith("image/"));
+      const tipo: Tipo = uploaded.length > 1
+        ? "carrossel"
+        : first.contentType.startsWith("video/")
+          ? "video"
+          : "imagem";
+      const isImg = (ct: string) => ct.startsWith("image/");
+      const titulo = uploaded.length > 1
+        ? `${first.name.replace(/\.[^.]+$/, "").slice(0, 60) || "Conjunto"} (+${uploaded.length - 1})`
+        : first.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Sem título";
+      await createMutation.mutateAsync({
+        titulo,
+        tipo,
+        etapa,
+        url: first.url,
+        thumbUrl: isImg(first.contentType) ? first.url : null,
+        media: uploaded.map((u) => ({
+          url: u.url,
+          thumbUrl: isImg(u.contentType) ? u.url : undefined,
+          contentType: u.contentType,
+        })),
+      });
+      void allImages; // reservado pra lógica futura
     }
     setUploadingCol((s) => ({ ...s, [etapa]: null }));
   }
@@ -180,7 +207,9 @@ export function CriativosPage() {
 
   function handleDragOver(e: DragEvent<HTMLDivElement>, etapa: Etapa) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    // Arquivos do desktop precisam de "copy"; card interno usa "move".
+    // Setar "move" pra arquivo faz o browser bloquear o drop silenciosamente.
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes("Files") ? "copy" : "move";
     setDragOver(etapa);
   }
 
@@ -336,8 +365,13 @@ function Card({
       </div>
 
       {item.thumbUrl && (
-        <div className="aspect-video bg-muted rounded mb-2 overflow-hidden">
+        <div className="relative aspect-video bg-muted rounded mb-2 overflow-hidden">
           <img src={item.thumbUrl} alt={item.titulo} className="w-full h-full object-cover" />
+          {item.media && item.media.length > 1 && (
+            <div className="absolute top-1.5 right-1.5 bg-black/70 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+              +{item.media.length - 1}
+            </div>
+          )}
         </div>
       )}
 

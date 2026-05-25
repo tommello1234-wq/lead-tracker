@@ -149,6 +149,7 @@ criativosKanbanRoutes.get("/:id", async (c) => {
   return c.json(row);
 });
 
+type MediaItem = { url: string; thumbUrl?: string; contentType?: string };
 type Input = {
   titulo?: string;
   descricao?: string | null;
@@ -159,6 +160,7 @@ type Input = {
   url?: string | null;
   anguloId?: number | null;
   notas?: string | null;
+  media?: MediaItem[] | null;
 };
 
 function sanitize(b: Input) {
@@ -172,6 +174,17 @@ function sanitize(b: Input) {
   if (b.url !== undefined) out.url = b.url?.trim() || null;
   if (b.anguloId !== undefined) out.anguloId = b.anguloId === null ? null : Number(b.anguloId);
   if (b.notas !== undefined) out.notas = b.notas ?? null;
+  if (b.media !== undefined) {
+    out.media = Array.isArray(b.media)
+      ? b.media
+          .filter((m) => m && typeof m.url === "string" && m.url.trim())
+          .map((m) => ({
+            url: m.url.trim(),
+            thumbUrl: m.thumbUrl?.trim() || undefined,
+            contentType: m.contentType || undefined,
+          }))
+      : [];
+  }
   return out;
 }
 

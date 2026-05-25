@@ -532,6 +532,9 @@ export const criativoKanban = pgTable("criativo_kanban", {
   // Mídia opcional (thumbnail, mockup, link pra arquivo)
   thumbUrl: text("thumb_url"),
   url: text("url"),
+  // Array de mídias adicionais quando 1 card agrupa várias imagens/vídeos
+  // (ex: carrossel). url/thumbUrl acima continuam sendo a "principal".
+  media: jsonb("media").$type<Array<{ url: string; thumbUrl?: string; contentType?: string }>>().default([]),
   // Linkagem opcional a um ângulo já existente
   anguloId: integer("angulo_id").references(() => angulos.id, {
     onDelete: "set null",
