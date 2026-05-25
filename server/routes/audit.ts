@@ -2561,11 +2561,26 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
   type TictoOrder = {
     id?: number;
     status?: string;
-    amount?: number;            // centavos
-    paid_amount?: number;       // centavos
+    amount?: number;
+    paid_amount?: number;
     paid_at?: string | null;
     refunded_at?: string | null;
+    transaction?: { amount?: number; paid_amount?: number };
+    order?: { amount?: number; paid_amount?: number };
+    item?: { amount?: number };
   };
+  function tictoValueCents(o: TictoOrder): number {
+    return (
+      o.transaction?.paid_amount ??
+      o.transaction?.amount ??
+      o.order?.paid_amount ??
+      o.order?.amount ??
+      o.item?.amount ??
+      o.paid_amount ??
+      o.amount ??
+      0
+    );
+  }
   const tictoRes: {
     grossReais: number;
     refundReais: number;
@@ -2582,14 +2597,16 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     const { getOrdersHistory } = await import("../lib/ticto-api.js");
 
     let page = 1;
+    let sampleOrder: TictoOrder | null = null;
     while (true) {
       const resp = (await getOrdersHistory(page, {
         status: "authorized",
         betweenDates,
       })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
       const list = resp.data ?? [];
+      if (!sampleOrder && list.length > 0) sampleOrder = list[0];
       for (const o of list) {
-        const valueCents = o.paid_amount ?? o.amount ?? 0;
+        const valueCents = tictoValueCents(o);
         tictoRes.grossReais += valueCents / 100;
         tictoRes.paidCount++;
       }
@@ -2607,7 +2624,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       })) as { data?: TictoOrder[]; meta?: { last_page?: number } };
       const list = resp.data ?? [];
       for (const o of list) {
-        const valueCents = o.paid_amount ?? o.amount ?? 0;
+        const valueCents = tictoValueCents(o);
         tictoRes.refundReais += valueCents / 100;
         tictoRes.refundCount++;
       }
@@ -2617,6 +2634,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       if (page > 50) break;
     }
     tictoRes.netReais = tictoRes.grossReais - tictoRes.refundReais;
+    (tictoRes as unknown as { sample?: unknown }).sample = sampleOrder ? Object.keys(sampleOrder) : null;
   } catch (e) {
     tictoRes.error = String(e);
   }
