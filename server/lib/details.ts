@@ -273,6 +273,9 @@ export async function getDetails(
         ((${eventos.payload}->'offer'->>'price')::numeric / 100),
         ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
         ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
+        -- Stripe refund: amount_refunded / amount (charge.refunded em centavos)
+        ((${eventos.payload}->'data'->'object'->>'amount_refunded')::numeric / 100),
+        ((${eventos.payload}->'data'->'object'->>'amount')::numeric / 100),
         ((${eventos.payload}->'payment'->>'value')::numeric),
         0
       )::numeric(10,2)`;
