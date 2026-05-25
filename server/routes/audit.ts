@@ -2526,6 +2526,8 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     netValue: number;
     paymentDate?: string | null;
     refundedValue?: number;
+    description?: string | null;
+    subscription?: string | null;
   };
   const asaasKey = process.env.ASAAS_API_KEY;
   const asaasRes: {
@@ -2542,6 +2544,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
     // Pagamentos recebidos no período
     let offset = 0;
     const limit = 100;
+    const productMap = new Map<string, { count: number; valor: number }>();
     while (true) {
       const p = new URLSearchParams({
         limit: String(limit),
@@ -2558,11 +2561,23 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       for (const pmt of body.data) {
         asaasRes.grossReais += pmt.value;
         asaasRes.receivedCount++;
+        // Agrupa por descrição (Asaas não tem campo "product" — descrição costuma
+        // ter o nome do plano/produto). Normaliza por prefixo pra agrupar
+        // renovações ("Mensalidade Gravyx · 2026-05" → "Mensalidade Gravyx").
+        const raw = pmt.description ?? "(sem descrição)";
+        const key = raw.split(/\s*[·\-—|]\s*\d/)[0].trim().slice(0, 80) || raw;
+        const cur = productMap.get(key) ?? { count: 0, valor: 0 };
+        cur.count++;
+        cur.valor += pmt.value;
+        productMap.set(key, cur);
       }
       if (!body.hasMore || body.data.length === 0) break;
       offset += limit;
       if (offset > 5000) break;
     }
+    (asaasRes as unknown as { porDescricao?: unknown }).porDescricao = Array.from(productMap.entries())
+      .map(([nome, v]) => ({ nome, vendas: v.count, brutoBRL: Number(v.valor.toFixed(2)) }))
+      .sort((a, b) => b.brutoBRL - a.brutoBRL);
     // Reembolsos no período (status REFUNDED + refundedDate)
     // OBS: Asaas não filtra direto por refundedDate, então puxa REFUNDED + filtra no app
     offset = 0;
@@ -2724,6 +2739,7 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       compras: asaasRes.receivedCount,
       refunds: asaasRes.refundCount,
       error: asaasRes.error,
+      porDescricao: (asaasRes as unknown as { porDescricao?: unknown }).porDescricao ?? [],
     },
     ticto: {
       brutoBRL: Number(tictoRes.grossReais.toFixed(2)),
