@@ -331,12 +331,27 @@ function Card({
       onDragStart={onDragStart}
       className="group relative bg-card border border-border rounded-md overflow-hidden cursor-move hover:border-foreground/30 hover:shadow-md transition-all"
     >
-      {/* Mídia ocupa o card inteiro em 4:5 */}
-      <div className="relative aspect-[4/5] bg-muted">
+      {/* Mídia segue o aspect natural; se for mais alta que 4:5, capa em 4:5 */}
+      <div className="relative bg-muted">
         {item.thumbUrl ? (
-          <img src={item.thumbUrl} alt={item.titulo} className="w-full h-full object-cover" />
+          <img
+            src={item.thumbUrl}
+            alt={item.titulo}
+            className="w-full h-auto block"
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              const ratio = img.naturalHeight / img.naturalWidth;
+              if (ratio > 1.25) {
+                // Mais alta que 4:5 → tampa em 4:5 e crop pelo topo
+                img.style.aspectRatio = "4 / 5";
+                img.style.height = "auto";
+                img.style.objectFit = "cover";
+                img.style.objectPosition = "top";
+              }
+            }}
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground/60">
+          <div className="aspect-[4/5] flex items-center justify-center text-xs text-muted-foreground/60">
             sem mídia
           </div>
         )}
