@@ -671,6 +671,10 @@ export async function getFaturamento(
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
     -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
     ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
+    -- Stripe refund: data.object.amount_refunded (charge.refunded c/ refund parcial)
+    ((${eventos.payload}->'data'->'object'->>'amount_refunded')::numeric / 100),
+    -- Stripe refund/charge genérico: data.object.amount
+    ((${eventos.payload}->'data'->'object'->>'amount')::numeric / 100),
     -- Asaas: payment.value já em reais decimal
     ((${eventos.payload}->'payment'->>'value')::numeric),
     -- Fallback: valor_assinatura do lead
@@ -889,6 +893,9 @@ export async function getDailyRevenue(
     ((${eventos.payload}->'data'->'object'->>'amount_total')::numeric / 100),
     -- Stripe invoice: data.object.amount_paid (renovações via invoice.payment_succeeded)
     ((${eventos.payload}->'data'->'object'->>'amount_paid')::numeric / 100),
+    -- Stripe refund: amount_refunded / amount (charge.refunded em centavos)
+    ((${eventos.payload}->'data'->'object'->>'amount_refunded')::numeric / 100),
+    ((${eventos.payload}->'data'->'object'->>'amount')::numeric / 100),
     ((${eventos.payload}->'payment'->>'value')::numeric),
     (select valor_assinatura from leads where id = ${eventos.leadId}),
     0
