@@ -11,7 +11,10 @@ import { PERIODS, type Period } from "@/lib/period";
 const PRODUTO_KEY = "lt-produto-id";
 const PERIOD_KEY = "lt-period";
 const CUSTOM_DATE_KEY = "lt-period-custom-date";
+const CUSTOM_RANGE_KEY = "lt-period-custom-range";
 const GATEWAY_KEY = "lt-gateway";
+
+export type CustomRange = { since: Date; until: Date };
 
 export type GatewayFilter = "stripe" | "ticto" | "asaas" | "pagarme" | null;
 const VALID_GATEWAYS: GatewayFilter[] = ["stripe", "ticto", "asaas", "pagarme"];
@@ -24,6 +27,9 @@ type Ctx = {
   /** Dia escolhido quando period === "custom". Null caso contrário. */
   customDate: Date | null;
   setCustomDate: (d: Date | null) => void;
+  /** Intervalo escolhido quando period === "custom" + usuário usa range picker. */
+  customRange: CustomRange | null;
+  setCustomRange: (r: CustomRange | null) => void;
   /** Filtro de gateway de pagamento. null = todos. */
   gateway: GatewayFilter;
   setGateway: (g: GatewayFilter) => void;
@@ -61,6 +67,21 @@ export function ProdutoProvider({ children }: { children: ReactNode }) {
     return Number.isNaN(d.getTime()) ? null : d;
   });
 
+  const [customRange, setCustomRangeState] = useState<CustomRange | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem(CUSTOM_RANGE_KEY);
+    if (!raw) return null;
+    try {
+      const obj = JSON.parse(raw) as { since: string; until: string };
+      const since = new Date(obj.since);
+      const until = new Date(obj.until);
+      if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime())) return null;
+      return { since, until };
+    } catch {
+      return null;
+    }
+  });
+
   useEffect(() => {
     localStorage.setItem(PRODUTO_KEY, produtoId == null ? "all" : String(produtoId));
   }, [produtoId]);
@@ -81,6 +102,20 @@ export function ProdutoProvider({ children }: { children: ReactNode }) {
     }
   }, [customDate]);
 
+  useEffect(() => {
+    if (customRange) {
+      localStorage.setItem(
+        CUSTOM_RANGE_KEY,
+        JSON.stringify({
+          since: customRange.since.toISOString(),
+          until: customRange.until.toISOString(),
+        }),
+      );
+    } else {
+      localStorage.removeItem(CUSTOM_RANGE_KEY);
+    }
+  }, [customRange]);
+
   const value = useMemo(
     () => ({
       produtoId,
@@ -89,10 +124,12 @@ export function ProdutoProvider({ children }: { children: ReactNode }) {
       setPeriod: setPeriodState,
       customDate,
       setCustomDate: setCustomDateState,
+      customRange,
+      setCustomRange: setCustomRangeState,
       gateway,
       setGateway: setGatewayState,
     }),
-    [produtoId, period, customDate, gateway],
+    [produtoId, period, customDate, customRange, gateway],
   );
 
   return <ProdutoContext.Provider value={value}>{children}</ProdutoContext.Provider>;

@@ -1,9 +1,12 @@
 export const PERIODS = [
   "today",
   "yesterday",
+  "hoje-ontem",
   "7d",
+  "14d",
   "30d",
   "month",
+  "max",
   "all",
   "custom",
 ] as const;
@@ -12,9 +15,12 @@ export type Period = (typeof PERIODS)[number];
 export const PERIOD_LABELS: Record<Period, string> = {
   today: "Hoje",
   yesterday: "Ontem",
+  "hoje-ontem": "Hoje e ontem",
   "7d": "Últimos 7 dias",
+  "14d": "Últimos 14 dias",
   "30d": "Últimos 30 dias",
   month: "Este mês",
+  max: "Máximo",
   all: "Tudo (histórico)",
   custom: "Personalizado",
 };
@@ -70,39 +76,43 @@ export function periodToSince(period: Period, customDate?: Date | null): Date | 
 export function periodToRange(
   period: Period,
   customDate?: Date | null,
+  customRange?: { since: Date; until: Date } | null,
 ): { since: Date | null; until: Date } {
   const now = new Date();
+  const daysAgo = (n: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - n);
+    return d;
+  };
   switch (period) {
     case "today":
       return { since: startOfDay(now), until: now };
     case "yesterday": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 1);
+      const d = daysAgo(1);
       return { since: startOfDay(d), until: endOfDay(d) };
     }
-    case "7d": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 7);
-      const u = new Date(now);
-      u.setDate(u.getDate() - 1);
-      return { since: startOfDay(d), until: endOfDay(u) };
-    }
-    case "30d": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      const u = new Date(now);
-      u.setDate(u.getDate() - 1);
-      return { since: startOfDay(d), until: endOfDay(u) };
-    }
+    case "hoje-ontem":
+      return { since: startOfDay(daysAgo(1)), until: now };
+    case "7d":
+      return { since: startOfDay(daysAgo(7)), until: endOfDay(daysAgo(1)) };
+    case "14d":
+      return { since: startOfDay(daysAgo(14)), until: endOfDay(daysAgo(1)) };
+    case "30d":
+      return { since: startOfDay(daysAgo(30)), until: endOfDay(daysAgo(1)) };
     case "month": {
       const d = new Date(now);
       d.setDate(1);
       return { since: startOfDay(d), until: now };
     }
     case "custom": {
+      // Range tem prioridade sobre single-day (mantido pra back-compat)
+      if (customRange) {
+        return { since: startOfDay(customRange.since), until: endOfDay(customRange.until) };
+      }
       if (!customDate) return { since: null, until: now };
       return { since: startOfDay(customDate), until: endOfDay(customDate) };
     }
+    case "max":
     case "all":
     default:
       return { since: null, until: now };

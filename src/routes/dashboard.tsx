@@ -62,9 +62,12 @@ function greeting() {
 const SHORT_LABELS: Record<Period, string> = {
   today: "Hoje",
   yesterday: "Ontem",
+  "hoje-ontem": "Hoje+ontem",
   "7d": "7 dias",
+  "14d": "14 dias",
   "30d": "30 dias",
   month: "Mês",
+  max: "Máximo",
   all: "Tudo",
   custom: "Dia",
 };
@@ -77,12 +80,12 @@ export function DashboardPage() {
   const [revenueChartDays, setRevenueChartDays] = useState(30);
   const [mrrChartDays, setMrrChartDays] = useState(30);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
-  const { produtoId, period, customDate, gateway } = useProdutoContext();
+  const { produtoId, period, customDate, customRange, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
   const { since, until } = useMemo(
-    () => periodToRange(period, customDate),
-    [period, customDate],
+    () => periodToRange(period, customDate, customRange),
+    [period, customDate, customRange],
   );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
