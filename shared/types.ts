@@ -58,11 +58,12 @@ export type VendasPorPlano = {
 };
 
 export type Faturamento = {
-  count: number; // qtd transações positivas (compras + renovações)
-  total: number; // líquido (bruto - reembolsos)
+  count: number; // qtd vendas que ficaram (não reembolsadas)
+  total: number; // total das vendas que ficaram (sem subtrair reembolsos)
   grossTotal: number;
   refundCount: number;
   refundTotal: number;
+  refundedSalesCount: number; // qtd vendas reembolsadas no período (excluídas do total)
 };
 
 export type SidebarCounts = { emRisco: number; filaMensagens: number };
