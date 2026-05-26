@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type DragEvent, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2, Link as LinkIcon } from "lucide-react";
+import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2, Link as LinkIcon, Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +83,34 @@ async function uploadFileToSupabase(file: File): Promise<{ url: string; contentT
   });
   if (!uploadRes.ok) throw new Error(`Upload falhou: HTTP ${uploadRes.status}`);
   return { url: urlData.publicUrl, contentType: file.type };
+}
+
+/**
+ * Faz download de um arquivo de uma URL pública.
+ * Usa fetch + blob pra evitar problemas de CORS com o atributo `download`
+ * (que é ignorado em links cross-origin). Se falhar (ex: Drive privado),
+ * cai pro fallback de abrir em nova aba.
+ */
+async function downloadFromUrl(url: string, suggestedName?: string) {
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const ext = (blob.type.split("/")[1] || "bin").split(";")[0];
+    const safeName = (suggestedName?.trim() || `criativo-${Date.now()}`).replace(/[/\\?%*:|"<>]/g, "_");
+    const finalName = /\.[a-z0-9]{2,5}$/i.test(safeName) ? safeName : `${safeName}.${ext}`;
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = finalName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+  } catch {
+    // Fallback: abre em nova aba (user salva manual)
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 /**
@@ -431,6 +459,17 @@ function Card({
                 </a>
               ) : <span />}
               <div className="flex items-center gap-1">
+                {item.url ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 text-white hover:bg-white/15 hover:text-white"
+                    onClick={(e) => { e.stopPropagation(); void downloadFromUrl(item.url!, item.titulo); }}
+                    title="Baixar mídia"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </Button>
+                ) : null}
                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-white hover:bg-white/15 hover:text-white" onClick={onEdit} title="Editar">
                   <Pencil className="w-3.5 h-3.5" />
                 </Button>
