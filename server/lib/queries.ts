@@ -1159,6 +1159,78 @@ export async function getVendasPorLp(
 }
 
 /**
+ * Lista os leads (com email/nome/valor) que pagaram via uma LP/referrer específicos.
+ * Usado pra drill-down do card "Vendas por LP" no dashboard.
+ *
+ * lp = "(sem LP rastreada)" filtra por lpOrigem IS NULL.
+ * referrer = "direct" ou null = filtra por referrerOrigem IS NULL/direct.
+ */
+export async function getLeadsByLp(
+  lp: string,
+  referrer: string | null,
+  produtoId: number | null = null,
+  since: Date | null = null,
+  until: Date | null = null,
+  gateway: string | null = null,
+): Promise<
+  Array<{
+    id: number;
+    nome: string | null;
+    email: string | null;
+    contato: string | null;
+    gateway: string | null;
+    valorAssinatura: number | null;
+    planoNome: string | null;
+    pagouEm: Date | null;
+  }>
+> {
+  const conds = [
+    isNotNull(leads.pagouEm),
+    ...gatewayConditionLeads(gateway),
+  ];
+  if (lp === "(sem LP rastreada)") {
+    conds.push(sql`${leads.lpOrigem} IS NULL`);
+  } else {
+    conds.push(eq(leads.lpOrigem, lp));
+  }
+  if (referrer === null || referrer === undefined) {
+    conds.push(sql`${leads.referrerOrigem} IS NULL`);
+  } else {
+    conds.push(eq(leads.referrerOrigem, referrer));
+  }
+  if (since != null) conds.push(gte(leads.pagouEm, since));
+  if (until != null) conds.push(lte(leads.pagouEm, until));
+  if (produtoId != null) conds.push(eq(leads.produtoId, produtoId));
+
+  const rows = await db
+    .select({
+      id: leads.id,
+      nome: leads.nome,
+      email: leads.email,
+      contato: leads.contato,
+      gateway: leads.gateway,
+      valorAssinatura: leads.valorAssinatura,
+      planoNome: leads.planoNome,
+      pagouEm: leads.pagouEm,
+    })
+    .from(leads)
+    .where(and(...conds))
+    .orderBy(desc(leads.pagouEm))
+    .limit(500);
+
+  return rows.map((r) => ({
+    id: r.id,
+    nome: r.nome,
+    email: r.email,
+    contato: r.contato,
+    gateway: r.gateway,
+    valorAssinatura: r.valorAssinatura != null ? Number(r.valorAssinatura) : null,
+    planoNome: r.planoNome,
+    pagouEm: r.pagouEm,
+  }));
+}
+
+/**
  * Breakdown de planos por nome (ex: "Gravyx Creator", "Gravyx Studio").
  * Usado pro gráfico de pizza no dashboard.
  *

@@ -748,9 +748,11 @@ function formatLpLabel(lp: string): string {
 export function VendasPorLpChart({
   data,
   periodLabel,
+  onSelectLp,
 }: {
   data: VendaPorLp[];
   periodLabel?: string;
+  onSelectLp?: (lp: string, referrer: string | null) => void;
 }) {
   const total = data.reduce((acc, d) => acc + d.vendas, 0);
   const totalReceita = data.reduce((acc, d) => acc + d.receita, 0);
@@ -798,7 +800,12 @@ export function VendasPorLpChart({
               const pct = total > 0 ? (d.vendas / total) * 100 : 0;
               const cor = intensities[Math.min(i, intensities.length - 1)];
               return (
-                <div key={d.lp + (d.referrer ?? "")} className="space-y-1">
+                <div
+                  key={d.lp + (d.referrer ?? "")}
+                  className={`space-y-1 -mx-2 px-2 py-1 rounded-lg ${onSelectLp ? "cursor-pointer hover:bg-muted/40 transition-colors" : ""}`}
+                  onClick={onSelectLp ? () => onSelectLp(d.lp, d.referrer) : undefined}
+                  title={onSelectLp ? "Clique pra ver os leads" : undefined}
+                >
                   <div className="flex items-baseline justify-between gap-2 text-sm">
                     <span className="font-mono text-xs truncate flex-1" title={formatLpLabel(d.lp)}>
                       {formatLpLabel(d.lp)}

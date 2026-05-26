@@ -33,6 +33,7 @@ import {
 } from "@/components/dashboard-charts";
 import { MrrAtualModal } from "@/components/mrr-atual-modal";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
+import { LpLeadsModal } from "@/components/lp-leads-modal";
 import { CohortTable } from "@/components/cohort-table";
 import { LtvDetailsModal } from "@/components/ltv-details-modal";
 import { ChurnDetailsModal } from "@/components/churn-details-modal";
@@ -80,6 +81,7 @@ export function DashboardPage() {
   const [revenueChartDays, setRevenueChartDays] = useState(30);
   const [mrrChartDays, setMrrChartDays] = useState(30);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
+  const [lpDrillDown, setLpDrillDown] = useState<{ lp: string; referrer: string | null } | null>(null);
   const { produtoId, period, customDate, customRange, gateway } = useProdutoContext();
   // Memoiza pra estabilizar o queryKey: senão `until=NOW` muda a cada render
   // e dispara refetch infinito (descoberto via DevTools — 364 requests num refresh).
@@ -374,6 +376,7 @@ export function DashboardPage() {
             <VendasPorLpChart
               data={vendasPorLp.data}
               periodLabel={PERIOD_LABELS[period].toLowerCase()}
+              onSelectLp={(lp, referrer) => setLpDrillDown({ lp, referrer })}
             />
           ) : null}
           <TipoBreakdownChart data={breakdowns.data.tipos} />
@@ -411,6 +414,14 @@ export function DashboardPage() {
         <LeadDetailsModal
           leadId={selectedLeadId}
           onClose={() => setSelectedLeadId(null)}
+        />
+      ) : null}
+      {lpDrillDown ? (
+        <LpLeadsModal
+          lp={lpDrillDown.lp}
+          referrer={lpDrillDown.referrer}
+          onClose={() => setLpDrillDown(null)}
+          onLeadClick={(id) => { setLpDrillDown(null); setSelectedLeadId(id); }}
         />
       ) : null}
     </div>

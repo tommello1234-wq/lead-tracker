@@ -110,6 +110,21 @@ dashboardRoutes.get("/vendas-por-lp", async (c) => {
   return c.json(data);
 });
 
+/* Drill-down: leads que pagaram via uma LP específica */
+dashboardRoutes.get("/vendas-por-lp/leads", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const gateway = parseGateway(c);
+  const lp = c.req.query("lp") ?? "";
+  const refRaw = c.req.query("referrer");
+  const referrer = refRaw === "(null)" || refRaw === "" || refRaw == null ? null : refRaw;
+  if (!lp) return c.json({ error: "lp obrigatório" }, 400);
+  const { getLeadsByLp } = await import("../lib/queries.js");
+  const data = await getLeadsByLp(lp, referrer, produtoId, since, until, gateway);
+  return c.json(data);
+});
+
 /* ==========================================================================
  * GET /api/dashboard/daily-revenue?produtoId=N&days=30
  * Faturamento líquido por dia (compras + renovações − reembolsos), pra o
