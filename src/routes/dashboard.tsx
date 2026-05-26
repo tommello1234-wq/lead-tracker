@@ -283,8 +283,8 @@ export function DashboardPage() {
           hint={
             faturamento.data
               ? `${faturamento.data.count} venda${faturamento.data.count === 1 ? "" : "s"}${
-                  faturamento.data.refundCount > 0
-                    ? ` · −${brl(faturamento.data.refundTotal)} em ${faturamento.data.refundCount} reembolso${faturamento.data.refundCount === 1 ? "" : "s"}`
+                  (faturamento.data.refundedSalesCount ?? 0) > 0
+                    ? ` · ${faturamento.data.refundedSalesCount} reembolsada${faturamento.data.refundedSalesCount === 1 ? "" : "s"} (não conta)`
                     : ""
                 }${m ? ` · ${m.novosLeadsNoPeriodo} leads novos` : ""}`
               : undefined

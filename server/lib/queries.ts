@@ -645,6 +645,7 @@ export async function getFaturamento(
   grossTotal: number;
   refundCount: number;
   refundTotal: number;
+  refundedSalesCount: number;
 }> {
   // Exige lead_id pra ser consistente com getDetails(compras), que faz INNER
   // JOIN com leads. Sem isso, eventos órfãos (lead_id=null — restos de
@@ -682,21 +683,26 @@ export async function getFaturamento(
     0
   )::numeric(10,2)`;
 
-  // Entradas: compra_aprovada + assinatura_renovada
+  // Entradas: compra_aprovada + assinatura_renovada — EXCLUI vendas de leads
+  // que foram reembolsados. Lógica: se uma venda foi reembolsada (parcial ou
+  // total), tratamos como "venda que não aconteceu" — não conta no faturamento.
+  // O reembolso desconta da própria venda, não do total do período.
   const [entries] = await db
     .select({
       n: sql<number>`count(*)::int`,
       total: sql<number>`coalesce(sum(${valorExpr}), 0)::numeric(10,2)`,
     })
     .from(eventos)
+    .innerJoin(leads, eq(leads.id, eventos.leadId))
     .where(
       and(
         ...baseConditions,
         inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+        sql`(${leads.subscriptionStatus} IS NULL OR ${leads.subscriptionStatus} != 'reembolsada')`,
       ),
     );
 
-  // Saídas: reembolso processado
+  // Conta reembolsos só pra mostrar como info no card (NÃO entra na conta)
   const [refunds] = await db
     .select({
       n: sql<number>`count(*)::int`,
@@ -705,15 +711,30 @@ export async function getFaturamento(
     .from(eventos)
     .where(and(...baseConditions, eq(eventos.eventType, "reembolso")));
 
+  // Conta vendas excluídas (reembolsadas no período) pra mostrar contexto
+  const [excluded] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(eventos)
+    .innerJoin(leads, eq(leads.id, eventos.leadId))
+    .where(
+      and(
+        ...baseConditions,
+        inArray(eventos.eventType, ["compra_aprovada", "assinatura_renovada"]),
+        eq(leads.subscriptionStatus, "reembolsada"),
+      ),
+    );
+
   const grossTotal = Number(entries?.total ?? 0);
   const refundTotal = Number(refunds?.total ?? 0);
+  const refundedSalesCount = excluded?.n ?? 0;
 
   return {
     count: entries?.n ?? 0,
-    total: grossTotal - refundTotal, // líquido
+    total: grossTotal, // vendas que ficaram (excluindo reembolsadas)
     grossTotal,
     refundCount: refunds?.n ?? 0,
     refundTotal,
+    refundedSalesCount,
   };
 }
 
