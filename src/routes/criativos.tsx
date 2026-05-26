@@ -1,4 +1,4 @@
-import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
+import { useState, useRef, useEffect, type DragEvent, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Pencil, Lightbulb, Hammer, Beaker, X, ExternalLink, GripVertical, Upload, Loader2, Link as LinkIcon } from "lucide-react";
 import { api } from "@/lib/api";
@@ -114,6 +114,7 @@ export function CriativosPage() {
     recusado: null,
   });
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedCol, setSelectedCol] = useState<Etapa | null>(null);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["criativos-kanban"],
@@ -163,6 +164,35 @@ export function CriativosPage() {
     }
     setUploadingCol((s) => ({ ...s, [etapa]: null }));
   }
+
+  // Ctrl+V cola imagem do clipboard na coluna selecionada.
+  // Ignora se o foco tá num input/textarea (pra não interceptar paste em formulários).
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (!selectedCol) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const it of Array.from(items)) {
+        if (it.kind === "file") {
+          const f = it.getAsFile();
+          if (f && (f.type.startsWith("image/") || f.type.startsWith("video/"))) {
+            // Renomeia (clipboard imagens vêm como "image.png" sem timestamp)
+            files.push(new File([f], `colado-${Date.now()}-${f.name || "imagem.png"}`, { type: f.type }));
+          }
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        void handleFilesDrop(files, selectedCol);
+      }
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [selectedCol]);
 
   function openNew(etapa: Etapa) {
     setDefaultEtapa(etapa);
@@ -225,7 +255,7 @@ export function CriativosPage() {
         <div>
           <h1 className="text-2xl font-bold mb-1">Criativos</h1>
           <p className="text-sm text-muted-foreground">
-            Pipeline de produção · {items.length} {items.length === 1 ? "criativo" : "criativos"} · arraste cards pra mover · arraste imagens/vídeos do desktop pra criar
+            Pipeline · {items.length} {items.length === 1 ? "criativo" : "criativos"} · arraste pra mover entre colunas · solte arquivos pra criar · clique numa coluna pra colar com ⌘V
           </p>
         </div>
       </header>
@@ -235,14 +265,18 @@ export function CriativosPage() {
           const Icon = col.icon;
           const colItems = items.filter((it) => it.etapa === col.etapa);
           const isDragOver = dragOver === col.etapa;
+          const isSelected = selectedCol === col.etapa;
           return (
             <div
               key={col.etapa}
+              onClick={() => setSelectedCol((cur) => (cur === col.etapa ? null : col.etapa))}
               onDragOver={(e) => handleDragOver(e, col.etapa)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, col.etapa)}
-              className={`flex flex-col rounded-lg border ${col.cor} ${col.bg} transition-all ${
+              className={`flex flex-col rounded-lg border ${col.cor} ${col.bg} transition-all cursor-pointer ${
                 isDragOver ? "ring-2 ring-offset-2 ring-offset-background ring-current" : ""
+              } ${
+                isSelected ? "ring-2 ring-offset-2 ring-offset-background ring-foreground/40 shadow-lg" : ""
               }`}
             >
               {/* Header da coluna */}
@@ -251,12 +285,17 @@ export function CriativosPage() {
                   <Icon className={`w-4 h-4 ${col.cor.split(" ")[0]}`} />
                   <h2 className="font-semibold text-sm">{col.titulo}</h2>
                   <span className="text-xs text-muted-foreground">{colItems.length}</span>
+                  {isSelected && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-foreground/10 text-foreground">
+                      ⌘V pra colar
+                    </span>
+                  )}
                 </div>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 w-7 p-0"
-                  onClick={() => openNew(col.etapa)}
+                  onClick={(e) => { e.stopPropagation(); openNew(col.etapa); }}
                   title="Novo criativo"
                 >
                   <Plus className="w-4 h-4" />
@@ -329,6 +368,7 @@ function Card({
     <div
       draggable
       onDragStart={onDragStart}
+      onClick={(e) => e.stopPropagation()}
       className="group relative bg-card border border-border rounded-md overflow-hidden cursor-move hover:border-foreground/30 hover:shadow-md transition-all"
     >
       {/* Mídia segue o aspect natural; se for mais alta que 4:5, capa em 4:5 */}
