@@ -372,6 +372,14 @@ function LeadGroupRow({
             ) : null}
             <span className="text-xs text-muted-foreground">·</span>
             <span className="text-sm text-muted-foreground">{meta.label}</span>
+            {latest.meta?.template ? (
+              <span
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-muted/60 text-foreground/70 truncate max-w-[260px]"
+                title={latest.meta.template}
+              >
+                {latest.meta.template}
+              </span>
+            ) : null}
             {valor ? (
               <span className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-md bg-secondary">
                 {valor}
