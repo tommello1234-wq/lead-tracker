@@ -67,9 +67,47 @@ auditRoutes.get("/lead-info", async (c) => {
     }
   }
 
+  // Ticto — varre orders/history e filtra por email (Ticto não tem filtro
+  // direto por email confiável, então busca em todas as páginas recentes).
+  let tictoInfo: unknown = null;
+  try {
+    const { getOrdersHistory } = await import("../lib/ticto-api.js");
+    const matches: Array<{ produto: string; valor: number; status: string; data: string }> = [];
+    let page = 1;
+    while (page <= 40) {
+      const resp = (await getOrdersHistory(page)) as {
+        data?: Array<Record<string, unknown>>;
+        meta?: { last_page?: number };
+      };
+      const list = resp.data ?? [];
+      for (const o of list) {
+        const cust = o.customer as { email?: string } | undefined;
+        if ((cust?.email ?? "").toLowerCase() === email) {
+          const item = o.item as { product_name?: string; amount?: number } | undefined;
+          const tx = o.transaction as { paid_amount?: number } | undefined;
+          const offer = o.offer as { product_name?: string } | undefined;
+          const cents = tx?.paid_amount ?? item?.amount ?? (o.paid_amount as number) ?? 0;
+          matches.push({
+            produto: item?.product_name ?? offer?.product_name ?? "(sem nome)",
+            valor: cents / 100,
+            status: String(o.status ?? "?"),
+            data: String(o.created_at ?? o.order_date ?? ""),
+          });
+        }
+      }
+      const last = resp.meta?.last_page ?? 1;
+      if (page >= last || list.length === 0) break;
+      page++;
+    }
+    tictoInfo = { matches, pagesScanned: page };
+  } catch (e) {
+    tictoInfo = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   return c.json({
     db: dbLead ? { lead: dbLead, subs: dbSubs } : null,
     asaas: asaasInfo,
+    ticto: tictoInfo,
   });
 });
 
