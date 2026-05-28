@@ -83,16 +83,24 @@ auditRoutes.get("/lead-info", async (c) => {
       for (const o of list) {
         const cust = o.customer as { email?: string } | undefined;
         if ((cust?.email ?? "").toLowerCase() === email) {
-          const item = o.item as { product_name?: string; amount?: number } | undefined;
-          const tx = o.transaction as { paid_amount?: number } | undefined;
-          const offer = o.offer as { product_name?: string } | undefined;
+          const item = o.item as { product_name?: string; offer_name?: string; amount?: number } | undefined;
+          const tx = o.transaction as { paid_amount?: number; status?: string } | undefined;
+          const offer = o.offer as { product_name?: string; name?: string } | undefined;
+          const product = o.product as { name?: string } | undefined;
           const cents = tx?.paid_amount ?? item?.amount ?? (o.paid_amount as number) ?? 0;
           matches.push({
-            produto: item?.product_name ?? offer?.product_name ?? "(sem nome)",
+            produto:
+              item?.product_name ??
+              product?.name ??
+              offer?.product_name ??
+              offer?.name ??
+              item?.offer_name ??
+              "(sem nome)",
             valor: cents / 100,
-            status: String(o.status ?? "?"),
-            data: String(o.created_at ?? o.order_date ?? ""),
-          });
+            status: String(o.status ?? tx?.status ?? "?"),
+            data: String(o.order_date ?? o.created_at ?? ""),
+            _keys: Object.keys(o).join(","),
+          } as never);
         }
       }
       const last = resp.meta?.last_page ?? 1;
