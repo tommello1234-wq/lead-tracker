@@ -99,7 +99,9 @@ auditRoutes.get("/lead-info", async (c) => {
             valor: cents / 100,
             status: String(o.status ?? tx?.status ?? "?"),
             data: String(o.order_date ?? o.created_at ?? ""),
-            _keys: Object.keys(o).join(","),
+            offer: o.offer,
+            subscriptionId: o.subscription_id,
+            transaction: o.transaction,
           } as never);
         }
       }
