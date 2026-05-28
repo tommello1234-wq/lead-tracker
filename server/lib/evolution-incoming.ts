@@ -13,8 +13,8 @@
  */
 import { db } from "../../db/client.js";
 import { leads, mensagensAgendadas, eventos } from "../../db/schema.js";
-import { and, eq, isNull } from "drizzle-orm";
-import { normalizePhone } from "./evolution.js";
+import { and, eq, isNull, inArray } from "drizzle-orm";
+import { normalizePhone, phoneVariants } from "./evolution.js";
 
 type EvolutionPayload = {
   event?: string;
@@ -92,9 +92,10 @@ export async function handleEvolutionIncoming(
     return { ok: true, ignored: true, reason: "sem telefone (grupo ou inválido)" };
   }
 
-  // Acha lead pelo telefone
+  // Acha lead pelo telefone — testa variantes com/sem 9º dígito (BR),
+  // porque o WhatsApp manda o JID sem o 9 mas salvamos o contato com ele.
   const lead = await db.query.leads.findFirst({
-    where: eq(leads.contato, phone),
+    where: inArray(leads.contato, phoneVariants(phone)),
   });
 
   if (!lead) {

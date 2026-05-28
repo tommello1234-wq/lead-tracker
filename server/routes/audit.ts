@@ -7,10 +7,12 @@
 import { Hono } from "hono";
 import { db } from "../../db/client.js";
 import { subscriptions, leads, eventos, mrrMovements } from "../../db/schema.js";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getSubscriptionsHistory } from "../lib/ticto-api.js";
 import { sendPurchaseToMeta } from "../lib/meta-capi.js";
 import { decodeAttribution } from "../lib/stripe.js";
+import { phoneVariants } from "../lib/evolution.js";
+import { mensagensAgendadas } from "../../db/schema.js";
 
 export const auditRoutes = new Hono();
 
@@ -2804,5 +2806,83 @@ auditRoutes.get("/faturamento-gateways", async (c) => {
       reembolsosBRL: Number(totalRefund.toFixed(2)),
       liquidoBRL: Number(totalNet.toFixed(2)),
     },
+  });
+});
+
+/**
+ * POST /api/audit/reprocess-sem-lead?token=<CRON_SECRET>&days=7
+ *
+ * Recupera respostas de cliente que não casaram com lead por causa do
+ * 9º dígito BR (evento cliente_respondeu_sem_lead). Pra cada uma:
+ *   1. Extrai o phone do remoteJid
+ *   2. Acha o lead via phoneVariants (com/sem 9)
+ *   3. Se achar: marca respondeu_em (se null) + cancela mensagens pending
+ *
+ * Não re-envia nada. Só estanca mensagens já agendadas. Read-mostly.
+ */
+auditRoutes.post("/reprocess-sem-lead", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const days = Math.max(1, Math.min(60, Number(c.req.query("days") ?? "7")));
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const rows = await db
+    .select()
+    .from(eventos)
+    .where(
+      and(
+        eq(eventos.eventType, "cliente_respondeu_sem_lead"),
+        sql`${eventos.receivedAt} > ${sinceIso}::timestamptz`,
+      ),
+    );
+
+  let matched = 0;
+  let cancelledTotal = 0;
+  const details: Array<{ phone: string; leadId: number; nome: string | null; cancelled: number }> = [];
+  const stillUnmatched = new Set<string>();
+
+  for (const ev of rows) {
+    const payload = ev.payload as { data?: { key?: { remoteJid?: string } } };
+    const jid = payload?.data?.key?.remoteJid ?? "";
+    const num = jid.split("@")[0];
+    if (!num || jid.endsWith("@g.us")) continue;
+
+    const lead = await db.query.leads.findFirst({
+      where: inArray(leads.contato, phoneVariants(num)),
+    });
+    if (!lead) {
+      stillUnmatched.add(num);
+      continue;
+    }
+
+    matched++;
+    // marca respondeu_em se null
+    await db
+      .update(leads)
+      .set({ respondeuEm: ev.receivedAt, atualizadoEm: new Date() })
+      .where(and(eq(leads.id, lead.id), sql`${leads.respondeuEm} IS NULL`));
+
+    // cancela mensagens pendentes
+    const res = await db
+      .update(mensagensAgendadas)
+      .set({ status: "skipped", erro: "Cliente respondeu (recuperado via backfill 9-dígito)" })
+      .where(
+        and(
+          eq(mensagensAgendadas.leadId, lead.id),
+          eq(mensagensAgendadas.status, "pending"),
+        ),
+      );
+    const cancelled = (res as unknown as { rowCount?: number }).rowCount ?? 0;
+    cancelledTotal += cancelled;
+    if (cancelled > 0) {
+      details.push({ phone: num, leadId: lead.id, nome: lead.nome, cancelled });
+    }
+  }
+
+  return c.json({
+    semLeadEventsScanned: rows.length,
+    matchedLeads: matched,
+    messagesCancelled: cancelledTotal,
+    stillUnmatchedCount: stillUnmatched.size,
+    details: details.slice(0, 50),
   });
 });

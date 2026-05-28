@@ -48,6 +48,27 @@ export function normalizePhone(raw: string): string {
   return digits;
 }
 
+/**
+ * Variantes BR de um telefone pra matching robusto: com e sem o 9º dígito.
+ *
+ * WhatsApp manda o remoteJid SEM o 9º dígito (ex: 558293359337 = 12díg),
+ * mas a gente salva o contato COM o 9 (ex: 5582993359337 = 13díg). Esse
+ * helper devolve as 2 formas pra casar nos dois sentidos.
+ */
+export function phoneVariants(raw: string): string[] {
+  const d = raw.replace(/\D/g, "");
+  const local = d.startsWith("55") ? d.slice(2) : d; // tira DDI
+  if (local.length < 10) return [d]; // não-BR ou inválido → usa cru
+  const ddd = local.slice(0, 2);
+  const sub = local.slice(2); // 8 ou 9 dígitos
+  const sub8 = sub.length === 9 && sub.startsWith("9") ? sub.slice(1) : sub;
+  const sub9 = sub8.length === 8 ? "9" + sub8 : sub8;
+  return Array.from(new Set([
+    `55${ddd}${sub8}`, // 12 díg (sem 9)
+    `55${ddd}${sub9}`, // 13 díg (com 9)
+  ]));
+}
+
 export type SendTextResult = {
   ok: boolean;
   messageId?: string;
