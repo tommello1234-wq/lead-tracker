@@ -1414,7 +1414,7 @@ export async function getAtribuicaoDetalhada(
       ${produtoFilter}
       ${gatewayFilter}
     ORDER BY e.received_at DESC
-    LIMIT 500
+    LIMIT 200
   `);
 
   type R = {

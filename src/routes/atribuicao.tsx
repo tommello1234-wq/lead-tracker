@@ -64,12 +64,13 @@ export function AtribuicaoPage() {
   const [selectedLead, setSelectedLead] = useState<number | null>(null);
   const [filterCmp, setFilterCmp] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["atribuicao", produtoParam, sinceParam, untilParam, gatewayParam],
     queryFn: () =>
       api.get<Resp>(
         `/api/dashboard/atribuicao?produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}&gateway=${gatewayParam}`,
       ),
+    retry: 1,
   });
 
   const totals = useMemo(() => {
@@ -116,7 +117,11 @@ export function AtribuicaoPage() {
         <SummaryCard label="Sem atribuição" value={String(totals.semAd)} hint="orgânico/direto/Ticto" />
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div className="p-6 rounded-2xl border border-rose-500/30 bg-rose-50/30 text-sm text-rose-700">
+          ❌ Erro ao carregar: {error instanceof Error ? error.message : "desconhecido"}
+        </div>
+      ) : isLoading ? (
         <div className="p-8 text-center text-muted-foreground">Carregando…</div>
       ) : !data ? null : (
         <>

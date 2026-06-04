@@ -114,12 +114,18 @@ dashboardRoutes.get("/vendas-por-lp", async (c) => {
 /* Drill-down: leads que pagaram via uma LP específica */
 /* Atribuição detalhada — vendas com cmp/adset/ad extraídos do CRI */
 dashboardRoutes.get("/atribuicao", async (c) => {
-  const produtoId = parseProdutoId(c);
-  const since = parseSince(c);
-  const until = parseUntil(c);
-  const gateway = parseGateway(c);
-  const data = await getAtribuicaoDetalhada(produtoId, since, until, gateway);
-  return c.json(data);
+  try {
+    const produtoId = parseProdutoId(c);
+    const since = parseSince(c);
+    const until = parseUntil(c);
+    const gateway = parseGateway(c);
+    const data = await getAtribuicaoDetalhada(produtoId, since, until, gateway);
+    return c.json(data);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("atribuicao endpoint error:", msg);
+    return c.json({ error: "Falha ao carregar atribuição", detail: msg }, 500);
+  }
 });
 
 dashboardRoutes.get("/vendas-por-lp/leads", async (c) => {
