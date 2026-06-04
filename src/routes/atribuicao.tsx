@@ -56,7 +56,12 @@ const GATEWAY_TONE: Record<string, string> = {
 
 export function AtribuicaoPage() {
   const { produtoId, period, customDate, customRange, gateway } = useProdutoContext();
-  const { since, until } = periodToRange(period, customDate, customRange);
+  // CRÍTICO: memoiza pra estabilizar o queryKey — senão until=NOW() muda a
+  // cada render e dispara loop infinito de refetch (descoberto via Network).
+  const { since, until } = useMemo(
+    () => periodToRange(period, customDate, customRange),
+    [period, customDate, customRange],
+  );
   const sinceParam = since ? since.toISOString() : "";
   const untilParam = until.toISOString();
   const produtoParam = produtoId ?? "all";
