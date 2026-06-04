@@ -1301,3 +1301,181 @@ export async function getPlanoBreakdown(
     .map(([plano, v]) => ({ plano, ...v }))
     .sort((a, b) => b.total - a.total);
 }
+
+/**
+ * Atribuição detalhada por venda — extrai LP, campanha, conjunto, criativo
+ * direto do `client_reference_id` que o stripe-attribution.js anexa nas LPs.
+ *
+ * Retorna 2 estruturas:
+ *   1. `vendas`: lista flat de compras com atribuição extraída (per-sale)
+ *   2. `porCriativo`: agregado por (campanha, conjunto, criativo) com vendas + receita
+ *
+ * Usado pela página /atribuicao pra comparar nosso rastreio interno
+ * (clique → LP → checkout na mesma sessão) com o que o Meta atribui
+ * (last-click via fbp cookie em qualquer janela).
+ */
+export async function getAtribuicaoDetalhada(
+  produtoId: number | null = null,
+  since: Date | null = null,
+  until: Date | null = null,
+  gateway: string | null = null,
+): Promise<{
+  vendas: Array<{
+    eventoId: number;
+    leadId: number | null;
+    pagouEm: string;
+    nome: string | null;
+    email: string | null;
+    plano: string | null;
+    valor: number;
+    gateway: string | null;
+    lpOrigem: string | null;
+    referrer: string | null;
+    src: string | null;
+    cmp: string | null;
+    adset: string | null;
+    ad: string | null;
+    temFbp: boolean;
+    temFbc: boolean;
+  }>;
+  porCriativo: Array<{
+    cmp: string | null;
+    adset: string | null;
+    ad: string | null;
+    vendas: number;
+    receita: number;
+    ticket: number;
+  }>;
+}> {
+  // Janela default = 30d se não vier filtro
+  const effSince = since ?? (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })();
+  const effUntil = until ?? new Date();
+
+  // Constrói WHERE comum
+  const produtoFilter = produtoId != null
+    ? sql`AND (e.produto_id = ${produtoId} OR l.produto_id = ${produtoId})`
+    : sql`AND (l.produto_id IS NULL OR l.produto_id IN (SELECT id FROM produtos WHERE ativo = true))`;
+  const gatewayFilter = gateway != null
+    ? sql`AND e.source IN (${gateway}, ${gateway + "-sync"})`
+    : sql``;
+
+  const rows = await db.execute<{
+    evento_id: number;
+    lead_id: number | null;
+    pagou_em: string;
+    nome: string | null;
+    email: string | null;
+    plano: string | null;
+    valor: string;
+    gateway: string | null;
+    cri: string | null;
+    lp: string | null;
+    ref: string | null;
+    src: string | null;
+    cmp: string | null;
+    adset: string | null;
+    ad: string | null;
+    tem_fbp: boolean;
+    tem_fbc: boolean;
+  }>(sql`
+    SELECT
+      e.id as evento_id,
+      l.id as lead_id,
+      to_char(e.received_at AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') as pagou_em,
+      l.nome,
+      l.email,
+      l.plano_nome as plano,
+      COALESCE(
+        ((e.payload->'data'->'object'->>'amount_total')::numeric / 100),
+        ((e.payload->'data'->'object'->>'amount_paid')::numeric / 100),
+        ((e.payload->'item'->>'amount')::numeric / 100),
+        ((e.payload->'transaction'->>'paid_amount')::numeric / 100),
+        ((e.payload->'payment'->>'value')::numeric),
+        l.valor_assinatura,
+        0
+      )::numeric(10,2)::text as valor,
+      l.gateway,
+      e.payload->'data'->'object'->>'client_reference_id' as cri,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'lp-col-(.+?)(?:--|$)') as lp,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'ref-col-(.+?)(?:--|$)') as ref,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'src-col-(.+?)(?:--|$)') as src,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'cmp-col-(.+?)(?:--|$)') as cmp,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'adset-col-(.+?)(?:--|$)') as adset,
+      substring(e.payload->'data'->'object'->>'client_reference_id' from 'ad-col-(.+?)(?:--|$)') as ad,
+      (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbp-col-%' as tem_fbp,
+      (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbc-col-%' as tem_fbc
+    FROM eventos e
+    LEFT JOIN leads l ON l.id = e.lead_id
+    WHERE e.event_type IN ('compra_aprovada', 'assinatura_renovada')
+      AND e.processed_ok = true
+      AND e.lead_id IS NOT NULL
+      AND e.received_at >= ${effSince.toISOString()}::timestamptz
+      AND e.received_at <= ${effUntil.toISOString()}::timestamptz
+      ${produtoFilter}
+      ${gatewayFilter}
+    ORDER BY e.received_at DESC
+    LIMIT 500
+  `);
+
+  type R = {
+    evento_id: number;
+    lead_id: number | null;
+    pagou_em: string;
+    nome: string | null;
+    email: string | null;
+    plano: string | null;
+    valor: string;
+    gateway: string | null;
+    lp: string | null;
+    ref: string | null;
+    src: string | null;
+    cmp: string | null;
+    adset: string | null;
+    ad: string | null;
+    tem_fbp: boolean;
+    tem_fbc: boolean;
+  };
+
+  const rs = ((rows as unknown as { rows?: R[] }).rows ?? (rows as unknown as R[]));
+
+  // Normaliza: tira underscores excedentes nos nomes (cri encode usa _ pra espaços/especiais)
+  const cleanName = (s: string | null): string | null => {
+    if (!s) return null;
+    return s.replace(/_+/g, " ").trim() || null;
+  };
+
+  const vendas = rs.map((r) => ({
+    eventoId: Number(r.evento_id),
+    leadId: r.lead_id,
+    pagouEm: r.pagou_em,
+    nome: r.nome,
+    email: r.email,
+    plano: r.plano,
+    valor: Number(r.valor),
+    gateway: r.gateway,
+    lpOrigem: r.lp,
+    referrer: cleanName(r.ref),
+    src: r.src,
+    cmp: cleanName(r.cmp),
+    adset: cleanName(r.adset),
+    ad: cleanName(r.ad),
+    temFbp: Boolean(r.tem_fbp),
+    temFbc: Boolean(r.tem_fbc),
+  }));
+
+  // Agrega por (cmp, adset, ad)
+  const map = new Map<string, { cmp: string | null; adset: string | null; ad: string | null; vendas: number; receita: number }>();
+  for (const v of vendas) {
+    if (!v.cmp && !v.adset && !v.ad) continue; // só inclui vendas COM atribuição de ad
+    const key = `${v.cmp ?? "—"}||${v.adset ?? "—"}||${v.ad ?? "—"}`;
+    const cur = map.get(key) ?? { cmp: v.cmp, adset: v.adset, ad: v.ad, vendas: 0, receita: 0 };
+    cur.vendas++;
+    cur.receita += v.valor;
+    map.set(key, cur);
+  }
+  const porCriativo = Array.from(map.values())
+    .map((c) => ({ ...c, ticket: c.vendas > 0 ? Number((c.receita / c.vendas).toFixed(2)) : 0 }))
+    .sort((a, b) => b.receita - a.receita);
+
+  return { vendas, porCriativo };
+}

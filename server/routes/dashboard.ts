@@ -9,6 +9,7 @@ import {
   getSidebarCounts,
   getVendasPorPlano,
   getVendasPorLp,
+  getAtribuicaoDetalhada,
   getMrrHistory,
 } from "../lib/queries.js";
 import {
@@ -111,6 +112,16 @@ dashboardRoutes.get("/vendas-por-lp", async (c) => {
 });
 
 /* Drill-down: leads que pagaram via uma LP específica */
+/* Atribuição detalhada — vendas com cmp/adset/ad extraídos do CRI */
+dashboardRoutes.get("/atribuicao", async (c) => {
+  const produtoId = parseProdutoId(c);
+  const since = parseSince(c);
+  const until = parseUntil(c);
+  const gateway = parseGateway(c);
+  const data = await getAtribuicaoDetalhada(produtoId, since, until, gateway);
+  return c.json(data);
+});
+
 dashboardRoutes.get("/vendas-por-lp/leads", async (c) => {
   const produtoId = parseProdutoId(c);
   const since = parseSince(c);

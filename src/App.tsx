@@ -9,6 +9,7 @@ import { PersonasPage } from "./routes/personas";
 import { QuizPage } from "./routes/quiz";
 import { PaginasPage } from "./routes/paginas";
 import { CriativosPage } from "./routes/criativos";
+import { AtribuicaoPage } from "./routes/atribuicao";
 import { RequireAuth } from "./components/require-auth";
 
 export function App() {
@@ -24,6 +25,7 @@ export function App() {
         <Route path="/quiz" element={<QuizPage />} />
         <Route path="/paginas" element={<PaginasPage />} />
         <Route path="/criativos" element={<CriativosPage />} />
+        <Route path="/atribuicao" element={<AtribuicaoPage />} />
         <Route index element={<Navigate to="/dashboard" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

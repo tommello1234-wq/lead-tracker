@@ -15,6 +15,7 @@ import {
   HelpCircle,
   FileText,
   Image as ImageIcon,
+  Crosshair,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -92,6 +93,7 @@ function AppShell() {
             badge={counts?.filaMensagens && counts.filaMensagens > 0 ? counts.filaMensagens : undefined}
           />
           <SideIcon to="/ads" icon={Megaphone} label="Meta Ads" expanded={expanded} />
+          <SideIcon to="/atribuicao" icon={Crosshair} label="Atribuição" expanded={expanded} />
           <SideIcon to="/personas" icon={Target} label="Personas" expanded={expanded} />
           <SideIcon to="/quiz" icon={HelpCircle} label="Quiz" expanded={expanded} />
           <SideIcon to="/criativos" icon={ImageIcon} label="Criativos" expanded={expanded} />
