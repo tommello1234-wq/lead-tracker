@@ -14,6 +14,7 @@ import {
   mensagensAgendadas,
   eventos,
   flowSteps,
+  messageTemplates,
   mrrMovements,
   type Lead,
   type LeadStatus,
@@ -828,19 +829,37 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       skippedDups++;
       continue;
     }
-    const conteudo = await renderTemplate(step.template, {
+
+    // VARIAÇÃO ALEATÓRIA — pra reduzir risco de ban WhatsApp por mensagens
+    // idênticas em sequência. Procura variants <key>_v2, _v3 etc. e sorteia
+    // uma das opções disponíveis (incluindo a base) por agendamento.
+    const variants = await db
+      .select({ key: messageTemplates.key })
+      .from(messageTemplates)
+      .where(sql`${messageTemplates.key} ~ ${`^${step.template}(_v\\d+)?$`}`);
+    const variantKeys = variants.length > 0
+      ? variants.map((v) => v.key)
+      : [step.template];
+    const pickedTemplate = variantKeys[Math.floor(Math.random() * variantKeys.length)];
+
+    const conteudo = await renderTemplate(pickedTemplate, {
       lead: refreshedLead,
       extras: input.extras,
     });
-    const agendadoPara = new Date(now.getTime() + step.delaySeconds * 1000);
+
+    // JITTER no agendamento — adiciona 0-300s aleatório pra não disparar
+    // todas as mensagens no mesmo segundo do dia, parecendo bot.
+    const jitterSeconds = Math.floor(Math.random() * 300);
+    const agendadoPara = new Date(now.getTime() + (step.delaySeconds + jitterSeconds) * 1000);
+
     await db.insert(mensagensAgendadas).values({
       leadId: lead.id,
-      template: step.template,
+      template: pickedTemplate, // grava a variante escolhida pra rastreabilidade
       conteudo,
       agendadoPara,
       status: "pending",
     });
-    pendingTemplates.add(step.template); // evita dup dentro do mesmo flow
+    pendingTemplates.add(step.template); // evita dup dentro do mesmo flow (chave base)
     scheduled++;
   }
   if (skippedDups > 0) {
