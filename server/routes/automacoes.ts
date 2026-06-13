@@ -155,6 +155,65 @@ automacoesRoutes.delete("/templates/:key", async (c) => {
 });
 
 /* ==========================================================================
+ * POST /api/automacoes/templates/:key/variacao
+ * Cria a próxima variação ({key}_v{N}) de um template base. O scheduler
+ * (server/lib/flows.ts) sorteia entre a base e as variações a cada envio,
+ * pra reduzir risco de ban por mensagens idênticas repetidas.
+ * ========================================================================== */
+const MAX_VARIACOES = 5;
+automacoesRoutes.post("/templates/:key/variacao", async (c) => {
+  const key = c.req.param("key");
+
+  const base = await db.query.messageTemplates.findFirst({
+    where: eq(messageTemplates.key, key as never),
+  });
+  if (!base) return c.json({ error: `Template base "${key}" não encontrado` }, 404);
+
+  // Só faz sentido variar uma mensagem que está num passo de fluxo — evita
+  // criar "variação de variação" (a própria key já termina em _vN).
+  const baseSteps = await db
+    .select()
+    .from(flowSteps)
+    .where(eq(flowSteps.templateKey, key as never));
+  if (baseSteps.length === 0) {
+    return c.json(
+      { error: "Só dá pra criar variação de uma mensagem do fluxo" },
+      400,
+    );
+  }
+
+  // Acha variações existentes {key}_vN e calcula o próximo N.
+  const all = await db
+    .select({ key: messageTemplates.key })
+    .from(messageTemplates);
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}_v(\\d+)$`);
+  const nums = all
+    .map((t) => re.exec(t.key))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+  if (nums.length >= MAX_VARIACOES) {
+    return c.json(
+      { error: `Limite de ${MAX_VARIACOES} variações por mensagem` },
+      409,
+    );
+  }
+  const nextN = nums.length > 0 ? Math.max(...nums) + 1 : 2;
+  const newKey = `${key}_v${nextN}`;
+
+  await db.insert(messageTemplates).values({
+    key: newKey as never,
+    nome: `${base.nome} (variação ${nextN})`,
+    descricao: base.descricao,
+    conteudo: base.conteudo,
+    conteudoDefault: base.conteudo,
+    placeholdersDisponiveis: base.placeholdersDisponiveis,
+  });
+
+  return c.json({ ok: true, key: newKey });
+});
+
+/* ==========================================================================
  * POST /api/automacoes/flow-steps  (add new step)
  * ========================================================================== */
 const addStepSchema = z.object({

@@ -10,6 +10,7 @@ import {
   ToggleRight,
   ToggleLeft,
   RotateCcw,
+  Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -44,6 +45,20 @@ function delayLabel(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}min`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
+}
+
+// Variações de um template são keys no formato {base}_v{N} (ex: boas_vindas_compra_v2).
+// O scheduler (server/lib/flows.ts) sorteia entre a base e as variações a cada envio.
+function variantsOf(baseKey: string, templates: Template[]): Template[] {
+  const escaped = baseKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}_v(\\d+)$`);
+  return templates
+    .filter((t) => re.test(t.key))
+    .sort(
+      (a, b) =>
+        Number(/_v(\d+)$/.exec(a.key)?.[1] ?? 0) -
+        Number(/_v(\d+)$/.exec(b.key)?.[1] ?? 0),
+    );
 }
 
 export function AutomacoesPage() {
@@ -259,6 +274,7 @@ function EventDetail({
             key={step.id}
             step={step}
             template={templates.find((t) => t.key === step.templateKey)}
+            variants={variantsOf(step.templateKey, templates)}
             onChange={onChange}
           />
         ))}
@@ -297,10 +313,12 @@ function EventDetail({
 function MessageEditor({
   step,
   template,
+  variants,
   onChange,
 }: {
   step: FlowStep;
   template: Template | undefined;
+  variants: Template[];
   onChange: () => void;
 }) {
   const [conteudo, setConteudo] = useState(template?.conteudo ?? "");
@@ -353,6 +371,16 @@ function MessageEditor({
     mutationFn: () => api.delete(`/api/automacoes/flow-steps/${step.id}`),
     onSuccess: () => {
       toast.success("Mensagem apagada");
+      onChange();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+  });
+
+  const createVariation = useMutation({
+    mutationFn: () =>
+      api.post(`/api/automacoes/templates/${step.templateKey}/variacao`),
+    onSuccess: () => {
+      toast.success("Variação criada");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
@@ -503,6 +531,153 @@ function MessageEditor({
           </button>
         </div>
       </div>
+
+      {/* Variações — versões alternativas que o sistema sorteia a cada envio */}
+      <div className="pt-3 border-t border-border/50 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Shuffle className="size-3 text-muted-foreground" />
+          <p className="text-xs font-medium text-muted-foreground">
+            Variações{variants.length > 0 ? ` (${variants.length})` : ""}
+          </p>
+        </div>
+        {variants.length > 0 && (
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            O sistema sorteia uma destas versões — incluindo a principal acima —
+            a cada envio, pra não repetir a mesma mensagem e reduzir risco de
+            bloqueio no WhatsApp.
+          </p>
+        )}
+        {variants.map((v, i) => (
+          <VariationEditor
+            key={v.key}
+            variant={v}
+            label={`Variação ${i + 1}`}
+            onChange={onChange}
+          />
+        ))}
+        {variants.length < 5 ? (
+          <button
+            type="button"
+            onClick={() => createVariation.mutate()}
+            disabled={createVariation.isPending}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-border text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
+          >
+            <Plus className="size-3.5" />
+            {createVariation.isPending ? "Criando..." : "Criar variação"}
+          </button>
+        ) : (
+          <p className="text-[11px] text-muted-foreground text-center py-1">
+            Limite de 5 variações por mensagem.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================ */
+/* Editor de uma variação (textarea + salvar/apagar/reverter)    */
+/* ============================================================ */
+function VariationEditor({
+  variant,
+  label,
+  onChange,
+}: {
+  variant: Template;
+  label: string;
+  onChange: () => void;
+}) {
+  const [conteudo, setConteudo] = useState(variant.conteudo);
+
+  useEffect(() => {
+    setConteudo(variant.conteudo);
+  }, [variant.conteudo]);
+
+  const dirty = conteudo !== variant.conteudo;
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch(`/api/automacoes/templates/${variant.key}`, { conteudo }),
+    onSuccess: () => {
+      toast.success("Variação salva");
+      onChange();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/api/automacoes/templates/${variant.key}`),
+    onSuccess: () => {
+      toast.success("Variação apagada");
+      onChange();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+  });
+
+  const revert = useMutation({
+    mutationFn: () =>
+      api.post(`/api/automacoes/templates/${variant.key}/revert`),
+    onSuccess: () => {
+      toast.success("Variação revertida pro padrão");
+      onChange();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+  });
+
+  const busy = save.isPending || remove.isPending || revert.isPending;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card/40 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                variant.conteudo !== variant.conteudoDefault &&
+                confirm("Reverter essa variação pro padrão?")
+              ) {
+                revert.mutate();
+              }
+            }}
+            disabled={variant.conteudo === variant.conteudoDefault || busy}
+            title="Reverter pro padrão"
+            className="size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <RotateCcw className="size-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm("Apagar essa variação?")) remove.mutate();
+            }}
+            disabled={busy}
+            title="Apagar variação"
+            className="size-7 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="size-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => save.mutate()}
+            disabled={!dirty || busy}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
+          >
+            <Save className="size-3" />
+            {save.isPending ? "Salvando..." : "Salvar"}
+          </button>
+        </div>
+      </div>
+      <textarea
+        value={conteudo}
+        onChange={(e) => setConteudo(e.target.value)}
+        rows={3}
+        placeholder="Conteúdo da variação..."
+        className="w-full px-3 py-2 rounded-lg bg-card border border-input text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50"
+      />
     </div>
   );
 }
