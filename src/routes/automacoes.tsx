@@ -627,12 +627,13 @@ function VariationEditor({
   const busy = save.isPending || remove.isPending || revert.isPending;
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/40 p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">
-          {label}
-        </span>
-        <div className="flex items-center gap-1.5">
+    <div className="rounded-2xl border border-border bg-background/40 p-4 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="size-8 rounded-lg bg-lime-soft text-forest grid place-items-center shrink-0">
+          <Shuffle className="size-3.5" />
+        </div>
+        <p className="flex-1 min-w-0 text-sm font-medium truncate">{label}</p>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
@@ -645,9 +646,9 @@ function VariationEditor({
             }}
             disabled={variant.conteudo === variant.conteudoDefault || busy}
             title="Reverter pro padrão"
-            className="size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="size-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            <RotateCcw className="size-3" />
+            <RotateCcw className="size-3.5" />
           </button>
           <button
             type="button"
@@ -656,17 +657,17 @@ function VariationEditor({
             }}
             disabled={busy}
             title="Apagar variação"
-            className="size-7 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
+            className="size-8 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
           >
-            <Trash2 className="size-3" />
+            <Trash2 className="size-3.5" />
           </button>
           <button
             type="button"
             onClick={() => save.mutate()}
             disabled={!dirty || busy}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
           >
-            <Save className="size-3" />
+            <Save className="size-3.5" />
             {save.isPending ? "Salvando..." : "Salvar"}
           </button>
         </div>
@@ -674,9 +675,9 @@ function VariationEditor({
       <textarea
         value={conteudo}
         onChange={(e) => setConteudo(e.target.value)}
-        rows={3}
+        rows={4}
         placeholder="Conteúdo da variação..."
-        className="w-full px-3 py-2 rounded-lg bg-card border border-input text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50"
+        className="w-full px-3 py-2.5 rounded-xl bg-card border border-input text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50"
       />
     </div>
   );
