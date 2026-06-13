@@ -321,31 +321,17 @@ function MessageEditor({
   variants: Template[];
   onChange: () => void;
 }) {
-  const [conteudo, setConteudo] = useState(template?.conteudo ?? "");
   const initial = delayToParts(step.delaySeconds);
   const [delayValue, setDelayValue] = useState(initial.value);
   const [delayUnit, setDelayUnit] = useState<DelayUnit>(initial.unit);
   const [ativo, setAtivo] = useState(step.ativo);
   const [cancelPrevious, setCancelPrevious] = useState(step.cancelPrevious);
 
-  // Sync state quando template changed externamente
-  useEffect(() => {
-    setConteudo(template?.conteudo ?? "");
-  }, [template?.conteudo]);
-
-  const dirty =
-    (template ? conteudo !== template.conteudo : false) ||
+  const stepDirty =
     delayValue !== initial.value ||
     delayUnit !== initial.unit ||
     ativo !== step.ativo ||
     cancelPrevious !== step.cancelPrevious;
-
-  const saveTemplate = useMutation({
-    mutationFn: (newConteudo: string) =>
-      api.patch(`/api/automacoes/templates/${step.templateKey}`, {
-        conteudo: newConteudo,
-      }),
-  });
 
   const saveStep = useMutation({
     mutationFn: () =>
@@ -355,13 +341,8 @@ function MessageEditor({
         ativo,
         cancelPrevious,
       }),
-  });
-
-  const revertTemplate = useMutation({
-    mutationFn: () =>
-      api.post(`/api/automacoes/templates/${step.templateKey}/revert`),
     onSuccess: () => {
-      toast.success("Template revertido pro padrão");
+      toast.success("Configuração salva");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
@@ -380,35 +361,14 @@ function MessageEditor({
     mutationFn: () =>
       api.post(`/api/automacoes/templates/${step.templateKey}/variacao`),
     onSuccess: () => {
-      toast.success("Variação criada");
+      toast.success("Versão criada");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
   });
 
-  async function handleSave() {
-    try {
-      const promises: Promise<unknown>[] = [];
-      if (template && conteudo !== template.conteudo) {
-        promises.push(saveTemplate.mutateAsync(conteudo));
-      }
-      if (
-        delayValue !== initial.value ||
-        delayUnit !== initial.unit ||
-        ativo !== step.ativo ||
-        cancelPrevious !== step.cancelPrevious
-      ) {
-        promises.push(saveStep.mutateAsync());
-      }
-      await Promise.all(promises);
-      toast.success("Salvo");
-      onChange();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao salvar");
-    }
-  }
-
-  const saving = saveTemplate.isPending || saveStep.isPending;
+  // Todas as versões da mensagem: a base + as variações. Pesam igual no sorteio.
+  const versoes = [template, ...variants].filter(Boolean) as Template[];
 
   return (
     <div className="rounded-2xl border border-border bg-background/40 p-4 space-y-3">
@@ -434,17 +394,22 @@ function MessageEditor({
         >
           {delayLabel(step.delaySeconds)}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("Apagar essa mensagem e todas as suas versões?"))
+              deleteStep.mutate();
+          }}
+          disabled={deleteStep.isPending}
+          title="Apagar mensagem"
+          className="size-8 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
       </div>
 
-      <textarea
-        value={conteudo}
-        onChange={(e) => setConteudo(e.target.value)}
-        rows={4}
-        placeholder="Conteúdo da mensagem..."
-        className="w-full px-3 py-2.5 rounded-xl bg-card border border-input text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50"
-      />
-
-      <div className="flex items-center gap-3 flex-wrap">
+      {/* Configuração de disparo — vale pra todas as versões */}
+      <div className="flex items-center gap-3 flex-wrap rounded-xl bg-muted/30 px-3 py-2">
         <div className="flex items-center gap-2">
           <Clock className="size-3.5 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">Delay</span>
@@ -489,73 +454,40 @@ function MessageEditor({
           Cancela anteriores
         </label>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                template &&
-                template.conteudo !== template.conteudoDefault &&
-                confirm("Reverter conteúdo pro padrão?")
-              ) {
-                revertTemplate.mutate();
-              }
-            }}
-            disabled={
-              !template || template.conteudo === template.conteudoDefault
-            }
-            title="Reverter pro padrão"
-            className="size-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <RotateCcw className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm("Apagar essa mensagem?")) deleteStep.mutate();
-            }}
-            disabled={deleteStep.isPending}
-            title="Apagar mensagem"
-            className="size-8 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!dirty || saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
-          >
-            <Save className="size-3.5" />
-            {saving ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => saveStep.mutate()}
+          disabled={!stepDirty || saveStep.isPending}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
+        >
+          <Save className="size-3.5" />
+          {saveStep.isPending ? "Salvando..." : "Salvar"}
+        </button>
       </div>
 
-      {/* Variações — versões alternativas que o sistema sorteia a cada envio */}
+      {/* Versões — todas com peso igual; o sistema sorteia uma a cada envio */}
       <div className="pt-3 border-t border-border/50 space-y-2">
         <div className="flex items-center gap-1.5">
           <Shuffle className="size-3 text-muted-foreground" />
           <p className="text-xs font-medium text-muted-foreground">
-            Variações{variants.length > 0 ? ` (${variants.length})` : ""}
+            Versões ({versoes.length})
           </p>
         </div>
-        {variants.length > 0 && (
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            O sistema sorteia uma destas versões — incluindo a principal acima —
-            a cada envio, pra não repetir a mesma mensagem e reduzir risco de
-            bloqueio no WhatsApp.
-          </p>
-        )}
-        {variants.map((v, i) => (
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          {versoes.length > 1
+            ? "Todas têm o mesmo peso — o sistema sorteia uma a cada envio, pra não repetir a mesma mensagem e reduzir risco de bloqueio no WhatsApp."
+            : "Crie versões alternativas pra o sistema sortear uma a cada envio e reduzir risco de bloqueio no WhatsApp."}
+        </p>
+        {versoes.map((v, i) => (
           <VariationEditor
             key={v.key}
             variant={v}
-            label={`Variação ${i + 1}`}
+            label={`Versão ${i + 1}`}
+            canDelete={i > 0}
             onChange={onChange}
           />
         ))}
-        {variants.length < 5 ? (
+        {versoes.length < 6 ? (
           <button
             type="button"
             onClick={() => createVariation.mutate()}
@@ -563,11 +495,11 @@ function MessageEditor({
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-border text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
           >
             <Plus className="size-3.5" />
-            {createVariation.isPending ? "Criando..." : "Criar variação"}
+            {createVariation.isPending ? "Criando..." : "Criar versão"}
           </button>
         ) : (
           <p className="text-[11px] text-muted-foreground text-center py-1">
-            Limite de 5 variações por mensagem.
+            Limite de 6 versões por mensagem.
           </p>
         )}
       </div>
@@ -581,10 +513,12 @@ function MessageEditor({
 function VariationEditor({
   variant,
   label,
+  canDelete,
   onChange,
 }: {
   variant: Template;
   label: string;
+  canDelete: boolean;
   onChange: () => void;
 }) {
   const [conteudo, setConteudo] = useState(variant.conteudo);
@@ -599,7 +533,7 @@ function VariationEditor({
     mutationFn: () =>
       api.patch(`/api/automacoes/templates/${variant.key}`, { conteudo }),
     onSuccess: () => {
-      toast.success("Variação salva");
+      toast.success("Versão salva");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
@@ -608,7 +542,7 @@ function VariationEditor({
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/automacoes/templates/${variant.key}`),
     onSuccess: () => {
-      toast.success("Variação apagada");
+      toast.success("Versão apagada");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
@@ -618,7 +552,7 @@ function VariationEditor({
     mutationFn: () =>
       api.post(`/api/automacoes/templates/${variant.key}/revert`),
     onSuccess: () => {
-      toast.success("Variação revertida pro padrão");
+      toast.success("Versão revertida pro padrão");
       onChange();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
@@ -650,17 +584,19 @@ function VariationEditor({
           >
             <RotateCcw className="size-3.5" />
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm("Apagar essa variação?")) remove.mutate();
-            }}
-            disabled={busy}
-            title="Apagar variação"
-            className="size-8 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm("Apagar essa versão?")) remove.mutate();
+              }}
+              disabled={busy}
+              title="Apagar versão"
+              className="size-8 rounded-lg grid place-items-center text-destructive hover:bg-[oklch(0.95_0.04_25)] transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => save.mutate()}
