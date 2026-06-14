@@ -7,6 +7,7 @@ import {
   timestamp,
   boolean,
   jsonb,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const LEAD_TYPES = [
@@ -184,8 +185,15 @@ export const mensagensAgendadas = pgTable("mensagens_agendadas", {
   enviadoEm: timestamp("enviado_em", { mode: "date" }),
   erro: text("erro"),
   evolutionMessageId: text("evolution_message_id"),
+  // Chave de deduplicação à prova de corrida: `${leadId}:${templateBase}:${dia}`.
+  // Índice único impede que webhooks duplicados (ex: 2 invoice.payment_failed da
+  // mesma cobrança, processados em paralelo) agendem a mesma mensagem 2x.
+  // NULLs são tratados como distintos pelo Postgres, então registros antigos coexistem.
+  dedupKey: text("dedup_key"),
   criadoEm: timestamp("criado_em", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => ({
+  dedupKeyIdx: uniqueIndex("mensagens_agendadas_dedup_key_idx").on(t.dedupKey),
+}));
 
 export type MensagemAgendada = typeof mensagensAgendadas.$inferSelect;
 export type NovaMensagem = typeof mensagensAgendadas.$inferInsert;

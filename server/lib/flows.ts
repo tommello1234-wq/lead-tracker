@@ -852,13 +852,30 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     const jitterSeconds = Math.floor(Math.random() * 300);
     const agendadoPara = new Date(now.getTime() + (step.delaySeconds + jitterSeconds) * 1000);
 
-    await db.insert(mensagensAgendadas).values({
-      leadId: lead.id,
-      template: pickedTemplate, // grava a variante escolhida pra rastreabilidade
-      conteudo,
-      agendadoPara,
-      status: "pending",
-    });
+    // Dedup à prova de corrida: chave única (lead + template-base + dia). Se 2
+    // webhooks duplicados chegam simultâneos (ex: 2 invoice.payment_failed da
+    // mesma cobrança, processados em paralelo), o índice único no banco garante
+    // que só o 1º INSERT vinga; o 2º cai no ON CONFLICT DO NOTHING. O check em
+    // memória (pendingTemplates) cobre o caso sequencial; este cobre a corrida.
+    const dedupKey = `${lead.id}:${step.template}:${now.toISOString().slice(0, 10)}`;
+    const inserted = await db
+      .insert(mensagensAgendadas)
+      .values({
+        leadId: lead.id,
+        template: pickedTemplate, // grava a variante escolhida pra rastreabilidade
+        conteudo,
+        agendadoPara,
+        status: "pending",
+        dedupKey,
+      })
+      .onConflictDoNothing({ target: mensagensAgendadas.dedupKey })
+      .returning({ id: mensagensAgendadas.id });
+
+    if (inserted.length === 0) {
+      // Outro evento (duplicado) já agendou essa mensagem hoje — pula.
+      skippedDups++;
+      continue;
+    }
     pendingTemplates.add(step.template); // evita dup dentro do mesmo flow (chave base)
     scheduled++;
   }
