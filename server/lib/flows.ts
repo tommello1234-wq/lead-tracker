@@ -62,6 +62,9 @@ export type EventInput = {
   // até essa data, depois é cancelada automaticamente.
   cancelAt?: Date | null;
   extras?: Record<string, string | number | undefined>;
+  // Captura sem disparo: cria/atualiza o lead mas NÃO agenda mensagens. Usado
+  // pelo pop-up de checkout quando o teto diário de carrinho é atingido.
+  skipScheduling?: boolean;
 };
 
 type FlowStep = {
@@ -796,6 +799,12 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
     cancelAt: input.cancelAt ?? null,
     proximoPagamentoEm,
   });
+
+  // Captura sem disparo (pop-up acima do teto): lead já foi criado/atualizado,
+  // mas não agenda mensagens — protege o número WhatsApp de volume excessivo.
+  if (input.skipScheduling) {
+    return { leadId: lead.id, scheduledMessages: 0, status: transition.lead };
+  }
 
   // Agenda mensagens conforme o fluxo (lido do DB — editavel via /automacoes)
   const flow = await loadFlow(input.eventType);

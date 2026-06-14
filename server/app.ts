@@ -3,6 +3,7 @@ import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { authRoutes } from "./routes/auth.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { captureRoutes } from "./routes/capture.js";
 import { cronRoutes } from "./routes/cron.js";
 import { auditRoutes } from "./routes/audit.js";
 import { produtosRoutes } from "./routes/produtos.js";
@@ -33,6 +34,7 @@ app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
 // Públicas (auth próprio)
 app.route("/auth", authRoutes);
 app.route("/webhooks", webhookRoutes);
+app.route("/cart-capture", captureRoutes); // pop-up de checkout (LP), público
 app.route("/cron", cronRoutes);
 app.route("/audit", auditRoutes);
 
