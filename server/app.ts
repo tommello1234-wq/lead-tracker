@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { authRoutes } from "./routes/auth.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { captureRoutes } from "./routes/capture.js";
+import { checkoutValueRoutes } from "./routes/checkout-value.js";
 import { cronRoutes } from "./routes/cron.js";
 import { auditRoutes } from "./routes/audit.js";
 import { produtosRoutes } from "./routes/produtos.js";
@@ -35,6 +36,7 @@ app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
 app.route("/auth", authRoutes);
 app.route("/webhooks", webhookRoutes);
 app.route("/cart-capture", captureRoutes); // pop-up de checkout (LP), público
+app.route("/checkout-value", checkoutValueRoutes); // valor real pago (Pixel /obrigado), público
 app.route("/cron", cronRoutes);
 app.route("/audit", auditRoutes);
 
