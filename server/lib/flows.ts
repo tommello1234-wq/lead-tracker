@@ -234,7 +234,13 @@ async function cancelPendingMessages(
       and(
         eq(mensagensAgendadas.leadId, leadId),
         eq(mensagensAgendadas.status, "pending"),
-        inArray(mensagensAgendadas.template, templates),
+        // Cobre a base E as variantes (_v2, _v3...). As mensagens são agendadas
+        // com a variante sorteada, então cancelar só pela chave base não pegaria.
+        or(
+          ...templates.map(
+            (t) => sql`${mensagensAgendadas.template} ~ ${`^${t}(_v\\d+)?$`}`,
+          ),
+        ),
       ),
     );
   return (result as unknown as { rowCount?: number }).rowCount ?? 0;
@@ -276,7 +282,9 @@ const EVENT_CANCELS: Record<GatewayEvent, GatewayEvent[]> = {
   carrinho_abandonado: [],
   pix_gerado: [],
   pix_expirado: [],
-  compra_recusada: [],
+  // Cartão recusado = a pessoa TENTOU pagar (não abandonou). Cancela o carrinho
+  // abandonado pendente pra ela receber só "seu cartão não passou", não os dois.
+  compra_recusada: ["carrinho_abandonado"],
   assinatura_atrasada: [],
 };
 
