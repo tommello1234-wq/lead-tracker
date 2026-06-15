@@ -1381,7 +1381,7 @@ export async function getAtribuicaoDetalhada(
     SELECT
       e.id as evento_id,
       l.id as lead_id,
-      to_char(e.received_at AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') as pagou_em,
+      to_char(e.received_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as pagou_em,
       l.nome,
       l.email,
       l.plano_nome as plano,
