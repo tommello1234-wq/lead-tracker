@@ -316,6 +316,16 @@ export function LiveActivityFeedCollapsed({ onExpand }: { onExpand: () => void }
   );
 }
 
+// Só mostra valor monetário em eventos de receita real — evita "R$ 67"
+// aparecer em mensagens whatsapp ou carrinhos abandonados (que herdam
+// valor_assinatura do lead mas não representam transação no evento).
+const MONETARY_EVENTS = new Set([
+  "compra_aprovada",
+  "assinatura_renovada",
+  "assinatura_atrasada",
+  "reembolso",
+]);
+
 function LeadGroupRow({
   group,
   isExpanded,
@@ -338,15 +348,6 @@ function LeadGroupRow({
   const latest = group.items[0];
   const meta = EVENT_META[latest.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
-  // Só mostra valor monetário em eventos de receita real — evita "R$ 67"
-  // aparecer em mensagens whatsapp ou carrinhos abandonados (que herdam
-  // valor_assinatura do lead mas não representam transação no evento).
-  const MONETARY_EVENTS = new Set([
-    "compra_aprovada",
-    "assinatura_renovada",
-    "assinatura_atrasada",
-    "reembolso",
-  ]);
   const showValor = MONETARY_EVENTS.has(latest.eventType);
   const valor = showValor && latest.meta?.valor ? brl(latest.meta.valor) : null;
   const payment = formatPayment(latest.meta?.paymentMethod);
@@ -440,7 +441,12 @@ function LeadGroupRow({
 function NestedRow({ item }: { item: ActivityItem }) {
   const meta = EVENT_META[item.eventType] ?? EVENT_META.default;
   const Icon = meta.icon;
-  const valor = item.meta?.valor ? brl(item.meta.valor) : null;
+  // Mesmo guard do header: valor só em evento de receita real, não em
+  // cliente_respondeu/carrinho que só herdam valor_assinatura do lead.
+  const valor =
+    MONETARY_EVENTS.has(item.eventType) && item.meta?.valor
+      ? brl(item.meta.valor)
+      : null;
   const payment = formatPayment(item.meta?.paymentMethod);
 
   return (
