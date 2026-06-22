@@ -396,7 +396,14 @@ async function isDuplicateAbandonedCart(
  * o anchor avança e uma nova falha futura inicia um episódio limpo.
  */
 async function isDunningEpisodeActive(lead: Lead): Promise<boolean> {
-  const anchor = lead.ultimaRenovacaoEm ?? lead.pagouEm ?? null;
+  // Anchor = início do episódio atual = último pagamento/renovação. Sem nenhum
+  // dos dois registrados (lead importado ou que chegou direto em atrasada),
+  // ancora numa janela de 30d pra não bloquear pra SEMPRE por uma mensagem
+  // antiga — 30d cobre uma cadeia de dunning e fica abaixo do ciclo mensal.
+  const anchor =
+    lead.ultimaRenovacaoEm ??
+    lead.pagouEm ??
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const existing = await db
     .select({ id: mensagensAgendadas.id })
     .from(mensagensAgendadas)
@@ -405,7 +412,7 @@ async function isDunningEpisodeActive(lead: Lead): Promise<boolean> {
         eq(mensagensAgendadas.leadId, lead.id),
         sql`${mensagensAgendadas.template} LIKE 'assinatura_pix_pendente%'`,
         sql`${mensagensAgendadas.status} in ('sent', 'pending')`,
-        anchor ? gte(mensagensAgendadas.criadoEm, anchor) : undefined,
+        gte(mensagensAgendadas.criadoEm, anchor),
       ),
     )
     .limit(1);
