@@ -384,6 +384,35 @@ async function isDuplicateAbandonedCart(
 }
 
 /**
+ * Stripe/Asaas reenviam `assinatura_atrasada` a CADA retentativa de cobrança
+ * (dunning) — tipicamente 4-6x ao longo de ~2 semanas pra mesma fatura vencida.
+ * Sem trava, cada evento REINICIA a cadeia de cobrança (pix_pendente + lembretes)
+ * e o cliente recebe a MESMA mensagem várias vezes = spam + risco de ban.
+ *
+ * Trava: a cadeia roda no máximo UMA vez por episódio de inadimplência. Há
+ * episódio em andamento se o lead já tem mensagem da família
+ * `assinatura_pix_pendente%` (enviada ou na fila) criada DEPOIS do último
+ * pagamento/renovação. Quando o cliente paga (assinatura_renovada/compra_aprovada),
+ * o anchor avança e uma nova falha futura inicia um episódio limpo.
+ */
+async function isDunningEpisodeActive(lead: Lead): Promise<boolean> {
+  const anchor = lead.ultimaRenovacaoEm ?? lead.pagouEm ?? null;
+  const existing = await db
+    .select({ id: mensagensAgendadas.id })
+    .from(mensagensAgendadas)
+    .where(
+      and(
+        eq(mensagensAgendadas.leadId, lead.id),
+        sql`${mensagensAgendadas.template} LIKE 'assinatura_pix_pendente%'`,
+        sql`${mensagensAgendadas.status} in ('sent', 'pending')`,
+        anchor ? gte(mensagensAgendadas.criadoEm, anchor) : undefined,
+      ),
+    )
+    .limit(1);
+  return existing.length > 0;
+}
+
+/**
  * Dedup geral por `order_hash` ou `transaction_hash` — Ticto às vezes manda
  * o MESMO webhook duas vezes (visto na prática: 2 `assinatura_cancelada`
  * idênticas com 48ms de diff). Sem dedup, cria 2 movements de churn.
@@ -643,6 +672,31 @@ export async function handleGatewayEvent(input: EventInput): Promise<{
       payload: input.rawPayload as object,
       processedOk: true,
       erro: "Duplicado: mesmo checkout_url já visto nas últimas 24h",
+    });
+    return {
+      leadId: lead.id,
+      scheduledMessages: 0,
+      status: lead.status,
+      ignored: true,
+    };
+  }
+
+  // Dedup dunning: Stripe/Asaas reenviam assinatura_atrasada a cada retentativa
+  // de cobrança. A cadeia (pix_pendente + lembretes) roda só 1x por episódio —
+  // sem isso, cada retentativa reinicia a cadeia e o cliente leva a mesma
+  // mensagem 4-6x. Vê isDunningEpisodeActive.
+  if (
+    input.eventType === "assinatura_atrasada" &&
+    (await isDunningEpisodeActive(lead))
+  ) {
+    await db.insert(eventos).values({
+      leadId: lead.id,
+      produtoId: input.produtoId ?? lead.produtoId ?? null,
+      source: input.source,
+      eventType: input.eventType,
+      payload: input.rawPayload as object,
+      processedOk: true,
+      erro: "Duplicado: cadeia de cobrança já em andamento neste episódio (dunning retry)",
     });
     return {
       leadId: lead.id,
