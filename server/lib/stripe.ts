@@ -95,7 +95,13 @@ function detectEventType(event: AnyObject): GatewayEvent | null {
       if (reason === "subscription_create" || reason === "manual") {
         return "compra_recusada";
       }
-      // subscription_cycle, subscription_update, subscription_threshold → é renovação
+      // subscription_update = proração de UPGRADE/DOWNGRADE de plano — NÃO é
+      // renovação. O cliente continua ativo no plano novo; tratar como atrasada
+      // mandava "sua renovação não passou hoje" pra cliente EM DIA (visto na
+      // prática: cliente fez upgrade e levou cobrança indevida). O Stripe retenta
+      // a proração sozinho; uma falha REAL de renovação vem como subscription_cycle.
+      if (reason === "subscription_update") return null;
+      // subscription_cycle / subscription_threshold → renovação recorrente falhou
       return "assinatura_atrasada";
     }
     case "customer.subscription.deleted":
