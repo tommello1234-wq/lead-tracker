@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Workflow,
   Megaphone,
-  Target,
   LogOut,
   Search,
   Bell,
@@ -92,7 +91,6 @@ function AppShell() {
           />
           <SideIcon to="/ads" icon={Megaphone} label="Meta Ads" expanded={expanded} />
           <SideIcon to="/atribuicao" icon={Crosshair} label="Atribuição" expanded={expanded} />
-          <SideIcon to="/personas" icon={Target} label="Personas" expanded={expanded} />
           <SideIcon to="/quiz" icon={HelpCircle} label="Quiz" expanded={expanded} />
           <SideIcon to="/criativos" icon={ImageIcon} label="Criativos" expanded={expanded} />
           <SideIcon to="/paginas" icon={FileText} label="Páginas" expanded={expanded} />
