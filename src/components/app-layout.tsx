@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import {
   LayoutDashboard,
-  Users,
   Workflow,
   Megaphone,
   Target,
@@ -84,7 +83,6 @@ function AppShell() {
         {/* Nav */}
         <nav className={`flex flex-col gap-1 flex-1 pt-4 ${expanded ? "px-3" : "items-center"}`}>
           <SideIcon to="/dashboard" icon={LayoutDashboard} label="Dashboard" expanded={expanded} />
-          <SideIcon to="/leads" icon={Users} label="Leads" expanded={expanded} />
           <SideIcon
             to="/automacoes"
             icon={Workflow}
