@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { useProdutoContext } from "@/contexts/produto-context";
 import { periodToRange, PERIOD_LABELS } from "@/lib/period";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
+import { VendasPorLpChart, type VendaPorLp } from "@/components/dashboard-charts";
+import { LpLeadsModal } from "@/components/lp-leads-modal";
 
 type Venda = {
   eventoId: number;
@@ -68,6 +70,7 @@ export function AtribuicaoPage() {
   const gatewayParam = gateway ?? "all";
   const [selectedLead, setSelectedLead] = useState<number | null>(null);
   const [filterCmp, setFilterCmp] = useState<string | null>(null);
+  const [lpDrillDown, setLpDrillDown] = useState<{ lp: string; referrer: string | null } | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["atribuicao", produtoParam, sinceParam, untilParam, gatewayParam],
@@ -76,6 +79,14 @@ export function AtribuicaoPage() {
         `/api/dashboard/atribuicao?produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}&gateway=${gatewayParam}`,
       ),
     retry: 1,
+  });
+
+  const vendasPorLp = useQuery({
+    queryKey: ["atribuicao", "vendas-por-lp", produtoParam, sinceParam, untilParam, gatewayParam],
+    queryFn: () =>
+      api.get<VendaPorLp[]>(
+        `/api/dashboard/vendas-por-lp?produtoId=${produtoParam}&since=${sinceParam}&until=${untilParam}&gateway=${gatewayParam}`,
+      ),
   });
 
   const totals = useMemo(() => {
@@ -121,6 +132,17 @@ export function AtribuicaoPage() {
         <SummaryCard label="Com atribuição de ad" value={String(totals.comAd)} hint="cri tem cmp/adset/ad" />
         <SummaryCard label="Sem atribuição" value={String(totals.semAd)} hint="orgânico/direto/Ticto" />
       </div>
+
+      {/* Vendas por LP — mesma visão do dashboard, aqui na Atribuição */}
+      {vendasPorLp.data && vendasPorLp.data.length > 0 ? (
+        <div className="mb-6">
+          <VendasPorLpChart
+            data={vendasPorLp.data}
+            periodLabel={PERIOD_LABELS[period].toLowerCase()}
+            onSelectLp={(lp, referrer) => setLpDrillDown({ lp, referrer })}
+          />
+        </div>
+      ) : null}
 
       {error ? (
         <div className="p-6 rounded-2xl border border-rose-500/30 bg-rose-50/30 text-sm text-rose-700">
@@ -277,6 +299,15 @@ export function AtribuicaoPage() {
       {selectedLead !== null && (
         <LeadDetailsModal leadId={selectedLead} onClose={() => setSelectedLead(null)} />
       )}
+
+      {lpDrillDown ? (
+        <LpLeadsModal
+          lp={lpDrillDown.lp}
+          referrer={lpDrillDown.referrer}
+          onClose={() => setLpDrillDown(null)}
+          onLeadClick={(id) => { setSelectedLead(id); setLpDrillDown(null); }}
+        />
+      ) : null}
     </div>
   );
 }
