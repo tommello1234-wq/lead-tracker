@@ -1397,13 +1397,38 @@ export async function getAtribuicaoDetalhada(
       l.gateway,
       e.payload->'data'->'object'->>'client_reference_id' as cri,
       substring(e.payload->'data'->'object'->>'client_reference_id' from 'lp-col-(.+?)(?:--|$)') as lp,
-      substring(e.payload->'data'->'object'->>'client_reference_id' from 'ref-col-(.+?)(?:--|$)') as ref,
-      substring(e.payload->'data'->'object'->>'client_reference_id' from 'src-col-(.+?)(?:--|$)') as src,
-      substring(e.payload->'data'->'object'->>'client_reference_id' from 'cmp-col-(.+?)(?:--|$)') as cmp,
-      substring(e.payload->'data'->'object'->>'client_reference_id' from 'adset-col-(.+?)(?:--|$)') as adset,
-      substring(e.payload->'data'->'object'->>'client_reference_id' from 'ad-col-(.+?)(?:--|$)') as ad,
-      (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbp-col-%' as tem_fbp,
-      (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbc-col-%' as tem_fbc
+      -- Atribuição: Stripe vem do client_reference_id (stripe-attribution.js).
+      -- Ticto vem do webhook em 'tracking'/'query_params' (strings JSON) — por isso
+      -- o fallback via COALESCE. O CASE com left(...)='{' guarda o cast ::jsonb pra
+      -- não quebrar em payload sem JSON ('Não Informado' é o placeholder de vazio da Ticto).
+      COALESCE(
+        substring(e.payload->'data'->'object'->>'client_reference_id' from 'ref-col-(.+?)(?:--|$)'),
+        nullif(CASE WHEN left(e.payload->>'tracking',1)='{' THEN (e.payload->>'tracking')::jsonb->>'utm_source' END, 'Não Informado')
+      ) as ref,
+      COALESCE(
+        substring(e.payload->'data'->'object'->>'client_reference_id' from 'src-col-(.+?)(?:--|$)'),
+        nullif(CASE WHEN left(e.payload->>'tracking',1)='{' THEN (e.payload->>'tracking')::jsonb->>'src' END, 'Não Informado')
+      ) as src,
+      COALESCE(
+        substring(e.payload->'data'->'object'->>'client_reference_id' from 'cmp-col-(.+?)(?:--|$)'),
+        nullif(CASE WHEN left(e.payload->>'tracking',1)='{' THEN (e.payload->>'tracking')::jsonb->>'utm_campaign' END, 'Não Informado')
+      ) as cmp,
+      COALESCE(
+        substring(e.payload->'data'->'object'->>'client_reference_id' from 'adset-col-(.+?)(?:--|$)'),
+        nullif(CASE WHEN left(e.payload->>'tracking',1)='{' THEN (e.payload->>'tracking')::jsonb->>'utm_medium' END, 'Não Informado')
+      ) as adset,
+      COALESCE(
+        substring(e.payload->'data'->'object'->>'client_reference_id' from 'ad-col-(.+?)(?:--|$)'),
+        nullif(CASE WHEN left(e.payload->>'tracking',1)='{' THEN (e.payload->>'tracking')::jsonb->>'utm_content' END, 'Não Informado')
+      ) as ad,
+      (
+        (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbp-col-%'
+        OR (CASE WHEN left(e.payload->>'query_params',1)='{' THEN nullif((e.payload->>'query_params')::jsonb->>'fbp','Não Informado') END) IS NOT NULL
+      ) as tem_fbp,
+      (
+        (e.payload->'data'->'object'->>'client_reference_id') LIKE '%fbc-col-%'
+        OR (CASE WHEN left(e.payload->>'query_params',1)='{' THEN nullif((e.payload->>'query_params')::jsonb->>'fbc','Não Informado') END) IS NOT NULL
+      ) as tem_fbc
     FROM eventos e
     LEFT JOIN leads l ON l.id = e.lead_id
     WHERE e.event_type IN ('compra_aprovada', 'assinatura_renovada')
