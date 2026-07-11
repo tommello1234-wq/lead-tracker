@@ -622,6 +622,66 @@ export async function getRenewalCalendar(
 }
 
 /**
+ * Preenchimentos do pop-up/form das LPs (eventos source=popup, carrinho_abandonado).
+ * DISTINCT por lead (1 linha por pessoa, ignora duplicatas históricas). Traz o
+ * status do lead pra acompanhar a recuperação: comprou? respondeu no WhatsApp?
+ */
+export async function getFormSubmissions(limit = 150): Promise<
+  Array<{
+    leadId: number;
+    nome: string | null;
+    email: string | null;
+    whatsapp: string | null;
+    plano: string | null;
+    lp: string | null;
+    quando: string;
+    leadStatus: string | null;
+    comprou: boolean;
+    respondeu: boolean;
+  }>
+> {
+  const rows = await db.execute(sql`
+    SELECT DISTINCT ON (e.lead_id)
+      e.lead_id,
+      e.payload->>'nome' AS nome,
+      e.payload->>'email' AS email,
+      e.payload->>'whatsapp' AS whatsapp,
+      e.payload->>'plano' AS plano,
+      e.payload->>'lp' AS lp,
+      to_char(e.received_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS quando,
+      l.status AS lead_status,
+      (l.pagou_em IS NOT NULL) AS comprou,
+      (l.respondeu_em IS NOT NULL) AS respondeu
+    FROM eventos e
+    JOIN leads l ON l.id = e.lead_id
+    WHERE e.source = 'popup' AND e.event_type = 'carrinho_abandonado'
+      AND e.lead_id IS NOT NULL
+    ORDER BY e.lead_id, e.received_at DESC
+  `);
+  type R = {
+    lead_id: number; nome: string | null; email: string | null;
+    whatsapp: string | null; plano: string | null; lp: string | null;
+    quando: string; lead_status: string | null; comprou: boolean; respondeu: boolean;
+  };
+  const rs = (rows as unknown as { rows?: R[] }).rows ?? (rows as unknown as R[]);
+  return rs
+    .map((r) => ({
+      leadId: Number(r.lead_id),
+      nome: r.nome,
+      email: r.email,
+      whatsapp: r.whatsapp,
+      plano: r.plano,
+      lp: r.lp,
+      quando: r.quando,
+      leadStatus: r.lead_status,
+      comprou: Boolean(r.comprou),
+      respondeu: Boolean(r.respondeu),
+    }))
+    .sort((a, b) => (a.quando < b.quando ? 1 : -1))
+    .slice(0, limit);
+}
+
+/**
  * Faturamento LÍQUIDO no período: entradas (compra_aprovada + assinatura_renovada)
  * MENOS saídas (reembolso processado), filtrados por produto/período.
  *

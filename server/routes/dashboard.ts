@@ -10,6 +10,7 @@ import {
   getVendasPorPlano,
   getVendasPorLp,
   getAtribuicaoDetalhada,
+  getFormSubmissions,
   getMrrHistory,
 } from "../lib/queries.js";
 import {
@@ -125,6 +126,18 @@ dashboardRoutes.get("/atribuicao", async (c) => {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("atribuicao endpoint error:", msg);
     return c.json({ error: "Falha ao carregar atribuição", detail: msg }, 500);
+  }
+});
+
+/* GET /api/dashboard/form-submissions — preenchimentos do pop-up das LPs */
+dashboardRoutes.get("/form-submissions", async (c) => {
+  try {
+    const data = await getFormSubmissions(150);
+    return c.json(data);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("form-submissions endpoint error:", msg);
+    return c.json({ error: "Falha ao carregar preenchimentos", detail: msg }, 500);
   }
 });
 

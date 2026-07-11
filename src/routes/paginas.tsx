@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { ExternalLink, Home, Newspaper, TrendingUp, Building2, HelpCircle, Palette, Handshake, Download, ChevronDown } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ExternalLink, Home, Newspaper, TrendingUp, Building2, HelpCircle, Palette, Handshake, Download, ChevronDown, ClipboardList, Check } from "lucide-react";
+import { api } from "@/lib/api";
+import { LeadDetailsModal } from "@/components/lead-details-modal";
 
 type Page = {
   slug: string;
@@ -126,7 +129,108 @@ function PageRow({ page }: { page: Page }) {
   );
 }
 
+type FormSubmission = {
+  leadId: number;
+  nome: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  plano: string | null;
+  lp: string | null;
+  quando: string;
+  leadStatus: string | null;
+  comprou: boolean;
+  respondeu: boolean;
+};
+
+const dtFmt = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+});
+
+function fmtWhats(w: string | null): string {
+  if (!w) return "—";
+  const d = w.replace(/\D/g, "");
+  const local = d.startsWith("55") ? d.slice(2) : d;
+  if (local.length >= 10) {
+    const ddd = local.slice(0, 2);
+    const sub = local.slice(2);
+    return `(${ddd}) ${sub.slice(0, sub.length - 4)}-${sub.slice(-4)}`;
+  }
+  return "+" + d;
+}
+
+function FormSubmissionsCard({ onLeadClick }: { onLeadClick: (id: number) => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["form-submissions"],
+    queryFn: () => api.get<FormSubmission[]>("/api/dashboard/form-submissions"),
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <section className="card-soft mb-8 overflow-hidden">
+      <div className="px-5 py-4 border-b border-border/60 flex items-center gap-3">
+        <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
+          <ClipboardList className="size-4" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold">Preenchimentos do form</h2>
+          <p className="text-xs text-muted-foreground">
+            Quem preencheu o pop-up das páginas{data ? ` · ${data.length}` : ""} · atualiza a cada 30s
+          </p>
+        </div>
+      </div>
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground p-6 text-center">Carregando…</p>
+      ) : !data || data.length === 0 ? (
+        <p className="text-sm text-muted-foreground p-6 text-center">Nenhum preenchimento ainda.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-muted-foreground text-left border-b border-border/40">
+                <th className="px-4 py-2 font-medium whitespace-nowrap">Quando</th>
+                <th className="px-4 py-2 font-medium">Nome</th>
+                <th className="px-4 py-2 font-medium">WhatsApp</th>
+                <th className="px-4 py-2 font-medium">E-mail</th>
+                <th className="px-4 py-2 font-medium">Plano</th>
+                <th className="px-4 py-2 font-medium">LP</th>
+                <th className="px-4 py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((s) => (
+                <tr
+                  key={s.leadId}
+                  onClick={() => onLeadClick(s.leadId)}
+                  className="border-b border-border/30 hover:bg-muted/30 cursor-pointer"
+                >
+                  <td className="px-4 py-2.5 tabular-nums text-muted-foreground whitespace-nowrap">{dtFmt.format(new Date(s.quando))}</td>
+                  <td className="px-4 py-2.5 font-medium truncate max-w-[180px]">{s.nome || "—"}</td>
+                  <td className="px-4 py-2.5 tabular-nums whitespace-nowrap">{fmtWhats(s.whatsapp)}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[220px]">{s.email || "—"}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[120px]">{s.plano || "—"}</td>
+                  <td className="px-4 py-2.5"><code className="text-xs text-muted-foreground">{s.lp || "—"}</code></td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    {s.comprou ? (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-lime-soft text-forest inline-flex items-center gap-1"><Check className="size-3" />Comprou</span>
+                    ) : s.respondeu ? (
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-secondary text-foreground/80">Respondeu</span>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground">Pendente</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PaginasPage() {
+  const [selectedLead, setSelectedLead] = useState<number | null>(null);
   const total = SECTIONS.reduce((acc, s) => {
     if (s.pages) return acc + s.pages.length;
     if (s.groups) return acc + s.groups.reduce((a, g) => a + g.pages.length, 0);
@@ -175,6 +279,8 @@ export function PaginasPage() {
           </button>
         </div>
       </header>
+
+      <FormSubmissionsCard onLeadClick={setSelectedLead} />
 
       <div className="space-y-2">
         {SECTIONS.map((section) => {
@@ -233,6 +339,10 @@ export function PaginasPage() {
           );
         })}
       </div>
+
+      {selectedLead !== null && (
+        <LeadDetailsModal leadId={selectedLead} onClose={() => setSelectedLead(null)} />
+      )}
     </div>
   );
 }
