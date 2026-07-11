@@ -61,18 +61,8 @@ captureRoutes.post("/", async (c) => {
       skipScheduling: acimaDoTeto,
     });
 
-    // Audit no feed
-    await db.insert(eventos).values({
-      leadId: result.leadId > 0 ? result.leadId : null,
-      source: "popup",
-      eventType: "carrinho_abandonado",
-      payload: body as object,
-      processedOk: true,
-      erro: acimaDoTeto
-        ? `Teto diário (${CART_DAILY_CAP}) atingido — lead capturado sem disparo`
-        : null,
-    });
-
+    // O handleGatewayEvent já loga o evento carrinho_abandonado (flows.ts:809).
+    // NÃO inserimos audit aqui de novo — isso duplicava cada preenchimento (2 eventos/pessoa).
     return c.json({ ok: true, scheduled: result.scheduledMessages > 0 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
