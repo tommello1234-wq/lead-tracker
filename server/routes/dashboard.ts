@@ -132,7 +132,7 @@ dashboardRoutes.get("/atribuicao", async (c) => {
 /* GET /api/dashboard/form-submissions — preenchimentos do pop-up das LPs */
 dashboardRoutes.get("/form-submissions", async (c) => {
   try {
-    const data = await getFormSubmissions(150);
+    const data = await getFormSubmissions(2000);
     return c.json(data);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

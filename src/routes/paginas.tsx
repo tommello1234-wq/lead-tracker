@@ -159,30 +159,100 @@ function fmtWhats(w: string | null): string {
   return "+" + d;
 }
 
+type PeriodKey = "all" | "hoje" | "7d" | "30d";
+const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: "all", label: "Tudo" },
+  { key: "hoje", label: "Hoje" },
+  { key: "7d", label: "7 dias" },
+  { key: "30d", label: "30 dias" },
+];
+
+function inPeriod(quando: string, period: PeriodKey): boolean {
+  if (period === "all") return true;
+  const dt = new Date(quando);
+  if (period === "hoje") {
+    const br = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    return br(dt) === br(new Date());
+  }
+  const days = period === "7d" ? 7 : 30;
+  return dt.getTime() >= Date.now() - days * 86400000;
+}
+
 function FormSubmissionsCard({ onLeadClick }: { onLeadClick: (id: number) => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["form-submissions"],
     queryFn: () => api.get<FormSubmission[]>("/api/dashboard/form-submissions"),
     refetchInterval: 30_000,
   });
+  const [lpFilter, setLpFilter] = useState<string>("all");
+  const [period, setPeriod] = useState<PeriodKey>("all");
+
+  const all = data ?? [];
+  const lps = Array.from(new Set(all.map((s) => s.lp || "—"))).sort();
+  const filtered = all.filter(
+    (s) => (lpFilter === "all" || (s.lp || "—") === lpFilter) && inPeriod(s.quando, period),
+  );
+  const total = filtered.length;
+  const compraram = filtered.filter((s) => s.comprou).length;
+  const taxa = total > 0 ? (compraram / total) * 100 : 0;
 
   return (
     <section className="card-soft mb-8 overflow-hidden">
-      <div className="px-5 py-4 border-b border-border/60 flex items-center gap-3">
-        <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
-          <ClipboardList className="size-4" />
+      <div className="px-5 py-4 border-b border-border/60">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-2xl bg-lime-soft text-forest grid place-items-center">
+              <ClipboardList className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold">Preenchimentos do form</h2>
+              <p className="text-xs text-muted-foreground">Quem preencheu o pop-up das páginas · atualiza a cada 30s</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={lpFilter}
+              onChange={(e) => setLpFilter(e.target.value)}
+              className="text-xs bg-background border border-border rounded-lg px-2.5 py-1.5 max-w-[240px]"
+            >
+              <option value="all">Todas as páginas</option>
+              {lps.map((lp) => (<option key={lp} value={lp}>{lp}</option>))}
+            </select>
+            <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setPeriod(p.key)}
+                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${period === p.key ? "bg-background font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div>
-          <h2 className="text-sm font-bold">Preenchimentos do form</h2>
-          <p className="text-xs text-muted-foreground">
-            Quem preencheu o pop-up das páginas{data ? ` · ${data.length}` : ""} · atualiza a cada 30s
-          </p>
+        <div className="flex items-center gap-6 mt-4">
+          <div>
+            <div className="text-2xl font-bold text-forest tabular-nums">{taxa.toFixed(1).replace(".", ",")}%</div>
+            <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Conversão</div>
+          </div>
+          <div className="h-8 w-px bg-border/60" />
+          <div>
+            <div className="text-2xl font-bold tabular-nums">{total}</div>
+            <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Preencheram</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold tabular-nums text-forest">{compraram}</div>
+            <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Assinaram</div>
+          </div>
         </div>
       </div>
       {isLoading ? (
         <p className="text-sm text-muted-foreground p-6 text-center">Carregando…</p>
-      ) : !data || data.length === 0 ? (
+      ) : all.length === 0 ? (
         <p className="text-sm text-muted-foreground p-6 text-center">Nenhum preenchimento ainda.</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground p-6 text-center">Nenhum preenchimento com esses filtros.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -198,7 +268,7 @@ function FormSubmissionsCard({ onLeadClick }: { onLeadClick: (id: number) => voi
               </tr>
             </thead>
             <tbody>
-              {data.map((s) => (
+              {filtered.map((s) => (
                 <tr
                   key={s.leadId}
                   onClick={() => onLeadClick(s.leadId)}
